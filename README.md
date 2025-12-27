@@ -21,7 +21,10 @@ BI Tools: Power BI Desktop
 
 
 📁 Project Structure
+
+```text
 genomic-variant-data-science-pipeline/
+
 ├── data/
 │   └── raw/
 ├── sql/
@@ -32,6 +35,7 @@ genomic-variant-data-science-pipeline/
 ├── notebooks/
 ├── requirements.txt
 └── README.md
+```
 
 🚀 Setup (Basic)
 bash# Clone repository
