@@ -1,13 +1,19 @@
 🧬 Genomic Variant Data Science Pipeline
+
 Status: 🚧 Work in Progress
+
 End-to-end data engineering + data science pipeline for genomic variant analysis and disease risk prediction.
 
 📋 Overview
+
 Building a complete pipeline to:
 
 Extract genomic data from NCBI/ClinVar databases
+
 Build PostgreSQL data warehouse
+
 Perform statistical analysis and predictive modeling
+
 Create interactive Power BI dashboards
 
 Current Progress: Week 1 - Environment setup and data extraction
@@ -15,8 +21,11 @@ Current Progress: Week 1 - Environment setup and data extraction
 🛠 Technologies
 
 Languages: Python 3.10+, SQL
+
 Database: PostgreSQL 14+
+
 Data Science: scikit-learn, pandas, NumPy
+
 BI Tools: Power BI Desktop
 
 
@@ -38,18 +47,23 @@ genomic-variant-data-science-pipeline/
 ```
 
 🚀 Setup (Basic)
+
 bash# Clone repository
+
 git clone https://github.com/yourusername/genomic-variant-data-science-pipeline.git
 
 # Create virtual environment
+
 python -m venv venv
+
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # Install dependencies
+
 pip install -r requirements.txt
 
 📊 Current Status
-
+```text
  Environment setup
  PostgreSQL installed
  Data extraction scripts
@@ -58,12 +72,14 @@ pip install -r requirements.txt
  Data science analysis
  ML models
  Power BI dashboard
-
+```
 
 📝 License
+
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 👤 Author
+
 Sharique Mohammad
 
 GitHub: @shariq02
