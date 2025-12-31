@@ -1,9 +1,8 @@
 # ====================================================================
+# Variant Data Extraction
 # DNA Gene Mapping Project
 # Author: Sharique Mohammad
 # Date: 28 December 2025
-# ====================================================================
-
 # ====================================================================
 # FILE 2: scripts/extraction/02_download_variants.py
 # Purpose: Download variant data from ClinVar
