@@ -1,9 +1,8 @@
 # ====================================================================
+# Gene Data Extraction
 # DNA Gene Mapping Project
 # Author: Sharique Mohammad
 # Date: 28 December 2025
-# ====================================================================
-
 # ====================================================================
 # FILE 1: scripts/extraction/01_download_genes.py
 # Purpose: Download gene metadata from NCBI
