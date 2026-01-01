@@ -52,18 +52,36 @@ DB_CONFIG = {
 # Database Engine
 # -------------------------------------------------------------------
 def get_database_engine():
+    """
+    Creates a database engine from the environment variables
+
+    Returns:
+        sqlalchemy.engine.Engine: A database engine object
+    """
     conn_str = (
         f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}"
         f"@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
     )
     engine = create_engine(conn_str)
-    logger.info("✅ Database engine created successfully")
+    logger.info(" Database engine created successfully")
     return engine
 
 # -------------------------------------------------------------------
 # Bronze Loaders
 # -------------------------------------------------------------------
 def load_genes_to_bronze(engine):
+    """
+    Loads gene data from a CSV file to the bronze.genes_raw table
+
+    Args:
+        engine (sqlalchemy.engine.Engine): A database engine object
+
+    Returns:
+        None
+
+    Raises:
+        None
+    """
     logger.info("Loading gene data to bronze.genes_raw...")
     df = pd.read_csv(GENES_CSV)
 
@@ -77,9 +95,21 @@ def load_genes_to_bronze(engine):
         chunksize=1000
     )
 
-    logger.info(f"✅ Loaded {len(df)} genes")
+    logger.info(f" Loaded {len(df)} genes")
 
 def load_variants_to_bronze(engine):
+    """
+    Loads variant data from a CSV file to the bronze.variants_raw table
+
+    Args:
+        engine (sqlalchemy.engine.Engine): A database engine object
+
+    Returns:
+        None
+
+    Raises:
+        None
+    """
     logger.info("Loading variant data to bronze.variants_raw...")
     df = pd.read_csv(VARIANTS_CSV)
 
@@ -93,12 +123,28 @@ def load_variants_to_bronze(engine):
         chunksize=1000
     )
 
-    logger.info(f"✅ Loaded {len(df)} variants")
+    logger.info(f" Loaded {len(df)} variants")
 
 # -------------------------------------------------------------------
 # Bronze → Silver
 # -------------------------------------------------------------------
 def copy_bronze_to_silver(engine):
+    """
+    Copies data from the bronze to silver layer.
+
+    Copies all data from the bronze.genes_raw and bronze.variants_raw tables to the silver.genes and silver.variants tables, respectively.
+
+    This function assumes that the bronze tables have already been populated, and that the silver tables have already been created.
+
+    Args:
+        engine (sqlalchemy.engine.Engine): A database engine object
+
+    Returns:
+        None
+
+    Raises:
+        None
+    """
     logger.info("Copying data from bronze to silver layer...")
 
     with engine.begin() as conn:
@@ -217,12 +263,21 @@ def copy_bronze_to_silver(engine):
             ON CONFLICT (variant_id) DO NOTHING;
         """))
 
-    logger.info("✅ Data copied to silver layer successfully")
+    logger.info(" Data copied to silver layer successfully")
 
 # -------------------------------------------------------------------
 # Verification
 # -------------------------------------------------------------------
 def verify_data_load(engine):
+    """
+    Verify data load by comparing the number of rows in bronze and silver layers
+
+    Args:
+        engine (sqlalchemy.engine.Engine): SQLAlchemy engine object
+
+    Returns:
+        bool: True if data load is verified, False otherwise
+    """
     logger.info("Verifying data load...")
 
     with engine.connect() as conn:
@@ -246,6 +301,16 @@ def verify_data_load(engine):
 # Main
 # -------------------------------------------------------------------
 def main():
+    """
+    Main entry point for loading data to PostgreSQL
+
+    This function loads gene and variant data from CSV files to the bronze layer,
+    copies the data to the silver layer, and verifies that no data loss occurred
+    during the copy process.
+
+    Returns:
+        None
+    """
     print("\n==============================")
     print("LOAD DATA TO POSTGRESQL")
     print("==============================")
@@ -257,9 +322,9 @@ def main():
     copy_bronze_to_silver(engine)
 
     if verify_data_load(engine):
-        print("\n✅ Data loading completed successfully!")
+        print("\n Data loading completed successfully!")
     else:
-        print("\n❌ Data loss detected!")
+        print("\n Data loss detected!")
 
 if __name__ == "__main__":
     main()

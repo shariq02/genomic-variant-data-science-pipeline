@@ -49,7 +49,7 @@ def test_connection():
         cursor.execute("SELECT version();")
         version = cursor.fetchone()[0]
         
-        print(f"\n✅ Connection successful!")
+        print(f"\n Connection successful!")
         print(f"\nPostgreSQL version:")
         print(f"  {version}")
         
@@ -63,21 +63,21 @@ def test_connection():
         schemas = cursor.fetchall()
         
         if schemas:
-            print(f"\n✅ Schemas found:")
+            print(f"\n Schemas found:")
             for schema in schemas:
                 print(f"  - {schema[0]}")
         else:
-            print(f"\n⚠️  Schemas not found. Run schema creation scripts first.")
+            print(f"\n Schemas not found. Run schema creation scripts first.")
         
         cursor.close()
         conn.close()
         
         print("\n" + "="*70)
-        print("✅ DATABASE TEST PASSED!")
+        print(" DATABASE TEST PASSED!")
         print("="*70)
         
     except Exception as e:
-        print(f"\n❌ Connection failed: {e}")
+        print(f"\n Connection failed: {e}")
         print("\nTroubleshooting:")
         print("  1. Check PostgreSQL is running")
         print("  2. Verify .env file has correct credentials")
