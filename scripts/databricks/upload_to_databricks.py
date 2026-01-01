@@ -46,13 +46,13 @@ def check_databricks_cli():
         result = subprocess.run(['databricks', '--version'], 
                               capture_output=True, text=True)
         if result.returncode == 0:
-            logger.info(f"✅ Databricks CLI found: {result.stdout.strip()}")
+            logger.info(f" Databricks CLI found: {result.stdout.strip()}")
             return True
         else:
-            logger.warning("⚠️ Databricks CLI not found")
+            logger.warning(" Databricks CLI not found")
             return False
     except FileNotFoundError:
-        logger.warning("⚠️ Databricks CLI not installed")
+        logger.warning(" Databricks CLI not installed")
         return False
 
 
@@ -65,37 +65,37 @@ def upload_file_manual():
     print("DATABRICKS COMMUNITY EDITION - MANUAL UPLOAD INSTRUCTIONS")
     print("="*70)
     print("\nDatabricks Community Edition requires manual file upload via UI.")
-    print("\n📋 STEP-BY-STEP INSTRUCTIONS:")
-    print("\n1️⃣  LOGIN TO DATABRICKS:")
+    print("\n STEP-BY-STEP INSTRUCTIONS:")
+    print("\n 1.  LOGIN TO DATABRICKS:")
     print("   - Go to: https://community.cloud.databricks.com/")
     print("   - Login with your credentials")
     
-    print("\n2️⃣  NAVIGATE TO DATA:")
+    print("\n 2.  NAVIGATE TO DATA:")
     print("   - Click 'Data' in the left sidebar")
     print("   - Click 'Add' button (top right)")
     print("   - Select 'Upload File'")
     
-    print("\n3️⃣  UPLOAD GENES FILE:")
+    print("\n 3.  UPLOAD GENES FILE:")
     print(f"   - Click 'Browse' or drag and drop")
     print(f"   - Select file: {GENES_CSV}")
     print(f"   - Upload location: /FileStore/tables/genes/gene_metadata.csv")
     print(f"   - Click 'Upload'")
-    print(f"   - Wait for upload to complete ✅")
+    print(f"   - Wait for upload to complete ")
     
-    print("\n4️⃣  UPLOAD VARIANTS FILE:")
+    print("\n 4.  UPLOAD VARIANTS FILE:")
     print(f"   - Repeat process for variants")
     print(f"   - Select file: {VARIANTS_CSV}")
     print(f"   - Upload location: /FileStore/tables/variants/clinvar_pathogenic.csv")
     print(f"   - Click 'Upload'")
-    print(f"   - Wait for upload to complete ✅")
+    print(f"   - Wait for upload to complete ")
     
-    print("\n5️⃣  VERIFY UPLOADS:")
+    print("\n 5.  VERIFY UPLOADS:")
     print("   - In Databricks, click 'Data'")
     print("   - Navigate to: DBFS → FileStore → tables")
     print("   - You should see folders: genes/ and variants/")
     print("   - Click to verify files are there")
     
-    print("\n6️⃣  ALTERNATIVE - UPLOAD IN NOTEBOOK:")
+    print("\n 6.  ALTERNATIVE - UPLOAD IN NOTEBOOK:")
     print("   Create a notebook and run:")
     print("   ```python")
     print("   # Upload from local (only works in Databricks)")
@@ -103,7 +103,7 @@ def upload_file_manual():
     print("   ```")
     
     print("\n" + "="*70)
-    print("📁 FILES TO UPLOAD:")
+    print(" FILES TO UPLOAD:")
     print("="*70)
     print(f"1. Genes:    {GENES_CSV}")
     print(f"   → Upload to: /FileStore/tables/genes/gene_metadata.csv")
@@ -114,18 +114,18 @@ def upload_file_manual():
     # Check if files exist
     if GENES_CSV.exists():
         file_size = GENES_CSV.stat().st_size / (1024 * 1024)
-        print(f"\n✅ Genes file exists: {file_size:.2f} MB")
+        print(f"\n Genes file exists: {file_size:.2f} MB")
     else:
-        print(f"\n❌ Genes file not found: {GENES_CSV}")
+        print(f"\n Genes file not found: {GENES_CSV}")
         
     if VARIANTS_CSV.exists():
         file_size = VARIANTS_CSV.stat().st_size / (1024 * 1024)
-        print(f"✅ Variants file exists: {file_size:.2f} MB")
+        print(f" Variants file exists: {file_size:.2f} MB")
     else:
-        print(f"❌ Variants file not found: {VARIANTS_CSV}")
+        print(f" Variants file not found: {VARIANTS_CSV}")
     
     print("\n" + "="*70)
-    print("⏱️  ESTIMATED UPLOAD TIME:")
+    print("  ESTIMATED UPLOAD TIME:")
     print("   - Genes: 1-2 minutes")
     print("   - Variants: 2-3 minutes")
     print("   - Total: ~5 minutes")
@@ -259,12 +259,12 @@ def main():
     
     # Check if files exist
     if not GENES_CSV.exists():
-        print(f"❌ Genes file not found: {GENES_CSV}")
+        print(f" Genes file not found: {GENES_CSV}")
         print("   Run Week 1 scripts first to download data!")
         return
     
     if not VARIANTS_CSV.exists():
-        print(f"❌ Variants file not found: {VARIANTS_CSV}")
+        print(f" Variants file not found: {VARIANTS_CSV}")
         print("   Run Week 1 scripts first to download data!")
         return
     
@@ -272,7 +272,7 @@ def main():
     has_cli = check_databricks_cli()
     
     if not has_cli:
-        print("\n📝 Note: Databricks CLI not installed (optional for Community Edition)")
+        print("\n Note: Databricks CLI not installed (optional for Community Edition)")
     
     # Show manual upload instructions
     upload_file_manual()
@@ -282,9 +282,9 @@ def main():
     print("CREATING VERIFICATION NOTEBOOK")
     print("="*70)
     create_upload_notebook_code()
-    print("\n✅ Verification notebook created!")
-    print(f"📁 Location: databricks_notebooks/00_verify_uploads.py")
-    print("\n📋 After uploading files to Databricks:")
+    print("\n Verification notebook created!")
+    print(f" Location: databricks_notebooks/00_verify_uploads.py")
+    print("\n After uploading files to Databricks:")
     print("   1. Create new notebook in Databricks")
     print("   2. Copy code from: databricks_notebooks/00_verify_uploads.py")
     print("   3. Run the notebook to verify uploads")
