@@ -3,11 +3,22 @@
 # MAGIC #### WEEK 3 - PYSPARK DATA PROCESSING WITH UNITY CATALOG  
 # MAGIC ##### Setup Bronze / Silver / Gold Schemas  
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
+# MAGIC **DNA Gene Mapping Project**   
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:**  3 January 2026  
 # MAGIC **Purpose:**  Create schema layers in Databricks Unity Catalog  
 # MAGIC **Run this notebook FIRST**
+
+# COMMAND ----------
+
+from pyspark.sql import SparkSession
+
+# COMMAND ----------
+
+spark = SparkSession.builder.getOrCreate()
+
+print("Spark Session initialized")
+print(f"Spark version: {spark.version}")
 
 # COMMAND ----------
 
@@ -53,23 +64,23 @@ print(f"Created schema: {catalog_name}.gold")
 # COMMAND ----------
 
 # DBTITLE 1,Verify Schemas Created
-print("\n" + "="*70)
+print("\n" + "="*30)
 print("SCHEMAS CREATED")
-print("="*70)
+print("="*30)
 
 schemas = spark.sql(
     f"SHOW SCHEMAS IN {catalog_name}"
 ).collect()
 for schema in schemas:
     print(f"  - {schema.databaseName}")
-print("="*70)
+print("="*30)
 
 # COMMAND ----------
 
 # DBTITLE 1,Verify Uploaded Data Header
-print("\n" + "="*70)
+print("\n" + "="*30)
 print("VERIFYING YOUR UPLOADED DATA")
-print("="*70)
+print("="*30)
 
 # COMMAND ----------
 
@@ -80,7 +91,7 @@ try:
     gene_count = df_genes.count()
     print(f"Found gene_metadata: {gene_count:,} rows")
     print("\nSample genes:")
-    df_genes.show(5)
+    display(df_genes.limit(5))
 except Exception as e:
     print(f"Error reading gene_metadata: {e}")
 
@@ -93,7 +104,7 @@ try:
     variant_count = df_variants.count()
     print(f"\nFound clinvar_pathogenic: {variant_count:,} rows")
     print("\nSample variants:")
-    df_variants.show(5)
+    display(df_variants.limit(5))
 except Exception as e:
     print(f"Error reading clinvar_pathogenic: {e}")
 
