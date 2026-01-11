@@ -1,11 +1,13 @@
 -- ====================================================================
--- DATABASE SCHEMA CREATION
+-- DATABASE SCHEMA CREATION (UPDATED VERSION)
 -- DNA Gene Mapping Project
 -- Author: Sharique Mohammad
--- Date: 30 December 2025
--- ====================================================================
--- FILE 1: sql/schema/01_create_tables.sql
--- Purpose: Create all database tables (Bronze/Silver/Gold layers)
+-- Date: December 2024
+-- 
+-- UPDATES:
+-- - Made position columns nullable (real-world data has nulls)
+-- - Changed primary key from variant_id to accession (more reliable)
+-- - Relaxed chromosome constraint to handle edge cases
 -- ====================================================================
 -- Connect to database first
 -- psql -U postgres -d genome_db
