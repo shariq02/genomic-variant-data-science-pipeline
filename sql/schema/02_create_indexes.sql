@@ -40,23 +40,34 @@ CREATE INDEX idx_silver_variants_type ON silver.variants(variant_type);
 CREATE INDEX idx_silver_variants_gene_chrom ON silver.variants(gene_name, chromosome);
 CREATE INDEX idx_silver_variants_chrom_sig ON silver.variants(chromosome, clinical_significance);
 -- ====================================================================
--- GOLD LAYER INDEXES
+-- GOLD LAYER INDEXES - Based on actual gold tables from Databricks
 -- ====================================================================
--- Gene-disease association indexes
-CREATE INDEX idx_gold_assoc_gene ON gold.gene_disease_association(gene_name);
-CREATE INDEX idx_gold_assoc_disease ON gold.gene_disease_association(disease);
-CREATE INDEX idx_gold_assoc_risk ON gold.gene_disease_association(risk_level);
-CREATE INDEX idx_gold_assoc_ratio ON gold.gene_disease_association(pathogenic_ratio DESC);
--- Gene summary indexes
-CREATE INDEX idx_gold_summary_gene ON gold.gene_summary(gene_name);
-CREATE INDEX idx_gold_summary_chromosome ON gold.gene_summary(chromosome);
-CREATE INDEX idx_gold_summary_risk ON gold.gene_summary(risk_level);
-CREATE INDEX idx_gold_summary_score ON gold.gene_summary(risk_score DESC);
--- ML predictions indexes
-CREATE INDEX idx_gold_pred_gene ON gold.ml_disease_predictions(gene_name);
-CREATE INDEX idx_gold_pred_risk ON gold.ml_disease_predictions(predicted_risk);
-CREATE INDEX idx_gold_pred_confidence ON gold.ml_disease_predictions(confidence DESC);
-CREATE INDEX idx_gold_pred_date ON gold.ml_disease_predictions(prediction_date DESC);
+-- Gene Features indexes
+CREATE INDEX IF NOT EXISTS idx_gold_gene_features_name ON gold.gene_features(gene_name);
+CREATE INDEX IF NOT EXISTS idx_gold_gene_features_chromosome ON gold.gene_features(chromosome);
+CREATE INDEX IF NOT EXISTS idx_gold_gene_features_risk ON gold.gene_features(risk_level);
+CREATE INDEX IF NOT EXISTS idx_gold_gene_features_score ON gold.gene_features(risk_score DESC);
+CREATE INDEX IF NOT EXISTS idx_gold_gene_features_mutations ON gold.gene_features(mutation_count DESC);
+CREATE INDEX IF NOT EXISTS idx_gold_gene_features_pathogenic ON gold.gene_features(pathogenic_count DESC);
+-- Chromosome Features indexes
+CREATE INDEX IF NOT EXISTS idx_gold_chromosome_features_chrom ON gold.chromosome_features(chromosome);
+CREATE INDEX IF NOT EXISTS idx_gold_chromosome_features_variants ON gold.chromosome_features(variant_count DESC);
+CREATE INDEX IF NOT EXISTS idx_gold_chromosome_features_pathogenic ON gold.chromosome_features(pathogenic_count DESC);
+-- Gene-Disease Association indexes
+CREATE INDEX IF NOT EXISTS idx_gold_gene_disease_gene ON gold.gene_disease_association(gene_name);
+CREATE INDEX IF NOT EXISTS idx_gold_gene_disease_disease ON gold.gene_disease_association(disease);
+CREATE INDEX IF NOT EXISTS idx_gold_gene_disease_ratio ON gold.gene_disease_association(pathogenic_ratio DESC);
+CREATE INDEX IF NOT EXISTS idx_gold_gene_disease_strength ON gold.gene_disease_association(association_strength);
+CREATE INDEX IF NOT EXISTS idx_gold_gene_disease_mutations ON gold.gene_disease_association(mutation_count DESC);
+-- ML Features indexes
+CREATE INDEX IF NOT EXISTS idx_gold_ml_features_gene ON gold.ml_features(gene_name);
+CREATE INDEX IF NOT EXISTS idx_gold_ml_features_chromosome ON gold.ml_features(chromosome);
+CREATE INDEX IF NOT EXISTS idx_gold_ml_features_risk ON gold.ml_features(risk_level);
+CREATE INDEX IF NOT EXISTS idx_gold_ml_features_mutations ON gold.ml_features(mutation_count DESC);
+CREATE INDEX IF NOT EXISTS idx_gold_ml_features_pathogenic ON gold.ml_features(pathogenic_ratio DESC);
+-- Composite indexes for common queries
+CREATE INDEX IF NOT EXISTS idx_gold_gene_features_chrom_risk ON gold.gene_features(chromosome, risk_level);
+CREATE INDEX IF NOT EXISTS idx_gold_gene_disease_gene_disease ON gold.gene_disease_association(gene_name, disease);
 -- ====================================================================
 -- COMPLETION MESSAGE
 -- ====================================================================
@@ -64,7 +75,7 @@ DO $$ BEGIN RAISE NOTICE '';
 RAISE NOTICE '====================================================================';
 RAISE NOTICE 'INDEXES CREATED SUCCESSFULLY';
 RAISE NOTICE '====================================================================';
-RAISE NOTICE 'Created 25+ indexes for query optimization';
+RAISE NOTICE 'Created 20+ indexes for query optimization on gold tables';
 RAISE NOTICE 'Database is now optimized for analytical queries';
 RAISE NOTICE '====================================================================';
 END $$;
