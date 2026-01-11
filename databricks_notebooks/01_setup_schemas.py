@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### WEEK 3 - PYSPARK DATA PROCESSING WITH UNITY CATALOG  
+# MAGIC #### PYSPARK DATA PROCESSING WITH UNITY CATALOG  
 # MAGIC ##### Setup Bronze / Silver / Gold Schemas  
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**   

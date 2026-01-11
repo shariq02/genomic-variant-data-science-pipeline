@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### WEEK 3 - PYSPARK DATA PROCESSING WITH UNITY CATALOG  
+# MAGIC #### PYSPARK DATA PROCESSING WITH UNITY CATALOG  
 # MAGIC ##### Variants Data Processing
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**   
@@ -171,6 +171,185 @@ df_enriched = (
 
 # COMMAND ----------
 
+# DBTITLE 1,Variant Type Enrichment
+df_enriched = (
+    df_enriched
+    .join(
+        gene_refs.select(
+            col("gene_name"),
+            col("common_variant_type")
+        ),
+        on="gene_name",
+        how="left"
+    )
+    
+    .withColumn("variant_type_filled",
+        when((col("variant_type") != "Unknown") & col("variant_type").isNotNull(),
+             col("variant_type"))
+        .when(col("common_variant_type").isNotNull(),
+              col("common_variant_type"))
+        .when(lower(col("molecular_consequence")).contains("missense"),
+              "single nucleotide variant")
+        .when(lower(col("molecular_consequence")).contains("nonsense"),
+              "single nucleotide variant")
+        .when(lower(col("molecular_consequence")).contains("deletion"),
+              "Deletion")
+        .when(lower(col("molecular_consequence")).contains("insertion"),
+              "Insertion")
+        .when(lower(col("molecular_consequence")).contains("frameshift"),
+              "Indel")
+        .when(lower(col("molecular_consequence")).contains("splice"),
+              "splice site variant")
+        .otherwise("single nucleotide variant")
+    )
+)
+
+print("Variant type enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Clinical Significance Enrichment
+df_enriched = (
+    df_enriched
+    .withColumn("clinical_significance_filled",
+        when(col("clinical_significance") == "Uncertain",
+             when(lower(col("review_status")).contains("expert") |
+                  lower(col("review_status")).contains("reviewed"),
+                  "Likely Pathogenic")
+             .when(col("gene_name").isin("BRCA1", "BRCA2", "TP53", "APC", 
+                                           "MLH1", "MSH2", "MSH6", "PMS2"),
+                   "Pathogenic")
+             .otherwise("Likely Pathogenic"))
+        .otherwise(col("clinical_significance"))
+    )
+)
+
+print("Clinical significance enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Molecular Consequence Enrichment
+df_enriched = (
+    df_enriched
+    .join(
+        gene_refs.select(
+            col("gene_name"),
+            col("common_consequence")
+        ),
+        on="gene_name",
+        how="left"
+    )
+    
+    .withColumn("molecular_consequence_filled",
+        when((col("molecular_consequence") != "Unknown") & 
+             col("molecular_consequence").isNotNull(),
+             col("molecular_consequence"))
+        .when(col("common_consequence").isNotNull(),
+              col("common_consequence"))
+        .when(col("variant_type_filled") == "single nucleotide variant",
+              "missense variant")
+        .when(col("variant_type_filled") == "Deletion",
+              "deletion")
+        .when(col("variant_type_filled") == "Insertion",
+              "insertion")
+        .otherwise("sequence variant")
+    )
+)
+
+print("Molecular consequence enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Protein Change Enrichment
+df_enriched = (
+    df_enriched
+    .withColumn("protein_change_filled",
+        when((col("protein_change") != "Unknown") & col("protein_change").isNotNull(),
+             col("protein_change"))
+        .otherwise(concat_ws("_", 
+                             col("gene_name"),
+                             col("variant_type_filled"),
+                             lit("variant")))
+    )
+)
+
+print("Protein change enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Disease Enrichment (Gene-based Mapping)
+df_enriched = (
+    df_enriched
+    .withColumn("disease_filled",
+        # PRIORITY 1: Map known cancer/hereditary genes to diseases FIRST
+        when(col("gene_name").isin("BRCA1", "BRCA2"), "Breast and Ovarian Cancer")
+        .when(col("gene_name") == "TP53", "Li-Fraumeni Syndrome")
+        .when(col("gene_name").isin("MLH1", "MSH2", "MSH6", "PMS2"), "Lynch Syndrome")
+        .when(col("gene_name") == "APC", "Familial Adenomatous Polyposis")
+        .when(col("gene_name") == "VHL", "Von Hippel-Lindau Syndrome")
+        .when(col("gene_name") == "RET", "Multiple Endocrine Neoplasia")
+        .when(col("gene_name") == "PTEN", "Cowden Syndrome")
+        .when(col("gene_name") == "CDH1", "Hereditary Diffuse Gastric Cancer")
+        .when(col("gene_name") == "STK11", "Peutz-Jeghers Syndrome")
+        .when(col("gene_name") == "PALB2", "Breast Cancer")
+        .when(col("gene_name") == "CHEK2", "Breast Cancer")
+        .when(col("gene_name") == "ATM", "Ataxia-Telangiectasia")
+        .when(col("gene_name") == "DMD", "Duchenne Muscular Dystrophy")
+        .when(col("gene_name") == "F9", "Hemophilia B")
+        .when(col("gene_name") == "HBB", "Sickle Cell Disease")
+        .when(col("gene_name") == "CFTR", "Cystic Fibrosis")
+        
+        # PRIORITY 2: Generic fallback for all other genes
+        .otherwise(concat_ws(" ", col("gene_name"), lit("associated disorder")))
+    )
+)
+
+print("Disease enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Variant ID and Accession Enrichment
+df_enriched = (
+    df_enriched
+    .withColumn("variant_id_filled",
+        when((col("variant_id") != "Unknown") & col("variant_id").isNotNull(),
+             col("variant_id"))
+        .otherwise(concat_ws("_",
+                             col("gene_name"),
+                             col("chromosome_filled"),
+                             col("position_filled").cast("string"),
+                             lit("var")))
+    )
+    
+    .withColumn("accession_filled",
+        when(col("accession").isNotNull(),
+             trim(upper(col("accession"))))
+        .otherwise(col("variant_id_filled"))
+    )
+    
+    # Clean up temporary reference columns
+    .drop("chromosome_ref", "avg_position", "common_variant_type", "common_consequence")
+)
+
+print("Variant ID and accession enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Add Enrichment Flags
+df_enriched = (
+    df_enriched
+    .withColumn("position_was_enriched", 
+        when(col("position").isNull(), True).otherwise(False))
+    .withColumn("variant_type_was_enriched",
+        when((col("variant_type") == "Unknown") | col("variant_type").isNull(), True).otherwise(False))
+    .withColumn("clinical_significance_was_enriched",
+        when(col("clinical_significance") == "Uncertain", True).otherwise(False))
+)
+
+print("Enrichment flags added")
+
+# COMMAND ----------
+
 # DBTITLE 1,Quality Scoring
 df_with_quality = (
     df_enriched
@@ -183,8 +362,12 @@ df_with_quality = (
         (when(col("clinical_significance") == col("clinical_significance_filled"), 1).otherwise(0)) +
         (when(col("protein_change") == col("protein_change_filled"), 1).otherwise(0))
     )
+    .withColumn("quality_tier",
+        when(col("data_quality_score") >= 5, "High Quality")
+        .when(col("data_quality_score") >= 3, "Medium Quality")
+        .otherwise("Low Quality")
+    )
 )
-
 
 # COMMAND ----------
 
