@@ -245,8 +245,6 @@ def main():
     print("\n" + "="*70)
     print("BRONZE AND SILVER LOADING COMPLETE")
     print("="*70)
-    print("\nNext step:")
-    print("  python scripts/transformation/load_gold_to_postgres.py")
 
 if __name__ == "__main__":
     main()

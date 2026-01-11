@@ -21,19 +21,19 @@ SELECT g.gene_id,
     g.chromosome,
     g.gene_type,
     g.gene_length,
-    COUNT(v.variant_id) as variant_count,
+    COUNT(v.accession) AS variant_count,
     COUNT(
         CASE
             WHEN v.clinical_significance ILIKE '%pathogenic%' THEN 1
         END
-    ) as pathogenic_count,
+    ) AS pathogenic_count,
     COUNT(
         CASE
             WHEN v.clinical_significance ILIKE '%benign%' THEN 1
         END
-    ) as benign_count
-FROM silver.genes g
-    LEFT JOIN silver.variants v ON g.gene_id = v.gene_id
+    ) AS benign_count
+FROM silver.genes_clean g
+    LEFT JOIN silver.variants_clean v ON g.gene_name = v.gene_name
 GROUP BY g.gene_id,
     g.gene_name,
     g.official_symbol,
@@ -41,13 +41,14 @@ GROUP BY g.gene_id,
     g.gene_type,
     g.gene_length;
 COMMENT ON VIEW silver.v_gene_with_stats IS 'Genes with basic variant statistics';
+-- --------------------------------------------------------------------
 -- View: v_pathogenic_variants
 -- Purpose: Only pathogenic and likely pathogenic variants
+-- --------------------------------------------------------------------
 CREATE OR REPLACE VIEW silver.v_pathogenic_variants AS
 SELECT variant_id,
     accession,
     gene_name,
-    gene_id,
     clinical_significance,
     disease,
     chromosome,
@@ -55,7 +56,7 @@ SELECT variant_id,
     variant_type,
     molecular_consequence,
     protein_change
-FROM silver.variants
+FROM silver.variants_clean
 WHERE clinical_significance ILIKE '%pathogenic%'
 ORDER BY gene_name,
     position;
