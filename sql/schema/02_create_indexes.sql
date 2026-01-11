@@ -24,21 +24,20 @@ CREATE INDEX idx_bronze_variants_significance ON bronze.variants_raw(clinical_si
 -- SILVER LAYER INDEXES
 -- ====================================================================
 -- Genes indexes
-CREATE INDEX idx_silver_genes_name ON silver.genes(gene_name);
-CREATE INDEX idx_silver_genes_chromosome ON silver.genes(chromosome);
-CREATE INDEX idx_silver_genes_type ON silver.genes(gene_type);
-CREATE INDEX idx_silver_genes_position ON silver.genes(start_position, end_position);
+CREATE INDEX idx_silver_genes_name ON silver.genes_clean(gene_name);
+CREATE INDEX idx_silver_genes_chromosome ON silver.genes_clean(chromosome);
+CREATE INDEX idx_silver_genes_type ON silver.genes_clean(gene_type);
+CREATE INDEX idx_silver_genes_position ON silver.genes_clean(start_position, end_position);
 -- Variants indexes
-CREATE INDEX idx_silver_variants_gene ON silver.variants(gene_name);
-CREATE INDEX idx_silver_variants_gene_id ON silver.variants(gene_id);
-CREATE INDEX idx_silver_variants_chromosome ON silver.variants(chromosome);
-CREATE INDEX idx_silver_variants_significance ON silver.variants(clinical_significance);
-CREATE INDEX idx_silver_variants_position ON silver.variants(position);
-CREATE INDEX idx_silver_variants_disease ON silver.variants(disease);
-CREATE INDEX idx_silver_variants_type ON silver.variants(variant_type);
+CREATE INDEX idx_silver_variants_gene ON silver.variants_clean(gene_name);
+CREATE INDEX idx_silver_variants_chromosome ON silver.variants_clean(chromosome);
+CREATE INDEX idx_silver_variants_significance ON silver.variants_clean(clinical_significance);
+CREATE INDEX idx_silver_variants_position ON silver.variants_clean(position);
+CREATE INDEX idx_silver_variants_disease ON silver.variants_clean(disease);
+CREATE INDEX idx_silver_variants_type ON silver.variants_clean(variant_type);
 -- Composite indexes for common queries
-CREATE INDEX idx_silver_variants_gene_chrom ON silver.variants(gene_name, chromosome);
-CREATE INDEX idx_silver_variants_chrom_sig ON silver.variants(chromosome, clinical_significance);
+CREATE INDEX idx_silver_variants_gene_chrom ON silver.variants_clean(gene_name, chromosome);
+CREATE INDEX idx_silver_variants_chrom_sig ON silver.variants_clean(chromosome, clinical_significance);
 -- ====================================================================
 -- GOLD LAYER INDEXES - Based on actual gold tables from Databricks
 -- ====================================================================
