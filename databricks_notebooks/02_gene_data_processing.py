@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### WEEK 3 - PYSPARK DATA PROCESSING WITH UNITY CATALOG  
+# MAGIC #### PYSPARK DATA PROCESSING WITH UNITY CATALOG  
 # MAGIC ##### Gene Data Processing
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**   
@@ -61,16 +61,6 @@ display(df_genes_raw.limit(5), truncate=False)
 
 # COMMAND ----------
 
-# DBTITLE 1,Inspect Raw Schema & Sample
-print("\nRaw Schema:")
-df_genes_raw.printSchema()
-
-print("\nSample raw data:")
-display(df_genes_raw, truncate=False)
-#df_genes_raw.show(5, truncate=False)
-
-# COMMAND ----------
-
 # DBTITLE 1,Save to Bronze Layer
 print("\n" + "="*40)
 print("SAVING TO BRONZE LAYER")
@@ -107,18 +97,14 @@ print(f"\nGenes with Unknown gene_type: {unknown_gene_types}")
 # DBTITLE 1,Profiling: Null & “Unknown” Analysis
 print("\n2. Null Value Analysis:")
 
+string_columns = [
+    "gene_name", "official_symbol", "description", "chromosome", "map_location", "gene_type", "summary", "other_aliases", "other_designations", "strand"
+]
+
 null_counts = df_genes_raw.select([
-    count(
-        when(
-            col(c).isNull() |
-            (
-                (df_genes_raw.schema[c].dataType == StringType()) &
-                (col(c) == "Unknown")
-            ),
-            c
-        )
-    ).alias(c)
-    for c in df_genes_raw.columns
+    count(when(col(c).isNull(), 1)).alias(f"{c}_null") for c in df_genes_raw.columns
+] + [
+    count(when(col(c) == "Unknown", 1)).alias(f"{c}_unknown") for c in string_columns
 ])
 
 null_counts.show(vertical=True)
