@@ -53,13 +53,11 @@ def load_gold_tables():
     print("LOADING GOLD LAYER TO POSTGRESQL")
     print("="*70)
     
-    # Verify directory exists
     if not EXPORTS_DIR.exists():
         logger.error(f"Directory does not exist: {EXPORTS_DIR}")
         logger.error("Please create the directory and place CSV files there")
         return
     
-    # List files in directory
     files_in_dir = list(EXPORTS_DIR.glob("*.csv"))
     if files_in_dir:
         print(f"\nFound {len(files_in_dir)} CSV files in {EXPORTS_DIR}:")
@@ -67,6 +65,7 @@ def load_gold_tables():
             print(f"  - {f.name}")
     else:
         print(f"\nNo CSV files found in {EXPORTS_DIR}")
+        return
     
     engine = get_engine()
     
@@ -86,7 +85,7 @@ def load_gold_tables():
             logger.warning(f"  and place it in: {EXPORTS_DIR}")
             continue
         
-        logger.info(f"Loading {csv_name} -> {schema}.{table_name}...")
+        logger.info(f"Loading {csv_name} to {schema}.{table_name}")
         
         try:
             df = pd.read_csv(csv_path)
@@ -100,12 +99,12 @@ def load_gold_tables():
                 index=False,
                 method='multi'
             )
-            logger.info(f"SUCCESS: Loaded {len(df):,} rows to {schema}.{table_name}")
+            logger.info(f"  SUCCESS: Loaded {len(df):,} rows to {schema}.{table_name}")
         except Exception as e:
-            logger.error(f"ERROR loading {csv_name}: {e}")
+            logger.error(f"  ERROR loading {csv_name}: {e}")
     
     print("\n" + "="*70)
-    print("LOADING COMPLETE!")
+    print("LOADING COMPLETE")
     print("="*70)
     print("\nVerify in PostgreSQL:")
     print("  SELECT COUNT(*) FROM gold.gene_features;")

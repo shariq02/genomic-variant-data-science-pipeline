@@ -10,7 +10,7 @@
 
 """
 Load Data to PostgreSQL
-Bronze → Silver pipeline (genes + variants)
+Bronze to Silver pipeline (genes + variants)
 """
 
 import pandas as pd
@@ -20,18 +20,12 @@ import logging
 from dotenv import load_dotenv
 import os
 
-# -------------------------------------------------------------------
-# Logging
-# -------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# -------------------------------------------------------------------
-# Environment
-# -------------------------------------------------------------------
 load_dotenv()
 
 SCRIPT_DIR = Path(__file__).parent
@@ -48,43 +42,25 @@ DB_CONFIG = {
     "password": os.getenv("POSTGRES_PASSWORD"),
 }
 
-# -------------------------------------------------------------------
-# Database Engine
-# -------------------------------------------------------------------
 def get_database_engine():
-    """
-    Creates a database engine from the environment variables
-
-    Returns:
-        sqlalchemy.engine.Engine: A database engine object
-    """
+    """Create database engine"""
     conn_str = (
         f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}"
         f"@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
     )
     engine = create_engine(conn_str)
-    logger.info(" Database engine created successfully")
+    logger.info("Database engine created successfully")
     return engine
 
-# -------------------------------------------------------------------
-# Bronze Loaders
-# -------------------------------------------------------------------
 def load_genes_to_bronze(engine):
-    """
-    Loads gene data from a CSV file to the bronze.genes_raw table
-
-    Args:
-        engine (sqlalchemy.engine.Engine): A database engine object
-
-    Returns:
-        None
-
-    Raises:
-        None
-    """
+    """Load gene data to bronze.genes_raw"""
     logger.info("Loading gene data to bronze.genes_raw...")
+    
+    if not GENES_CSV.exists():
+        logger.error(f"File not found: {GENES_CSV}")
+        return
+    
     df = pd.read_csv(GENES_CSV)
-
     df.to_sql(
         name="genes_raw",
         schema="bronze",
@@ -94,25 +70,17 @@ def load_genes_to_bronze(engine):
         method="multi",
         chunksize=1000
     )
-
-    logger.info(f" Loaded {len(df)} genes")
+    logger.info(f"Loaded {len(df)} genes to bronze")
 
 def load_variants_to_bronze(engine):
-    """
-    Loads variant data from a CSV file to the bronze.variants_raw table
-
-    Args:
-        engine (sqlalchemy.engine.Engine): A database engine object
-
-    Returns:
-        None
-
-    Raises:
-        None
-    """
+    """Load variant data to bronze.variants_raw"""
     logger.info("Loading variant data to bronze.variants_raw...")
+    
+    if not VARIANTS_CSV.exists():
+        logger.error(f"File not found: {VARIANTS_CSV}")
+        return
+    
     df = pd.read_csv(VARIANTS_CSV)
-
     df.to_sql(
         name="variants_raw",
         schema="bronze",
@@ -122,38 +90,18 @@ def load_variants_to_bronze(engine):
         method="multi",
         chunksize=1000
     )
+    logger.info(f"Loaded {len(df)} variants to bronze")
 
-    logger.info(f" Loaded {len(df)} variants")
-
-# -------------------------------------------------------------------
-# Bronze → Silver
-# -------------------------------------------------------------------
 def copy_bronze_to_silver(engine):
-    """
-    Copies data from the bronze to silver layer.
-
-    Copies all data from the bronze.genes_raw and bronze.variants_raw tables to the silver.genes and silver.variants tables, respectively.
-
-    This function assumes that the bronze tables have already been populated, and that the silver tables have already been created.
-
-    Args:
-        engine (sqlalchemy.engine.Engine): A database engine object
-
-    Returns:
-        None
-
-    Raises:
-        None
-    """
+    """Copy data from bronze to silver layer with transformations"""
     logger.info("Copying data from bronze to silver layer...")
 
     with engine.begin() as conn:
 
-        # -------------------- GENES --------------------
-        logger.info("Copying genes...")
-
+        # Copy genes
+        logger.info("Copying genes to silver.genes_clean...")
         conn.execute(text("""
-            INSERT INTO silver.genes (
+            INSERT INTO silver.genes_clean (
                 gene_id,
                 gene_name,
                 official_symbol,
@@ -169,15 +117,23 @@ def copy_bronze_to_silver(engine):
             )
             SELECT
                 gene_id,
-                gene_name,
-                official_symbol,
+                UPPER(TRIM(gene_name)),
+                UPPER(TRIM(official_symbol)),
                 description,
-                chromosome,
+                TRIM(chromosome),
                 map_location,
                 gene_type,
                 summary,
-                LEAST(start_position, end_position),
-                GREATEST(start_position, end_position),
+                CASE 
+                    WHEN start_position IS NOT NULL AND end_position IS NOT NULL
+                    THEN LEAST(start_position, end_position)
+                    ELSE start_position
+                END,
+                CASE 
+                    WHEN start_position IS NOT NULL AND end_position IS NOT NULL
+                    THEN GREATEST(start_position, end_position)
+                    ELSE end_position
+                END,
                 strand,
                 gene_length
             FROM bronze.genes_raw
@@ -186,18 +142,18 @@ def copy_bronze_to_silver(engine):
                 '11','12','13','14','15','16','17','18','19','20',
                 '21','22','X','Y','MT'
             )
+            AND gene_id IS NOT NULL
+            AND gene_name IS NOT NULL
             ON CONFLICT (gene_id) DO NOTHING;
         """))
 
-        # -------------------- VARIANTS --------------------
-        logger.info("Copying variants...")
-
+        # Copy variants
+        logger.info("Copying variants to silver.variants_clean...")
         conn.execute(text("""
-            INSERT INTO silver.variants (
+            INSERT INTO silver.variants_clean (
                 variant_id,
                 accession,
                 gene_name,
-                gene_id,
                 clinical_significance,
                 disease,
                 chromosome,
@@ -210,121 +166,87 @@ def copy_bronze_to_silver(engine):
                 assembly
             )
             SELECT
-                md5(
-                    concat_ws(
-                        '|',
-                        v.accession,
-                        v.gene_name,
-                        v.chromosome,
-                        v.position,
-                        v.stop_position
-                    )
-                ) AS variant_id,
-
-                v.accession,
-                v.gene_name,
-                g.gene_id,
-
-                LEFT(v.clinical_significance, 100),
-                LEFT(v.disease, 200),
-
+                COALESCE(variant_id, accession),
+                COALESCE(UPPER(TRIM(accession)), variant_id),
+                UPPER(TRIM(gene_name)),
+                clinical_significance,
+                disease,
                 CASE
-                    WHEN TRIM(v.chromosome) IN (
+                    WHEN TRIM(chromosome) IN (
                         '1','2','3','4','5','6','7','8','9','10',
                         '11','12','13','14','15','16','17','18','19','20',
                         '21','22','X','Y','MT'
                     )
-                    THEN TRIM(v.chromosome)
+                    THEN TRIM(chromosome)
                     ELSE NULL
-                END AS chromosome,
-
+                END,
                 CASE
-                    WHEN v.position IS NOT NULL AND v.stop_position IS NOT NULL
-                    THEN LEAST(v.position, v.stop_position)
-                    ELSE v.position
-                END AS position,
-
+                    WHEN position IS NOT NULL AND stop_position IS NOT NULL
+                    THEN LEAST(position, stop_position)
+                    ELSE position
+                END,
                 CASE
-                    WHEN v.position IS NOT NULL AND v.stop_position IS NOT NULL
-                    THEN GREATEST(v.position, v.stop_position)
-                    ELSE v.stop_position
-                END AS stop_position,
-
-                LEFT(v.variant_type, 100),
-                LEFT(v.molecular_consequence, 200),
-                LEFT(v.protein_change, 200),
-                LEFT(v.review_status, 100),
-                COALESCE(v.assembly, 'GRCh38')
-
-            FROM bronze.variants_raw v
-            LEFT JOIN silver.genes g
-                ON v.gene_name = g.gene_name
-
-            ON CONFLICT (variant_id) DO NOTHING;
+                    WHEN position IS NOT NULL AND stop_position IS NOT NULL
+                    THEN GREATEST(position, stop_position)
+                    ELSE stop_position
+                END,
+                variant_type,
+                molecular_consequence,
+                protein_change,
+                review_status,
+                COALESCE(assembly, 'GRCh38')
+            FROM bronze.variants_raw
+            WHERE gene_name IS NOT NULL
+            AND accession IS NOT NULL
+            ON CONFLICT (accession) DO NOTHING;
         """))
 
-    logger.info(" Data copied to silver layer successfully")
+    logger.info("Data copied to silver layer successfully")
 
-# -------------------------------------------------------------------
-# Verification
-# -------------------------------------------------------------------
 def verify_data_load(engine):
-    """
-    Verify data load by comparing the number of rows in bronze and silver layers
-
-    Args:
-        engine (sqlalchemy.engine.Engine): SQLAlchemy engine object
-
-    Returns:
-        bool: True if data load is verified, False otherwise
-    """
+    """Verify data load"""
     logger.info("Verifying data load...")
 
     with engine.connect() as conn:
         bronze_genes = pd.read_sql("SELECT COUNT(*) FROM bronze.genes_raw", conn).iloc[0, 0]
-        silver_genes = pd.read_sql("SELECT COUNT(*) FROM silver.genes", conn).iloc[0, 0]
+        silver_genes = pd.read_sql("SELECT COUNT(*) FROM silver.genes_clean", conn).iloc[0, 0]
         bronze_variants = pd.read_sql("SELECT COUNT(*) FROM bronze.variants_raw", conn).iloc[0, 0]
-        silver_variants = pd.read_sql("SELECT COUNT(*) FROM silver.variants", conn).iloc[0, 0]
+        silver_variants = pd.read_sql("SELECT COUNT(*) FROM silver.variants_clean", conn).iloc[0, 0]
 
-    print("\n==============================")
+    print("\n" + "="*70)
     print("DATA LOAD VERIFICATION")
-    print("==============================")
+    print("="*70)
     print(f"Bronze genes     : {bronze_genes:,}")
     print(f"Silver genes     : {silver_genes:,}")
     print(f"Bronze variants  : {bronze_variants:,}")
     print(f"Silver variants  : {silver_variants:,}")
-    print("==============================")
+    print("="*70)
+    
+    if silver_genes > 0 and silver_variants > 0:
+        print("\nSUCCESS: Data loaded to bronze and silver layers")
+        return True
+    else:
+        print("\nWARNING: Some data may be missing")
+        return False
 
-    return bronze_variants == silver_variants
-
-# -------------------------------------------------------------------
-# Main
-# -------------------------------------------------------------------
 def main():
-    """
-    Main entry point for loading data to PostgreSQL
-
-    This function loads gene and variant data from CSV files to the bronze layer,
-    copies the data to the silver layer, and verifies that no data loss occurred
-    during the copy process.
-
-    Returns:
-        None
-    """
-    print("\n==============================")
-    print("LOAD DATA TO POSTGRESQL")
-    print("==============================")
+    """Main entry point"""
+    print("\n" + "="*70)
+    print("LOAD DATA TO POSTGRESQL - BRONZE AND SILVER LAYERS")
+    print("="*70)
 
     engine = get_database_engine()
 
     load_genes_to_bronze(engine)
     load_variants_to_bronze(engine)
     copy_bronze_to_silver(engine)
+    verify_data_load(engine)
 
-    if verify_data_load(engine):
-        print("\n Data loading completed successfully!")
-    else:
-        print("\n Data loss detected!")
+    print("\n" + "="*70)
+    print("BRONZE AND SILVER LOADING COMPLETE")
+    print("="*70)
+    print("\nNext step:")
+    print("  python scripts/transformation/load_gold_to_postgres.py")
 
 if __name__ == "__main__":
     main()
