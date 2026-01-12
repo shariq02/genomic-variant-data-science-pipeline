@@ -4,7 +4,6 @@
 -- Author: Sharique Mohammad
 -- Date: 11 January 2026
 -- ====================================================================
--- ====================================================================
 -- CREATE SCHEMAS (Data Lake Layers)
 -- ====================================================================
 DROP SCHEMA IF EXISTS bronze CASCADE;
@@ -17,17 +16,16 @@ COMMENT ON SCHEMA bronze IS 'Raw data layer - unprocessed data from sources';
 COMMENT ON SCHEMA silver IS 'Cleaned data layer - validated and standardized';
 COMMENT ON SCHEMA gold IS 'Analytics layer - aggregated and business-ready';
 -- ====================================================================
--- BRONZE LAYER TABLES (Raw Data from Databricks)
+-- BRONZE LAYER TABLES (Raw Data)
 -- ====================================================================
--- Table: bronze.genes_raw
 CREATE TABLE bronze.genes_raw (
-    gene_id VARCHAR(50),
-    gene_name VARCHAR(100) NOT NULL,
-    official_symbol VARCHAR(100),
+    gene_id TEXT,
+    gene_name TEXT NOT NULL,
+    official_symbol TEXT,
     description TEXT,
     chromosome VARCHAR(10),
-    map_location VARCHAR(100),
-    gene_type VARCHAR(50),
+    map_location TEXT,
+    gene_type TEXT,
     summary TEXT,
     start_position BIGINT,
     end_position BIGINT,
@@ -35,41 +33,66 @@ CREATE TABLE bronze.genes_raw (
     gene_length BIGINT,
     other_aliases TEXT,
     other_designations TEXT,
+    full_name TEXT,
+    nomenclature_status TEXT,
+    db_xrefs TEXT,
+    modification_date VARCHAR(50),
+    feature_type TEXT,
+    download_date VARCHAR(50),
+    data_source VARCHAR(100),
     loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-COMMENT ON TABLE bronze.genes_raw IS 'Raw gene metadata from NCBI GenBank';
--- Table: bronze.variants_raw
+COMMENT ON TABLE bronze.genes_raw IS 'Raw gene metadata from NCBI FTP';
 CREATE TABLE bronze.variants_raw (
-    variant_id VARCHAR(50),
-    accession VARCHAR(50),
-    gene_name VARCHAR(100),
-    clinical_significance VARCHAR(100),
+    variant_id TEXT,
+    accession TEXT,
+    allele_id TEXT,
+    gene_id BIGINT,
+    gene_name TEXT,
+    clinical_significance TEXT,
+    clinical_significance_simple TEXT,
     disease TEXT,
+    phenotype_ids TEXT,
     chromosome VARCHAR(10),
     position BIGINT,
     stop_position BIGINT,
-    variant_type VARCHAR(100),
-    molecular_consequence VARCHAR(200),
-    protein_change VARCHAR(200),
-    allele_id VARCHAR(50),
-    review_status VARCHAR(100),
+    cytogenetic TEXT,
+    variant_type TEXT,
+    variant_name TEXT,
+    reference_allele TEXT,
+    alternate_allele TEXT,
+    position_vcf BIGINT,
+    reference_allele_vcf TEXT,
+    alternate_allele_vcf TEXT,
+    review_status TEXT,
+    number_submitters INTEGER,
+    rs_id BIGINT,
+    dbvar_id TEXT,
+    origin TEXT,
+    origin_simple TEXT,
+    last_evaluated VARCHAR(50),
     assembly VARCHAR(50),
-    cytogenetic VARCHAR(100),
+    tested_in_gtr VARCHAR(10),
+    guidelines TEXT,
+    submitter_categories TEXT,
+    download_date VARCHAR(50),
+    data_source VARCHAR(100),
+    molecular_consequence TEXT,
+    protein_change TEXT,
     loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-COMMENT ON TABLE bronze.variants_raw IS 'Raw variant data from ClinVar';
+COMMENT ON TABLE bronze.variants_raw IS 'Raw variant data from ClinVar FTP';
 -- ====================================================================
--- SILVER LAYER TABLES (Cleaned Data from Databricks)
+-- SILVER LAYER TABLES (Cleaned Data)
 -- ====================================================================
--- Table: silver.genes_clean
 CREATE TABLE silver.genes_clean (
-    gene_id VARCHAR(50) PRIMARY KEY,
-    gene_name VARCHAR(100) NOT NULL,
-    official_symbol VARCHAR(100),
+    gene_id TEXT PRIMARY KEY,
+    gene_name TEXT NOT NULL,
+    official_symbol TEXT,
     description TEXT,
     chromosome VARCHAR(10) NOT NULL,
-    map_location VARCHAR(100),
-    gene_type VARCHAR(50),
+    map_location TEXT,
+    gene_type TEXT,
     summary TEXT,
     start_position BIGINT,
     end_position BIGINT,
@@ -107,11 +130,10 @@ CREATE TABLE silver.genes_clean (
     )
 );
 COMMENT ON TABLE silver.genes_clean IS 'Cleaned and validated gene information';
--- Table: silver.variants_clean
 CREATE TABLE silver.variants_clean (
-    variant_id VARCHAR(50),
-    accession VARCHAR(50) PRIMARY KEY,
-    gene_name VARCHAR(100) NOT NULL,
+    variant_id TEXT,
+    accession TEXT PRIMARY KEY,
+    gene_name TEXT NOT NULL,
     clinical_significance TEXT,
     disease TEXT,
     chromosome VARCHAR(10),
@@ -165,17 +187,14 @@ CREATE TABLE silver.variants_clean (
     )
 );
 COMMENT ON TABLE silver.variants_clean IS 'Cleaned and enriched variant information';
-COMMENT ON COLUMN silver.variants_clean.data_quality_score IS 'Score 0-6 indicating data completeness';
-COMMENT ON COLUMN silver.variants_clean.quality_tier IS 'High Quality, Medium Quality, or Low Quality';
 -- ====================================================================
--- GOLD LAYER TABLES (Analytics-Ready from Databricks)
+-- GOLD LAYER TABLES (Analytics-Ready)
 -- ====================================================================
--- Table: gold.gene_features
 CREATE TABLE gold.gene_features (
-    gene_name VARCHAR(100) PRIMARY KEY,
-    gene_id VARCHAR(50),
+    gene_name TEXT PRIMARY KEY,
+    gene_id TEXT,
     chromosome VARCHAR(10),
-    gene_type VARCHAR(50),
+    gene_type TEXT,
     gene_length BIGINT,
     mutation_count INTEGER,
     pathogenic_count INTEGER,
@@ -194,8 +213,7 @@ CREATE TABLE gold.gene_features (
     risk_score DECIMAL(10, 2),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-COMMENT ON TABLE gold.gene_features IS 'Per-gene aggregated features from PySpark';
--- Table: gold.chromosome_features
+COMMENT ON TABLE gold.gene_features IS 'Per-gene aggregated features';
 CREATE TABLE gold.chromosome_features (
     chromosome VARCHAR(10) PRIMARY KEY,
     gene_count INTEGER,
@@ -211,9 +229,8 @@ CREATE TABLE gold.chromosome_features (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 COMMENT ON TABLE gold.chromosome_features IS 'Chromosome-level aggregated statistics';
--- Table: gold.gene_disease_association
 CREATE TABLE gold.gene_disease_association (
-    gene_name VARCHAR(100),
+    gene_name TEXT,
     disease TEXT,
     mutation_count INTEGER,
     pathogenic_count INTEGER,
@@ -228,9 +245,8 @@ CREATE TABLE gold.gene_disease_association (
     PRIMARY KEY (gene_name, disease)
 );
 COMMENT ON TABLE gold.gene_disease_association IS 'Gene-disease association with mutation statistics';
--- Table: gold.ml_features
 CREATE TABLE gold.ml_features (
-    gene_name VARCHAR(100) PRIMARY KEY,
+    gene_name TEXT PRIMARY KEY,
     chromosome VARCHAR(10),
     mutation_count INTEGER,
     pathogenic_count INTEGER,
@@ -247,28 +263,23 @@ CREATE TABLE gold.ml_features (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 COMMENT ON TABLE gold.ml_features IS 'ML-ready features for model training';
--- ====================================================================
--- ML PREDICTION TABLES (For Week 5-7)
--- ====================================================================
--- Table: gold.ml_disease_predictions
 CREATE TABLE gold.ml_disease_predictions (
     prediction_id SERIAL PRIMARY KEY,
-    gene_name VARCHAR(100),
+    gene_name TEXT,
     predicted_risk VARCHAR(20),
     confidence DECIMAL(5, 4),
     model_version VARCHAR(50),
     prediction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 COMMENT ON TABLE gold.ml_disease_predictions IS 'ML model predictions for disease risk';
--- Table: gold.ml_gene_clusters
 CREATE TABLE gold.ml_gene_clusters (
-    gene_name VARCHAR(100) PRIMARY KEY,
+    gene_name TEXT PRIMARY KEY,
     cluster_id INTEGER NOT NULL,
     cluster_label VARCHAR(50),
     distance_to_centroid DECIMAL(10, 6),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-COMMENT ON TABLE gold.ml_gene_clusters IS 'Gene clustering results from unsupervised learning';
+COMMENT ON TABLE gold.ml_gene_clusters IS 'Gene clustering results';
 -- ====================================================================
 -- GRANT PERMISSIONS
 -- ====================================================================
@@ -287,26 +298,8 @@ RAISE NOTICE '==================================================================
 RAISE NOTICE 'DATABASE SCHEMA CREATION COMPLETED';
 RAISE NOTICE '====================================================================';
 RAISE NOTICE 'Schemas created: bronze, silver, gold';
+RAISE NOTICE 'Using TEXT fields to handle real-world data (no truncation)';
+RAISE NOTICE 'Ready for 190K genes and 4M+ variants';
 RAISE NOTICE '';
-RAISE NOTICE 'BRONZE TABLES:';
-RAISE NOTICE '  - genes_raw';
-RAISE NOTICE '  - variants_raw';
-RAISE NOTICE '';
-RAISE NOTICE 'SILVER TABLES:';
-RAISE NOTICE '  - genes_clean';
-RAISE NOTICE '  - variants_clean (with enrichment tracking)';
-RAISE NOTICE '';
-RAISE NOTICE 'GOLD TABLES:';
-RAISE NOTICE '  - gene_features';
-RAISE NOTICE '  - chromosome_features';
-RAISE NOTICE '  - gene_disease_association';
-RAISE NOTICE '  - ml_features';
-RAISE NOTICE '  - ml_disease_predictions (for Week 5-7)';
-RAISE NOTICE '  - ml_gene_clusters (for Week 5-7)';
-RAISE NOTICE '';
-RAISE NOTICE 'Next steps:';
-RAISE NOTICE '1. Run: sql/schema/02_create_indexes.sql';
-RAISE NOTICE '2. Run: sql/schema/03_create_views.sql';
-RAISE NOTICE '3. Run: scripts/transformation/load_gold_to_postgres.py';
 RAISE NOTICE '====================================================================';
 END $$;

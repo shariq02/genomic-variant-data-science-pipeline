@@ -31,8 +31,9 @@ load_dotenv()
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 
-GENES_CSV = PROJECT_ROOT / "data" / "raw" / "genes" / "gene_metadata.csv"
-VARIANTS_CSV = PROJECT_ROOT / "data" / "raw" / "variants" / "clinvar_pathogenic.csv"
+# UPDATED: Load ALL data (bigger files)
+GENES_CSV = PROJECT_ROOT / "data" / "raw" / "genes" / "gene_metadata_all.csv"
+VARIANTS_CSV = PROJECT_ROOT / "data" / "raw" / "variants" / "clinvar_all_variants.csv"
 
 DB_CONFIG = {
     "host": os.getenv("POSTGRES_HOST", "localhost"),
@@ -43,7 +44,6 @@ DB_CONFIG = {
 }
 
 def get_database_engine():
-    """Create database engine"""
     conn_str = (
         f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}"
         f"@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
@@ -53,52 +53,106 @@ def get_database_engine():
     return engine
 
 def load_genes_to_bronze(engine):
-    """Load gene data to bronze.genes_raw"""
-    logger.info("Loading gene data to bronze.genes_raw...")
+    logger.info("Loading ALL gene data to bronze.genes_raw...")
+    logger.info(f"Reading from: {GENES_CSV}")
     
     if not GENES_CSV.exists():
         logger.error(f"File not found: {GENES_CSV}")
         return
     
-    df = pd.read_csv(GENES_CSV)
-    df.to_sql(
-        name="genes_raw",
-        schema="bronze",
-        con=engine,
-        if_exists="replace",
-        index=False,
-        method="multi",
-        chunksize=1000
-    )
-    logger.info(f"Loaded {len(df)} genes to bronze")
+    logger.info("Reading genes CSV in chunks...")
+    chunk_size = 10000
+    chunks_processed = 0
+    total_rows = 0
+    
+    for chunk in pd.read_csv(GENES_CSV, chunksize=chunk_size):
+        chunks_processed += 1
+        
+        df_mapped = pd.DataFrame()
+        df_mapped['gene_id'] = chunk['gene_id'].astype(str)
+        df_mapped['gene_name'] = chunk['gene_name']
+        df_mapped['official_symbol'] = chunk['official_symbol']
+        df_mapped['description'] = chunk['description']
+        df_mapped['chromosome'] = chunk['chromosome']
+        df_mapped['map_location'] = chunk['map_location']
+        df_mapped['gene_type'] = chunk['gene_type']
+        df_mapped['summary'] = chunk.get('full_name', chunk['description'])
+        df_mapped['start_position'] = chunk['start_position']
+        df_mapped['end_position'] = chunk['end_position']
+        df_mapped['strand'] = chunk['strand']
+        df_mapped['gene_length'] = chunk['gene_length']
+        df_mapped['other_aliases'] = chunk['other_aliases']
+        df_mapped['other_designations'] = chunk['other_designations']
+        
+        df_mapped.to_sql(
+            name="genes_raw",
+            schema="bronze",
+            con=engine,
+            if_exists="append" if chunks_processed > 1 else "replace",
+            index=False,
+            method="multi",
+            chunksize=1000
+        )
+        
+        total_rows += len(df_mapped)
+        logger.info(f"  Chunk {chunks_processed}: Loaded {len(df_mapped)} genes (Total: {total_rows})")
+    
+    logger.info(f"Loaded {total_rows} total genes to bronze")
 
 def load_variants_to_bronze(engine):
-    """Load variant data to bronze.variants_raw"""
-    logger.info("Loading variant data to bronze.variants_raw...")
+    logger.info("Loading ALL variant data to bronze.variants_raw...")
+    logger.info(f"Reading from: {VARIANTS_CSV}")
     
     if not VARIANTS_CSV.exists():
         logger.error(f"File not found: {VARIANTS_CSV}")
         return
     
-    df = pd.read_csv(VARIANTS_CSV)
-    df.to_sql(
-        name="variants_raw",
-        schema="bronze",
-        con=engine,
-        if_exists="replace",
-        index=False,
-        method="multi",
-        chunksize=1000
-    )
-    logger.info(f"Loaded {len(df)} variants to bronze")
+    logger.info("Reading variants CSV in chunks (this will take 10-15 minutes)...")
+    chunk_size = 50000
+    chunks_processed = 0
+    total_rows = 0
+    
+    for chunk in pd.read_csv(VARIANTS_CSV, chunksize=chunk_size):
+        chunks_processed += 1
+        
+        df_mapped = pd.DataFrame()
+        df_mapped['variant_id'] = chunk['variant_id'].astype(str)
+        df_mapped['accession'] = chunk['accession']
+        df_mapped['gene_name'] = chunk['gene_name']
+        df_mapped['clinical_significance'] = chunk['clinical_significance']
+        df_mapped['disease'] = chunk['disease']
+        df_mapped['chromosome'] = chunk['chromosome']
+        df_mapped['position'] = chunk['position']
+        df_mapped['stop_position'] = chunk['stop_position']
+        df_mapped['variant_type'] = chunk['variant_type']
+        df_mapped['molecular_consequence'] = None
+        df_mapped['protein_change'] = None
+        df_mapped['allele_id'] = chunk['allele_id'].astype(str)
+        df_mapped['review_status'] = chunk['review_status']
+        df_mapped['assembly'] = chunk['assembly']
+        df_mapped['cytogenetic'] = chunk['cytogenetic']
+        
+        df_mapped.to_sql(
+            name="variants_raw",
+            schema="bronze",
+            con=engine,
+            if_exists="append" if chunks_processed > 1 else "replace",
+            index=False,
+            method="multi",
+            chunksize=1000
+        )
+        
+        total_rows += len(df_mapped)
+        logger.info(f"  Chunk {chunks_processed}: Loaded {len(df_mapped)} variants (Total: {total_rows})")
+    
+    logger.info(f"Loaded {total_rows} total variants to bronze")
 
 def copy_bronze_to_silver(engine):
-    """Copy data from bronze to silver layer with transformations"""
     logger.info("Copying data from bronze to silver layer...")
+    logger.info("This may take 5-10 minutes for large datasets...")
 
     with engine.begin() as conn:
 
-        # Copy genes
         logger.info("Copying genes to silver.genes_clean...")
         conn.execute(text("""
             INSERT INTO silver.genes_clean (
@@ -147,7 +201,6 @@ def copy_bronze_to_silver(engine):
             ON CONFLICT (gene_id) DO NOTHING;
         """))
 
-        # Copy variants
         logger.info("Copying variants to silver.variants_clean...")
         conn.execute(text("""
             INSERT INTO silver.variants_clean (
@@ -204,7 +257,6 @@ def copy_bronze_to_silver(engine):
     logger.info("Data copied to silver layer successfully")
 
 def verify_data_load(engine):
-    """Verify data load"""
     logger.info("Verifying data load...")
 
     with engine.connect() as conn:
@@ -223,17 +275,23 @@ def verify_data_load(engine):
     print("="*70)
     
     if silver_genes > 0 and silver_variants > 0:
-        print("\nSUCCESS: Data loaded to bronze and silver layers")
+        print("\nSUCCESS: ALL data loaded to bronze and silver layers")
+        print(f"  Genes: {silver_genes:,} (includes ALL gene types)")
+        print(f"  Variants: {silver_variants:,} (includes ALL clinical significance)")
         return True
     else:
         print("\nWARNING: Some data may be missing")
         return False
 
 def main():
-    """Main entry point"""
     print("\n" + "="*70)
-    print("LOAD DATA TO POSTGRESQL - BRONZE AND SILVER LAYERS")
+    print("LOAD ALL DATA TO POSTGRESQL - BRONZE AND SILVER LAYERS")
     print("="*70)
+    print("Loading COMPLETE datasets:")
+    print(f"  - ALL genes (190K rows - all gene types)")
+    print(f"  - ALL variants (1M+ rows - all clinical significance)")
+    print("This will take 15-20 minutes...")
+    print("="*70 + "\n")
 
     engine = get_database_engine()
 
@@ -245,6 +303,7 @@ def main():
     print("\n" + "="*70)
     print("BRONZE AND SILVER LOADING COMPLETE")
     print("="*70)
+    print("Next: Upload to Databricks and run PySpark processing")
 
 if __name__ == "__main__":
     main()
