@@ -1,26 +1,44 @@
 # ====================================================================
-# Variant Data Extraction
+# IMPROVED Variant Data Extraction - Bulk Download
 # DNA Gene Mapping Project
 # Author: Sharique Mohammad
-# Date: 28 December 2025
+# Date: January 12, 2026
 # ====================================================================
-# FILE 2: scripts/extraction/02_download_variants.py
-# Purpose: Download variant data from ClinVar
+# FILE: scripts/extraction/02_download_variants.py
+# Purpose: Download ALL ClinVar variants (1,000,000+ variants)
 # ====================================================================
 
 """
-Variant Data Extraction from ClinVar
-Downloads pathogenic variants for specified genes.
+IMPROVED Variant Data Extraction from ClinVar
+Downloads ALL ClinVar variants in bulk from NCBI FTP site.
+
+Key Improvements:
+1. Downloads ALL variants (1,000,000+) instead of just 7,000-14,000
+2. Uses FTP bulk download instead of slow API calls
+3. Processes variant_summary.txt.gz file
+4. Much faster (minutes instead of hours)
+5. Complete variant metadata with proper field mappings
+
+Data Source:
+ftp://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz
+
+Fields Available (from ClinVar README):
+AlleleID, Type, Name, GeneID, GeneSymbol, HGNC_ID, ClinicalSignificance, 
+ClinSigSimple, LastEvaluated, RS (dbSNP), nsv/esv (dbVar), RCVaccession, 
+PhenotypeIDS, PhenotypeList, Origin, OriginSimple, Assembly, 
+ChromosomeAccession, Chromosome, Start, Stop, ReferenceAllele, 
+AlternateAllele, Cytogenetic, ReviewStatus, NumberSubmitters, Guidelines, 
+TestedInGTR, OtherIDs, SubmitterCategories, VariationID, 
+PositionVCF, ReferenceAlleleVCF, AlternateAlleleVCF
 """
 
 import os
-import sys
-import time
+import gzip
+import urllib.request
 import pandas as pd
-from Bio import Entrez
-from dotenv import load_dotenv
-import logging
 from pathlib import Path
+import logging
+from datetime import datetime
 
 # Setup logging
 logging.basicConfig(
@@ -29,341 +47,236 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
+# Configuration
+CLINVAR_VARIANT_FTP_URL = "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz"
+CHUNK_SIZE = 100000
 
+# Paths
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
-
 OUTPUT_DIR = PROJECT_ROOT / "data" / "raw" / "variants"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 logger.info(f"Project root: {PROJECT_ROOT}")
 logger.info(f"Output directory: {OUTPUT_DIR}")
 
-# Configuration
-Entrez.email = "sharique020709@gmail.com"
-Entrez.api_key = os.getenv('NCBI_API_KEY')
 
-# Extended gene list (matches gene download script)
-GENES_FOR_VARIANTS = [
-    # High-priority genes with many variants
-    "BRCA1", "BRCA2", "TP53", "CFTR", "HBB", "APOE", "HTT", "DMD",
-    "F8", "F9", "MTHFR", "EGFR", "KRAS", "BRAF",
+def download_variant_summary_file():
+    local_file = OUTPUT_DIR / "variant_summary.txt.gz"
     
-    # Additional cancer genes
-    "PALB2", "ATM", "CHEK2", "PTEN", "APC", "MLH1", "MSH2", "MSH6",
-    
-    # More genetic disorder genes
-    "VHL", "NF1", "NF2", "RB1", "CDH1", "STK11"
-]
-
-
-def search_clinvar_variants(gene_name, max_results=500):
-    """
-    Search ClinVar for pathogenic variants of a specific gene.
-    INCREASED: max_results from 100 to 500 for more data.
-    """
-    try:
-        logger.info(f"Searching ClinVar variants for gene: {gene_name}")
-        
-        # Search for ALL clinical significance (not just pathogenic)
-        # to get more variants for analysis
-        search_query = f"{gene_name}[Gene Name]"
-        
-        search_handle = Entrez.esearch(
-            db="clinvar",
-            term=search_query,
-            retmax=max_results,
-            usehistory="y"
-        )
-        search_results = Entrez.read(search_handle, validate=False)
-        search_handle.close()
-        
-        variant_ids = search_results['IdList']
-        logger.info(f"Found {len(variant_ids)} variants for {gene_name}")
-        
-        return variant_ids
-        
-    except Exception as e:
-        logger.error(f"Error searching variants for {gene_name}: {e}")
-        return []
-
-
-def fetch_variant_details(variant_ids):
-    """
-    Fetch detailed information for variant IDs.
-    Optimized batch processing for more data.
-    """
-    variant_details = []
+    logger.info(f"Downloading variant summary from ClinVar FTP...")
+    logger.info(f"URL: {CLINVAR_VARIANT_FTP_URL}")
+    logger.info("This may take 5-10 minutes (file is around 400 MB)...")
     
     try:
-        # Process in batches of 20
-        batch_size = 20
-        total_batches = (len(variant_ids) + batch_size - 1) // batch_size
+        def progress_hook(block_num, block_size, total_size):
+            if total_size > 0:
+                percent = (block_num * block_size / total_size) * 100
+                downloaded_mb = (block_num * block_size) / (1024 * 1024)
+                total_mb = total_size / (1024 * 1024)
+                if block_num % 100 == 0:
+                    print(f"  Progress: {percent:.1f}% ({downloaded_mb:.1f}/{total_mb:.1f} MB)", end='\r')
         
-        for batch_num, i in enumerate(range(0, len(variant_ids), batch_size), 1):
-            batch = variant_ids[i:i+batch_size]
-            logger.info(f"  Fetching batch {batch_num}/{total_batches} "
-                       f"(variants {i+1} to {min(i+batch_size, len(variant_ids))})")
-            
-            try:
-                fetch_handle = Entrez.esummary(
-                    db="clinvar",
-                    id=",".join(batch),
-                    retmode="xml"
-                )
-                
-                records = Entrez.read(fetch_handle, validate=False)
-                fetch_handle.close()
-                
-                # Parse records
-                if 'DocumentSummarySet' in records:
-                    summaries = records['DocumentSummarySet'].get('DocumentSummary', [])
-                    
-                    for record in summaries:
-                        try:
-                            variant_info = parse_variant_record(record)
-                            if variant_info:
-                                variant_details.append(variant_info)
-                        except Exception as e:
-                            logger.debug(f"Error parsing variant: {e}")
-                            continue
-                
-                # Rate limiting
-                time.sleep(0.4)
-                
-            except Exception as e:
-                logger.warning(f"Error fetching batch {batch_num}: {e}")
-                continue
-            
-    except Exception as e:
-        logger.error(f"Error in fetch_variant_details: {e}")
+        urllib.request.urlretrieve(CLINVAR_VARIANT_FTP_URL, local_file, reporthook=progress_hook)
+        print()
+        
+        file_size = local_file.stat().st_size / (1024 * 1024)
+        logger.info(f"Downloaded successfully: {local_file}")
+        logger.info(f"  File size: {file_size:.2f} MB")
+        
+        return local_file
     
-    return variant_details
-
-
-def parse_variant_record(record):
-    """Parse a single variant record safely with more fields."""
-    try:
-        # Extract clinical significance
-        clin_sig = extract_clinical_significance(record)
-        
-        # Extract more detailed information
-        variant_info = {
-            'variant_id': safe_get_attr(record, 'uid', 'Unknown'),
-            'accession': safe_get_attr(record, 'accession', 'Unknown'),
-            'gene_name': extract_gene_name_safe(record),
-            'clinical_significance': clin_sig,
-            'disease': extract_disease_safe(record),
-            'chromosome': safe_get_attr(record, 'chr_sort', 'Unknown'),
-            'position': safe_get_attr(record, 'chr_start', None),
-            'stop_position': safe_get_attr(record, 'chr_stop', None),
-            'variant_type': safe_get_attr(record, 'variation_set_type', 'Unknown'),
-            'molecular_consequence': safe_get_attr(record, 'molecular_consequence', 'Unknown'),
-            'protein_change': safe_get_attr(record, 'protein_change', 'Unknown'),
-            'allele_id': safe_get_attr(record, 'variation_set_id', 'Unknown'),
-            'review_status': safe_get_attr(record, 'clinical_significance_review_status', 'Unknown'),
-            'assembly': safe_get_attr(record, 'genome_assembly', 'GRCh38'),
-            'cytogenetic': safe_get_attr(record, 'cytogenetic', 'Unknown')
-        }
-        
-        return variant_info
-        
     except Exception as e:
-        logger.debug(f"Error parsing variant record: {e}")
+        logger.error(f"Error downloading file: {e}")
         return None
 
 
-def safe_get_attr(obj, attr, default='Unknown'):
-    """Safely get attribute from object or dict."""
+def get_column(chunk, possible_names, default='Unknown'):
+    """Get column value handling different possible column names."""
+    for name in possible_names:
+        if name in chunk.columns:
+            return chunk[name]
+    return default
+
+
+def process_variant_chunk(chunk, chunk_num):
     try:
-        if hasattr(obj, 'get'):
-            value = obj.get(attr, default)
-            return value if value else default
-        elif hasattr(obj, attr):
-            value = getattr(obj, attr)
-            return value if value else default
-        else:
-            return default
-    except:
-        return default
-
-
-def extract_gene_name_safe(record):
-    """Extract gene name safely from variant record."""
-    try:
-        genes = safe_get_attr(record, 'genes', [])
-        if genes and len(genes) > 0:
-            if isinstance(genes, list):
-                gene = genes[0]
-                if hasattr(gene, 'get'):
-                    return gene.get('symbol', 'Unknown')
-                elif hasattr(gene, 'symbol'):
-                    return gene.symbol
+        chunk = chunk[chunk['Assembly'] == 'GRCh38'].copy()
         
-        gene_sort = safe_get_attr(record, 'gene_sort', None)
-        if gene_sort and gene_sort != 'Unknown':
-            return gene_sort
+        if len(chunk) == 0:
+            return None
         
-        return 'Unknown'
-    except:
-        return 'Unknown'
-
-
-def extract_clinical_significance(record):
-    """Extract clinical significance safely."""
-    try:
-        clin_sig = safe_get_attr(record, 'clinical_significance', {})
-        if clin_sig and clin_sig != 'Unknown':
-            if hasattr(clin_sig, 'get'):
-                return clin_sig.get('description', 'Unknown')
-            elif hasattr(clin_sig, 'description'):
-                return clin_sig.description
-        return 'Unknown'
-    except:
-        return 'Unknown'
-
-
-def extract_disease_safe(record):
-    """Extract disease/condition safely."""
-    try:
-        title = safe_get_attr(record, 'title', None)
-        if title and title != 'Unknown':
-            if ':' in title:
-                disease = title.split(':', 1)[1].strip()
-                return disease if disease else title
-            return title
+        df_clean = pd.DataFrame()
         
-        trait_set = safe_get_attr(record, 'trait_set', [])
-        if trait_set and len(trait_set) > 0:
-            trait = trait_set[0]
-            if hasattr(trait, 'get'):
-                trait_name = trait.get('trait_name', 'Unknown')
-                if trait_name != 'Unknown':
-                    return trait_name
+        df_clean['variant_id'] = get_column(chunk, ['VariationID', 'Variation ID', 'variation_id'])
+        df_clean['allele_id'] = get_column(chunk, ['AlleleID', 'Allele ID', 'allele_id'])
+        df_clean['accession'] = get_column(chunk, ['RCVaccession', 'RCV accession', 'accession'])
+        df_clean['gene_id'] = get_column(chunk, ['GeneID', 'Gene ID', 'gene_id'], -1)
+        df_clean['gene_name'] = get_column(chunk, ['GeneSymbol', 'Gene Symbol', 'gene_symbol'], 'Unknown')
+        df_clean['clinical_significance'] = get_column(chunk, ['ClinicalSignificance', 'Clinical Significance', 'clinical_significance'], 'Unknown')
+        df_clean['clinical_significance_simple'] = get_column(chunk, ['ClinSigSimple', 'ClinSig Simple', 'clinsig_simple'], 'Unknown')
+        df_clean['disease'] = get_column(chunk, ['PhenotypeList', 'Phenotype List', 'phenotype_list'], 'Unknown')
+        df_clean['phenotype_ids'] = get_column(chunk, ['PhenotypeIDS', 'Phenotype IDS', 'phenotype_ids'], '')
+        df_clean['chromosome'] = get_column(chunk, ['Chromosome', 'chromosome'], 'Unknown')
+        df_clean['position'] = get_column(chunk, ['Start', 'start', 'position'])
+        df_clean['stop_position'] = get_column(chunk, ['Stop', 'stop', 'stop_position'])
+        df_clean['cytogenetic'] = get_column(chunk, ['Cytogenetic', 'cytogenetic'], 'Unknown')
+        df_clean['variant_type'] = get_column(chunk, ['Type', 'type', 'variant_type'], 'Unknown')
+        df_clean['variant_name'] = get_column(chunk, ['Name', 'name', 'variant_name'], 'Unknown')
+        df_clean['reference_allele'] = get_column(chunk, ['ReferenceAllele', 'Reference Allele', 'reference_allele'], '')
+        df_clean['alternate_allele'] = get_column(chunk, ['AlternateAllele', 'Alternate Allele', 'alternate_allele'], '')
+        df_clean['review_status'] = get_column(chunk, ['ReviewStatus', 'Review Status', 'review_status'], 'Unknown')
+        df_clean['number_submitters'] = get_column(chunk, ['NumberSubmitters', 'Number Submitters', 'number_submitters'], 0)
+        df_clean['origin'] = get_column(chunk, ['Origin', 'origin'], 'Unknown')
+        df_clean['origin_simple'] = get_column(chunk, ['OriginSimple', 'Origin Simple', 'origin_simple'], 'Unknown')
+        df_clean['last_evaluated'] = get_column(chunk, ['LastEvaluated', 'Last Evaluated', 'last_evaluated'])
+        df_clean['assembly'] = chunk['Assembly']
         
-        return 'Unknown'
-    except:
-        return 'Unknown'
-
-
-def download_all_variants():
-    """Download variants for all genes."""
-    all_variants = []
-    total_genes = len(GENES_FOR_VARIANTS)
-    
-    logger.info(f"Starting download of variants for {total_genes} genes...")
-    
-    for idx, gene_name in enumerate(GENES_FOR_VARIANTS, 1):
-        try:
-            logger.info(f"\n{'='*70}")
-            logger.info(f"[{idx}/{total_genes}] Processing gene: {gene_name}")
-            logger.info(f"{'='*70}")
-            
-            # Search for variants (up to 500 per gene)
-            variant_ids = search_clinvar_variants(gene_name, max_results=500)
-            
-            if variant_ids:
-                # Fetch variant details
-                variant_details = fetch_variant_details(variant_ids)
-                all_variants.extend(variant_details)
-                logger.info(f"✅ [{idx}/{total_genes}] Downloaded {len(variant_details)} variants for {gene_name}")
-            else:
-                logger.warning(f"⚠️ [{idx}/{total_genes}] No variants found for {gene_name}")
-            
-            # Rate limiting between genes
-            time.sleep(1)
-            
-        except Exception as e:
-            logger.error(f"❌ Error processing {gene_name}: {e}")
-            continue
-    
-    # Create DataFrame
-    if all_variants:
-        df_variants = pd.DataFrame(all_variants)
+        df_clean['gene_id'] = pd.to_numeric(df_clean['gene_id'], errors='coerce').fillna(-1).astype(int)
+        df_clean['number_submitters'] = pd.to_numeric(df_clean['number_submitters'], errors='coerce').fillna(0).astype(int)
         
-        # Clean up data
-        df_variants = df_variants[df_variants['gene_name'] != 'Unknown']
-        
-        logger.info(f"\n📊 Downloaded {len(df_variants)} total variants from {total_genes} genes")
-        return df_variants
-    else:
-        logger.error("❌ No variants downloaded")
-        return pd.DataFrame()
-
-
-def save_variant_data(df_variants):
-    """Save variant data to CSV."""
-    output_path = OUTPUT_DIR / "clinvar_pathogenic.csv"
-    
-    try:
-        df_variants.to_csv(output_path, index=False)
-        logger.info(f"✅ Variant data saved to: {output_path}")
-        
-        # Display comprehensive summary
-        print("\n" + "="*70)
-        print("VARIANT DATA DOWNLOAD SUMMARY")
-        print("="*70)
-        print(f"Total variants downloaded: {len(df_variants)}")
-        print(f"Output file: {output_path}")
-        
-        print("\n🧬 Variants by gene (Top 15):")
-        print(df_variants['gene_name'].value_counts().head(15))
-        
-        print("\n⚕️ Variants by clinical significance:")
-        print(df_variants['clinical_significance'].value_counts())
-        
-        print("\n📍 Variants by chromosome (Top 15):")
-        print(df_variants['chromosome'].value_counts().head(15))
-        
-        print("\n🔬 Variants by type:")
-        print(df_variants['variant_type'].value_counts().head(10))
-        
-        print("\n📋 Sample variants:")
-        print(df_variants[['gene_name', 'chromosome', 'clinical_significance', 
-                          'variant_type']].head(15))
-        
-        print("\n💾 All columns saved:")
-        print(df_variants.columns.tolist())
-        print("="*70)
-        
-        # Additional statistics
-        pathogenic_count = len(df_variants[df_variants['clinical_significance'].str.contains(
-            'Pathogenic', case=False, na=False)])
-        print(f"\n🎯 Pathogenic/Likely pathogenic variants: {pathogenic_count}")
-        print(f"📊 Unique genes with variants: {df_variants['gene_name'].nunique()}")
-        print(f"🧬 Unique diseases/conditions: {df_variants['disease'].nunique()}")
+        return df_clean
         
     except Exception as e:
-        logger.error(f"❌ Error saving variant data: {e}")
+        logger.error(f"Error processing chunk {chunk_num}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
+
+
+def parse_variant_summary_file_chunked(variant_summary_file):
+    logger.info("Starting CHUNKED parsing (memory efficient)...")
+    logger.info(f"Processing {CHUNK_SIZE:,} rows at a time...")
+    
+    output_file = OUTPUT_DIR / "clinvar_all_variants.csv"
+    output_file_pathogenic = OUTPUT_DIR / "clinvar_pathogenic.csv"
+    
+    if output_file.exists():
+        output_file.unlink()
+    if output_file_pathogenic.exists():
+        output_file_pathogenic.unlink()
+    
+    try:
+        total_processed = 0
+        total_kept = 0
+        total_pathogenic = 0
+        chunk_num = 0
+        first_chunk = True
+        
+        with gzip.open(variant_summary_file, 'rt', encoding='utf-8') as f:
+            for chunk in pd.read_csv(f, sep='\t', chunksize=CHUNK_SIZE, low_memory=False):
+                chunk_num += 1
+                total_processed += len(chunk)
+                
+                if first_chunk:
+                    logger.info(f"File columns detected: {list(chunk.columns)[:10]}...")
+                    first_chunk = False
+                
+                logger.info(f"Processing chunk {chunk_num} (rows {total_processed-len(chunk)+1:,} to {total_processed:,})...")
+                
+                df_clean = process_variant_chunk(chunk, chunk_num)
+                
+                if df_clean is None or len(df_clean) == 0:
+                    logger.info(f"  Chunk {chunk_num}: 0 variants after GRCh38 filter")
+                    continue
+                
+                total_kept += len(df_clean)
+                
+                df_clean.to_csv(output_file, mode='a', header=(chunk_num == 1), index=False)
+                
+                df_pathogenic = df_clean[
+                    df_clean['clinical_significance'].astype(str).str.contains('Pathogenic', case=False, na=False)
+                ]
+                
+                if len(df_pathogenic) > 0:
+                    total_pathogenic += len(df_pathogenic)
+                    df_pathogenic.to_csv(output_file_pathogenic, mode='a', header=(chunk_num == 1), index=False)
+                
+                logger.info(f"  Chunk {chunk_num}: {len(df_clean):,} variants kept (GRCh38), {len(df_pathogenic):,} pathogenic")
+        
+        logger.info(f"\nParsing complete!")
+        logger.info(f"  Total rows processed: {total_processed:,}")
+        logger.info(f"  Total variants kept (GRCh38): {total_kept:,}")
+        logger.info(f"  Total pathogenic variants: {total_pathogenic:,}")
+        
+        return output_file, output_file_pathogenic, total_kept, total_pathogenic
+        
+    except Exception as e:
+        logger.error(f"Error parsing variant summary file: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None, None, 0, 0
+
+
+def generate_summary_statistics(output_file, total_variants):
+    logger.info("\nGenerating summary statistics...")
+    
+    try:
+        df_sample = pd.read_csv(output_file, nrows=50000)
+        
+        print("\n" + "="*70)
+        print("VARIANT DATA SUMMARY")
+        print("="*70)
+        print(f"Total variants saved: {total_variants:,}")
+        print(f"Output file: {output_file}")
+        print(f"File size: {output_file.stat().st_size / (1024*1024):.2f} MB")
+        
+        print("\nVariants by gene (Top 20 from sample):")
+        print(df_sample['gene_name'].value_counts().head(20))
+        
+        print("\nVariants by clinical significance (from sample):")
+        print(df_sample['clinical_significance'].value_counts().head(10))
+        
+        print("\nVariants by chromosome (from sample):")
+        print(df_sample['chromosome'].value_counts().head(15))
+        
+        print("\nVariants by type (from sample):")
+        print(df_sample['variant_type'].value_counts().head(10))
+        
+        print("\nReview status (from sample):")
+        print(df_sample['review_status'].value_counts().head(10))
+        
+        print("\nSample variants:")
+        print(df_sample[['gene_name', 'chromosome', 'clinical_significance', 'variant_type']].head(10))
+        
+        print("="*70)
+        
+    except Exception as e:
+        logger.warning(f"Could not generate summary statistics: {e}")
 
 
 def main():
-    """Main execution function."""
     print("\n" + "="*70)
-    print("VARIANT DATA EXTRACTION FROM CLINVAR")
+    print("OPTIMIZED VARIANT DATA EXTRACTION - MEMORY EFFICIENT")
     print("="*70)
-    print(f"Downloading variants for {len(GENES_FOR_VARIANTS)} genes...")
-    print(f"Target: ~500 variants per gene = ~5000-10000 total variants")
+    print("This script uses CHUNKED PROCESSING to avoid memory issues")
+    print(f"Chunk size: {CHUNK_SIZE:,} rows at a time")
     print(f"Output: {OUTPUT_DIR}")
-    print("This may take 10-15 minutes...\n")
+    print("This will take 5-10 minutes...\n")
+    print("="*70 + "\n")
     
-    if not Entrez.api_key:
-        logger.warning("⚠️ No NCBI API key found. Download will be slower.")
-        logger.warning("Get API key from: https://www.ncbi.nlm.nih.gov/account/")
+    variant_summary_file = download_variant_summary_file()
+    if not variant_summary_file:
+        logger.error("Failed to download variant summary file")
+        return
     
-    # Download variants
-    df_variants = download_all_variants()
+    output_file, output_file_pathogenic, total_all, total_pathogenic = parse_variant_summary_file_chunked(variant_summary_file)
     
-    # Save results
-    if not df_variants.empty:
-        save_variant_data(df_variants)
-        print(f"\n✅ Variant data extraction completed successfully!")
-        print(f"📁 Check file: {OUTPUT_DIR / 'clinvar_pathogenic.csv'}")
-    else:
-        print("\n❌ Variant data extraction failed!")
-
+    if output_file is None:
+        logger.error("Failed to parse variant summary file")
+        return
+    
+    generate_summary_statistics(output_file, total_all)
+    
+    print("\n" + "="*70)
+    print("SUCCESS - VARIANT DATA EXTRACTION COMPLETED")
+    print("="*70)
+    print(f"All variants (GRCh38): {output_file}")
+    print(f"  Total: {total_all:,} variants")
+    print(f"\nPathogenic only: {output_file_pathogenic}")
+    print(f"  Total: {total_pathogenic:,} variants")
+    print(f"\nThis is {total_all / 7000:.0f}x MORE data than before")
+    print("="*70)
 
 if __name__ == "__main__":
     main()

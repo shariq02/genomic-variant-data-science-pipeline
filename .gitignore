@@ -10,12 +10,12 @@ env/
 *.egg-info/
 
 # Data files (large files)
-#data/raw/*
-#data/processed/*
-#data/analytical/*
-#!data/raw/.gitkeep
-#!data/processed/.gitkeep
-#!data/analytical/.gitkeep
+data/raw/*
+data/processed/*
+data/analytical/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/analytical/.gitkeep
 
 # Environment variables
 .env

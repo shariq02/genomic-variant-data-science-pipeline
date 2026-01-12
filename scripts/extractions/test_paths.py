@@ -28,6 +28,6 @@ variants_dir = project_root / "data" / "raw" / "variants"
 genes_dir.mkdir(parents=True, exist_ok=True)
 variants_dir.mkdir(parents=True, exist_ok=True)
 
-print("\n✅ Directories created/verified successfully!")
-print(f"✅ Genes directory exists: {genes_dir.exists()}")
-print(f"✅ Variants directory exists: {variants_dir.exists()}")
+print("\n Directories created/verified successfully!")
+print(f" Genes directory exists: {genes_dir.exists()}")
+print(f" Variants directory exists: {variants_dir.exists()}")

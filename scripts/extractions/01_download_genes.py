@@ -1,26 +1,41 @@
 # ====================================================================
-# Gene Data Extraction
+# IMPROVED Gene Data Extraction - Bulk Download
 # DNA Gene Mapping Project
 # Author: Sharique Mohammad
-# Date: 28 December 2025
+# Date: January 12, 2026
 # ====================================================================
-# FILE 1: scripts/extraction/01_download_genes.py
-# Purpose: Download gene metadata from NCBI
+# FILE: scripts/extraction/01_download_genes.py
+# Purpose: Download ALL human genes from NCBI FTP (20,000+ genes)
 # ====================================================================
 
 """
-Gene Data Extraction from NCBI
-Downloads gene information for disease-related genes.
+IMPROVED Gene Data Extraction from NCBI
+Downloads ALL human genes in bulk from NCBI FTP site.
+
+Key Improvements:
+1. Downloads ALL human genes (20,000+) instead of just 42
+2. Uses FTP bulk download instead of slow API calls
+3. Processes Homo_sapiens.gene_info.gz file
+4. Much faster (minutes instead of hours)
+5. Complete gene metadata with proper field mappings
+
+Data Source:
+ftp://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz
+
+Fields Available (from NCBI Gene README):
+tax_id GeneID Symbol LocusTag Synonyms dbXrefs chromosome map_location 
+description type_of_gene Symbol_from_nomenclature_authority 
+Full_name_from_nomenclature_authority Nomenclature_status Other_designations 
+Modification_date Feature_type
 """
 
 import os
-import sys
-import time
+import gzip
+import urllib.request
 import pandas as pd
-from Bio import Entrez
-from dotenv import load_dotenv
-import logging
 from pathlib import Path
+import logging
+from datetime import datetime
 
 # Setup logging
 logging.basicConfig(
@@ -29,260 +44,239 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
+# Configuration
+NCBI_GENE_FTP_URL = "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz"
+CHUNK_SIZE = 10000  # Process 10k rows at a time (gene file is smaller)
 
+# Paths
 SCRIPT_DIR = Path(__file__).parent  # scripts/extraction/
 PROJECT_ROOT = SCRIPT_DIR.parent.parent  # genomic-variant-data-science-pipeline/
-
 OUTPUT_DIR = PROJECT_ROOT / "data" / "raw" / "genes"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 logger.info(f"Project root: {PROJECT_ROOT}")
 logger.info(f"Output directory: {OUTPUT_DIR}")
 
-# Configuration
-Entrez.email = "sharique020709@gmail.com"
-Entrez.api_key = os.getenv('NCBI_API_KEY')
 
-# Extended list of disease-related genes (30+ genes for more data)
-GENES_TO_DOWNLOAD = [
-    # Breast/Ovarian Cancer
-    "BRCA1", "BRCA2", "PALB2", "ATM", "CHEK2", "PTEN", "CDH1", "STK11",
+def download_gene_info_file():
+    """Download the Homo_sapiens.gene_info.gz file from NCBI FTP."""
+    local_file = OUTPUT_DIR / "Homo_sapiens.gene_info.gz"
     
-    # Colorectal Cancer
-    "APC", "MLH1", "MSH2", "MSH6", "PMS2", "EPCAM",
+    logger.info(f"Downloading gene info from NCBI FTP...")
+    logger.info(f"URL: {NCBI_GENE_FTP_URL}")
     
-    # Tumor Suppressors
-    "TP53", "RB1", "VHL", "NF1", "NF2", "TSC1", "TSC2",
-    
-    # Genetic Disorders
-    "CFTR",     # Cystic Fibrosis
-    "HBB",      # Sickle Cell Disease
-    "HTT",      # Huntington's Disease
-    "DMD",      # Muscular Dystrophy
-    "F8", "F9", # Hemophilia
-    "MTHFR",    # Folate metabolism
-    
-    # Alzheimer's & Neurodegenerative
-    "APOE", "APP", "PSEN1", "PSEN2",
-    
-    # Cancer Oncogenes
-    "EGFR", "KRAS", "BRAF", "MYC", "HER2",
-    
-    # Lynch Syndrome
-    "MUTYH", "SMAD4",
-    
-    # Additional Important Genes
-    "BRIP1", "RAD51C", "RAD51D"
-]
-
-
-def search_gene(gene_name):
-    """Search for gene ID by gene name."""
     try:
-        logger.info(f"Searching for gene: {gene_name}")
+        # Download
+        urllib.request.urlretrieve(NCBI_GENE_FTP_URL, local_file)
         
-        search_handle = Entrez.esearch(
-            db="gene",
-            term=f"{gene_name}[Gene Name] AND Homo sapiens[Organism]",
-            retmax=1
-        )
-        search_results = Entrez.read(search_handle, validate=False)
-        search_handle.close()
+        file_size = local_file.stat().st_size / (1024 * 1024)
+        logger.info(f"Downloaded successfully: {local_file}")
+        logger.info(f"  File size: {file_size:.2f} MB")
         
-        if search_results['IdList']:
-            gene_id = search_results['IdList'][0]
-            logger.info(f"Found gene ID: {gene_id} for {gene_name}")
-            return gene_id
-        else:
-            logger.warning(f"Gene not found: {gene_name}")
-            return None
-            
+        return local_file
+    
     except Exception as e:
-        logger.error(f"Error searching gene {gene_name}: {e}")
+        logger.error(f"Error downloading file: {e}")
         return None
 
 
-def fetch_gene_details_summary(gene_id, gene_name):
-    """Fetch gene details using esummary (more reliable)."""
-    try:
-        logger.info(f"Fetching details for gene ID: {gene_id}")
-        
-        handle = Entrez.esummary(db="gene", id=gene_id, retmode="xml")
-        records = Entrez.read(handle, validate=False)
-        handle.close()
-        
-        if records and 'DocumentSummarySet' in records:
-            record = records['DocumentSummarySet']['DocumentSummary'][0]
-            
-            # Extract gene details safely
-            gene_details = {
-                'gene_id': gene_id,
-                'gene_name': gene_name,
-                'official_symbol': safe_get(record, 'NomenclatureSymbol', gene_name),
-                'description': safe_get(record, 'Description', 'No description available'),
-                'chromosome': safe_get(record, 'Chromosome', 'Unknown'),
-                'map_location': safe_get(record, 'MapLocation', 'Unknown'),
-                'gene_type': safe_get(record, 'GeneType', 'Unknown'),
-                'summary': safe_get(record, 'Summary', 'No summary available'),
-                'other_aliases': safe_get(record, 'OtherAliases', ''),
-                'other_designations': safe_get(record, 'OtherDesignations', '')
-            }
-            
-            # Extract genomic positions
-            try:
-                genomic_info = record.get('GenomicInfo', [])
-                if genomic_info and len(genomic_info) > 0:
-                    gene_details['start_position'] = genomic_info[0].get('ChrStart', None)
-                    gene_details['end_position'] = genomic_info[0].get('ChrStop', None)
-                    gene_details['strand'] = genomic_info[0].get('ChrStrand', 'Unknown')
-                    
-                    # Calculate gene length
-                    if gene_details['start_position'] and gene_details['end_position']:
-                        gene_details['gene_length'] = abs(int(gene_details['end_position']) - 
-                                                           int(gene_details['start_position']))
-                else:
-                    gene_details['start_position'] = None
-                    gene_details['end_position'] = None
-                    gene_details['strand'] = 'Unknown'
-                    gene_details['gene_length'] = None
-            except Exception as e:
-                logger.warning(f"Could not extract genomic info: {e}")
-                gene_details['start_position'] = None
-                gene_details['end_position'] = None
-                gene_details['strand'] = 'Unknown'
-                gene_details['gene_length'] = None
-            
-            logger.info(f"✅ Successfully fetched details for gene: {gene_name}")
-            return gene_details
-        else:
-            logger.error(f"No records found for gene ID: {gene_id}")
-            return None
-            
-    except Exception as e:
-        logger.error(f"Error fetching gene details for ID {gene_id}: {e}")
-        return None
-
-
-def safe_get(dictionary, key, default='Unknown'):
-    """Safely get value from dictionary or object."""
-    try:
-        if hasattr(dictionary, 'get'):
-            value = dictionary.get(key, default)
-            return value if value else default
-        elif hasattr(dictionary, key):
-            value = getattr(dictionary, key)
-            return value if value else default
-        else:
-            return default
-    except:
-        return default
-
-
-def download_all_genes():
-    """Download all genes in the list."""
-    gene_data_list = []
-    total_genes = len(GENES_TO_DOWNLOAD)
+def process_gene_chunk(chunk):
+    """Process a single chunk of gene data."""
     
-    logger.info(f"Starting download of {total_genes} genes...")
+    # Create cleaned dataframe
+    df_clean = pd.DataFrame()
     
-    for idx, gene_name in enumerate(GENES_TO_DOWNLOAD, 1):
-        try:
-            logger.info(f"\n[{idx}/{total_genes}] Processing: {gene_name}")
-            
-            # Search for gene
-            gene_id = search_gene(gene_name)
-            
-            if gene_id:
-                # Fetch details
-                gene_details = fetch_gene_details_summary(gene_id, gene_name)
+    # Basic fields
+    df_clean['gene_id'] = chunk['gene_id']
+    df_clean['gene_name'] = chunk['symbol']
+    df_clean['official_symbol'] = chunk['symbol_from_nomenclature_authority'].fillna(chunk['symbol'])
+    df_clean['description'] = chunk['description'].fillna('No description available')
+    df_clean['chromosome'] = chunk['chromosome']
+    df_clean['map_location'] = chunk['map_location'].fillna('Unknown')
+    df_clean['gene_type'] = chunk['type_of_gene'].fillna('Unknown')
+    
+    # Synonyms and other names
+    df_clean['other_aliases'] = chunk['synonyms'].fillna('')
+    df_clean['other_designations'] = chunk['other_designations'].fillna('')
+    
+    # Full name
+    df_clean['full_name'] = chunk['full_name_from_nomenclature_authority'].fillna(chunk['description'])
+    
+    # Nomenclature status
+    df_clean['nomenclature_status'] = chunk['nomenclature_status'].fillna('Unknown')
+    
+    # Database cross-references
+    df_clean['db_xrefs'] = chunk['db_xrefs'].fillna('')
+    
+    # Modification date
+    df_clean['modification_date'] = chunk['modification_date']
+    
+    # Feature type
+    df_clean['feature_type'] = chunk['feature_type'].fillna('Unknown')
+    
+    # Genomic positions (not available in gene_info)
+    df_clean['start_position'] = None
+    df_clean['end_position'] = None
+    df_clean['strand'] = 'Unknown'
+    df_clean['gene_length'] = None
+    
+    # Add download metadata
+    df_clean['download_date'] = datetime.now().strftime('%Y-%m-%d')
+    df_clean['data_source'] = 'NCBI Gene FTP'
+    
+    return df_clean
+
+
+def parse_gene_info_file_chunked(gene_info_file):
+    """Parse the gene_info file in CHUNKS."""
+    
+    logger.info("Starting CHUNKED parsing (memory efficient)...")
+    logger.info(f"Processing {CHUNK_SIZE:,} rows at a time...")
+    
+    output_file_all = OUTPUT_DIR / "gene_metadata_all.csv"
+    output_file_protein = OUTPUT_DIR / "gene_metadata.csv"
+    
+    # Delete old files if they exist
+    if output_file_all.exists():
+        output_file_all.unlink()
+    if output_file_protein.exists():
+        output_file_protein.unlink()
+    
+    try:
+        # Column names from NCBI Gene README
+        columns = [
+            'tax_id', 'gene_id', 'symbol', 'locus_tag', 'synonyms', 'db_xrefs',
+            'chromosome', 'map_location', 'description', 'type_of_gene',
+            'symbol_from_nomenclature_authority', 'full_name_from_nomenclature_authority',
+            'nomenclature_status', 'other_designations', 'modification_date', 'feature_type'
+        ]
+        
+        total_processed = 0
+        total_protein_coding = 0
+        chunk_num = 0
+        
+        # Process file in chunks
+        with gzip.open(gene_info_file, 'rt', encoding='utf-8') as f:
+            for chunk in pd.read_csv(
+                f,
+                sep='\t',
+                comment='#',
+                names=columns,
+                chunksize=CHUNK_SIZE,
+                low_memory=False
+            ):
+                chunk_num += 1
+                total_processed += len(chunk)
                 
-                if gene_details:
-                    gene_data_list.append(gene_details)
-                    logger.info(f"✅ [{idx}/{total_genes}] Successfully processed: {gene_name}")
-                else:
-                    logger.warning(f"⚠️ [{idx}/{total_genes}] Could not fetch details for: {gene_name}")
-            else:
-                logger.warning(f"⚠️ [{idx}/{total_genes}] Could not find gene ID for: {gene_name}")
-            
-            # Rate limiting
-            time.sleep(0.4)  # 2.5 requests/second with API key
-            
-        except Exception as e:
-            logger.error(f"❌ Error processing {gene_name}: {e}")
-            continue
+                logger.info(f"Processing chunk {chunk_num} (rows {total_processed-len(chunk)+1:,} to {total_processed:,})...")
+                
+                # Process this chunk
+                df_clean = process_gene_chunk(chunk)
+                
+                # Save all genes
+                df_clean.to_csv(
+                    output_file_all,
+                    mode='a',
+                    header=(chunk_num == 1),
+                    index=False
+                )
+                
+                # Save protein-coding genes separately
+                df_protein = df_clean[df_clean['gene_type'] == 'protein-coding'].copy()
+                if len(df_protein) > 0:
+                    total_protein_coding += len(df_protein)
+                    df_protein.to_csv(
+                        output_file_protein,
+                        mode='a',
+                        header=(chunk_num == 1),
+                        index=False
+                    )
+                
+                logger.info(f"  Chunk {chunk_num}: {len(df_clean):,} total genes, {len(df_protein):,} protein-coding")
+        
+        logger.info(f"\nParsing complete!")
+        logger.info(f"  Total genes processed: {total_processed:,}")
+        logger.info(f"  Protein-coding genes: {total_protein_coding:,}")
+        
+        return output_file_all, output_file_protein, total_processed, total_protein_coding
+        
+    except Exception as e:
+        logger.error(f"Error parsing gene info file: {e}")
+        return None, None, 0, 0
+
+
+def generate_summary_statistics(output_file, total_genes):
+    """Generate summary statistics from the output file."""
     
-    # Create DataFrame
-    if gene_data_list:
-        df_genes = pd.DataFrame(gene_data_list)
-        logger.info(f"\n📊 Downloaded {len(df_genes)} genes successfully out of {total_genes} attempted")
-        return df_genes
-    else:
-        logger.error("❌ No genes downloaded")
-        return pd.DataFrame()
-
-
-def save_gene_data(df_genes):
-    """Save gene data to CSV."""
-    output_path = OUTPUT_DIR / "gene_metadata.csv"
+    logger.info("\nGenerating summary statistics...")
     
     try:
-        df_genes.to_csv(output_path, index=False)
-        logger.info(f"✅ Gene data saved to: {output_path}")
+        # Read just the first 10,000 rows for statistics
+        df_sample = pd.read_csv(output_file, nrows=10000)
         
-        # Display comprehensive summary
         print("\n" + "="*70)
-        print("GENE DATA DOWNLOAD SUMMARY")
+        print("GENE DATA SUMMARY")
         print("="*70)
-        print(f"Total genes downloaded: {len(df_genes)}")
-        print(f"Output file: {output_path}")
+        print(f"Total genes saved: {total_genes:,}")
+        print(f"Output file: {output_file}")
+        print(f"File size: {output_file.stat().st_size / (1024*1024):.2f} MB")
         
-        print("\n📍 Genes by chromosome:")
-        print(df_genes['chromosome'].value_counts().head(15))
+        print("\nGenes by type (from sample):")
+        print(df_sample['gene_type'].value_counts().head(10))
         
-        print("\n🧬 Genes by type:")
-        print(df_genes['gene_type'].value_counts())
+        print("\nGenes by chromosome (from sample):")
+        print(df_sample['chromosome'].value_counts().head(15))
         
-        print("\n📏 Gene length statistics (bp):")
-        if df_genes['gene_length'].notna().any():
-            print(df_genes['gene_length'].describe())
+        print("\nNomenclature status (from sample):")
+        print(df_sample['nomenclature_status'].value_counts())
         
-        print("\n📋 Sample genes:")
-        print(df_genes[['gene_name', 'chromosome', 'gene_type', 'gene_length']].head(15))
+        print("\nSample genes:")
+        print(df_sample[['gene_name', 'chromosome', 'gene_type', 'description']].head(10))
         
-        print("\n💾 All columns saved:")
-        print(df_genes.columns.tolist())
         print("="*70)
         
     except Exception as e:
-        logger.error(f"❌ Error saving gene data: {e}")
+        logger.warning(f"Could not generate summary statistics: {e}")
 
 
 def main():
     """Main execution function."""
     print("\n" + "="*70)
-    print("GENE DATA EXTRACTION FROM NCBI")
+    print("OPTIMIZED GENE DATA EXTRACTION - MEMORY EFFICIENT")
     print("="*70)
-    print(f"Downloading {len(GENES_TO_DOWNLOAD)} disease-related genes...")
+    print("This script uses CHUNKED PROCESSING to avoid memory issues")
+    print(f"Chunk size: {CHUNK_SIZE:,} rows at a time")
     print(f"Output: {OUTPUT_DIR}")
-    print("This may take 3-5 minutes...\n")
+    print("This will take 2-5 minutes...\n")
+    print("="*70 + "\n")
     
-    if not Entrez.api_key:
-        logger.warning("⚠️ No NCBI API key found. Using rate-limited access.")
-        logger.warning("Get API key from: https://www.ncbi.nlm.nih.gov/account/")
+    # Step 1: Download gene_info file from NCBI FTP
+    gene_info_file = download_gene_info_file()
+    if not gene_info_file:
+        logger.error("Failed to download gene info file")
+        return
     
-    # Download genes
-    df_genes = download_all_genes()
+    # Step 2: Parse the gene_info file with CHUNKED processing
+    output_file_all, output_file_protein, total_all, total_protein = parse_gene_info_file_chunked(
+        gene_info_file
+    )
     
-    # Save results
-    if not df_genes.empty:
-        save_gene_data(df_genes)
-        print(f"\n✅ Gene data extraction completed successfully!")
-        print(f"📁 Check file: {OUTPUT_DIR / 'gene_metadata.csv'}")
-    else:
-        print("\n❌ Gene data extraction failed!")
-
+    if output_file_all is None:
+        logger.error("Failed to parse gene info file")
+        return
+    
+    # Step 3: Generate summary statistics
+    generate_summary_statistics(output_file_protein, total_protein)
+    
+    print("\n" + "="*70)
+    print("SUCCESS - GENE DATA EXTRACTION COMPLETED")
+    print("="*70)
+    print(f"Protein-coding genes: {output_file_protein}")
+    print(f"  Total: {total_protein:,} genes")
+    print(f"\nAll genes: {output_file_all}")
+    print(f"  Total: {total_all:,} genes")
+    print(f"\nThis is {total_protein / 42:.0f}x MORE data than before")
+    print("="*70)
 
 if __name__ == "__main__":
     main()
