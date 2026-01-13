@@ -22,6 +22,7 @@
 
 # DBTITLE 1,IMPORT
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
 
 # COMMAND ----------
 
@@ -56,10 +57,10 @@ chrom_feat_count = df_chromosome_features.count()
 gene_disease_count = df_gene_disease.count()
 ml_feat_count = df_ml_features.count()
 
-print(f"✓ gene_features: {gene_feat_count:,} rows")
-print(f"✓ chromosome_features: {chrom_feat_count:,} rows")
-print(f"✓ gene_disease_association: {gene_disease_count:,} rows")
-print(f"✓ ml_features: {ml_feat_count:,} rows")
+print(f" gene_features: {gene_feat_count:,} rows")
+print(f" chromosome_features: {chrom_feat_count:,} rows")
+print(f" gene_disease_association: {gene_disease_count:,} rows")
+print(f" ml_features: {ml_feat_count:,} rows")
 
 # COMMAND ----------
 
@@ -116,7 +117,7 @@ for table_name, df in tables_to_export.items():
       .option("header", "true") \
       .csv(output_path)
     
-    print(f"✓ Exported: {output_path}")
+    print(f" Exported: {output_path}")
 
 print("\n" + "="*70)
 print("EXPORT COMPLETE!")

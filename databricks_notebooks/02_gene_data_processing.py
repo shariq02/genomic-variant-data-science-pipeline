@@ -33,12 +33,12 @@ print(f"Spark version: {spark.version}")
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("="*70)
+print("="*40)
 print("GENE DATA PROCESSING - ALL GENES (190K)")
-print("="*70)
+print("="*40)
 print(f"Catalog: {catalog_name}")
 print(f"Processing: default.gene_metadata_all -> bronze.genes_raw -> silver.genes_clean")
-print("="*70)
+print("="*40)
 
 # COMMAND ----------
 
@@ -63,9 +63,9 @@ display(df_genes_raw.limit(5))
 # COMMAND ----------
 
 # DBTITLE 1,Save to Bronze Layer
-print("\n" + "="*70)
+print("\n" + "="*40)
 print("SAVING TO BRONZE LAYER")
-print("="*70)
+print("="*40)
 
 df_genes_raw.write \
     .mode("overwrite") \
@@ -78,9 +78,9 @@ print(f"Rows: {raw_count:,}")
 # COMMAND ----------
 
 # DBTITLE 1,Profiling: Gene Type Distribution
-print("\n" + "="*70)
+print("\n" + "="*40)
 print("DATA PROFILING - GENE TYPE ANALYSIS")
-print("="*70)
+print("="*40)
 
 print("\n1. Gene Type Distribution:")
 display(
@@ -116,9 +116,9 @@ display(null_counts)
 # COMMAND ----------
 
 # DBTITLE 1,Enhanced Cleaning Transformations
-print("\n" + "="*70)
+print("\n" + "="*40)
 print("CLEANING & ENRICHMENT")
-print("="*70)
+print("="*40)
 
 df_genes_clean = (
     df_genes_raw
@@ -136,6 +136,26 @@ df_genes_clean = (
                     '21','22','X','Y','MT'
                 ), col("chromosome"))
                 .otherwise(None))
+    
+    # CONVERT STRING TO LONG BEFORE DOING MATH
+    .withColumn("start_position",
+                when((col("start_position").isNotNull()) & 
+                     (col("start_position").cast("long") > 0), 
+                     col("start_position").cast("long"))  # ADD .cast("long")
+                .otherwise(None))
+    .withColumn("end_position",
+                when((col("end_position").isNotNull()) & 
+                     (col("end_position").cast("long") > 0), 
+                     col("end_position").cast("long"))  # ADD .cast("long")
+                .otherwise(None))
+    
+    # NOW WE CAN DO MATH (both are LONG type now)
+    .withColumn("gene_length",
+                when((col("start_position").isNotNull()) & 
+                     (col("end_position").isNotNull()),
+                     col("end_position") - col("start_position"))
+                .otherwise(col("gene_length").cast("long")))  # Also cast gene_length
+    
     .withColumn("gene_type_clean",
                 when((col("gene_type") == "Unknown") | col("gene_type").isNull(),
                      when(lower(col("description")).contains("protein"), "protein-coding")
@@ -146,21 +166,6 @@ df_genes_clean = (
                      .otherwise("unknown")
                 )
                 .otherwise(trim(col("gene_type"))))
-    .withColumn("start_position",
-                when((col("start_position").isNotNull()) & 
-                     (col("start_position") > 0), 
-                     col("start_position"))
-                .otherwise(None))
-    .withColumn("end_position",
-                when((col("end_position").isNotNull()) & 
-                     (col("end_position") > 0), 
-                     col("end_position"))
-                .otherwise(None))
-    .withColumn("gene_length",
-                when((col("start_position").isNotNull()) & 
-                     (col("end_position").isNotNull()),
-                     col("end_position") - col("start_position"))
-                .otherwise(col("gene_length")))
     .withColumn("description",
                 when((col("description").isNull()) | 
                      (col("description") == "Unknown") |
@@ -189,9 +194,9 @@ print(f"   Removed: {raw_count - clean_count:,} invalid rows")
 # COMMAND ----------
 
 # DBTITLE 1,Verify Cleaning Results
-print("\n" + "="*70)
+print("\n" + "="*40)
 print("VERIFY ENHANCED CLEANING")
-print("="*70)
+print("="*40)
 
 print("\n1. Gene Type Distribution AFTER Cleaning:")
 display(
@@ -227,9 +232,9 @@ display(
 # COMMAND ----------
 
 # DBTITLE 1,Save to Silver Layer
-print("\n" + "="*70)
+print("\n" + "="*40)
 print("SAVING TO SILVER LAYER")
-print("="*70)
+print("="*40)
 
 df_genes_clean.write \
     .mode("overwrite") \
@@ -244,27 +249,27 @@ print(f"Verified: {saved_count:,} genes in Silver layer")
 # COMMAND ----------
 
 # DBTITLE 1,Summary Statistics
-print("\n" + "="*70)
+print("\n" + "="*40)
 print("SUMMARY STATISTICS")
-print("="*70)
+print("="*40)
 
 summary_stats = {
     "total_genes": df_genes_clean.count(),
     "unique_chromosomes": df_genes_clean.select(countDistinct("chromosome")).collect()[0][0],
     "unique_gene_types": df_genes_clean.select(countDistinct("gene_type")).collect()[0][0],
     "genes_with_positions": df_genes_clean.filter(col("start_position").isNotNull()).count(),
-    "avg_gene_length": df_genes_clean.select(avg("gene_length")).collect()[0][0]
+    "avg_gene_length": df_genes_clean.filter(col("gene_length").isNotNull()).select(avg("gene_length")).collect()[0][0] 
 }
 
 print("\nProcessing Summary:")
 for key, value in summary_stats.items():
-    if isinstance(value, float):
+    if value is None: 
+        print(f"  {key}: N/A")
+    elif isinstance(value, float):
         print(f"  {key}: {value:,.2f}")
     else:
         print(f"  {key}: {value:,}")
 
-print("\n" + "="*70)
+print("\n" + "="*40)
 print("GENE PROCESSING COMPLETE")
-print("="*70)
-print("Next: Run 03_variant_data_processing.py")
-print("="*70)
+print("="*40)

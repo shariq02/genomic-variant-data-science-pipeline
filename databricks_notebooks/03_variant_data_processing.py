@@ -482,5 +482,3 @@ for key, value in summary_stats.items():
 print("\n" + "="*70)
 print("VARIANT PROCESSING COMPLETE")
 print("="*70)
-print("Next: Run 04_feature_engineering.py")
-print("="*70)
