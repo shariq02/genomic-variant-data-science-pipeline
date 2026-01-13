@@ -38,10 +38,10 @@ df_chromosome_features = spark.table(f"{catalog_name}.gold.chromosome_features")
 df_gene_disease = spark.table(f"{catalog_name}.gold.gene_disease_association")
 df_ml_features = spark.table(f"{catalog_name}.gold.ml_features")
 
-print(f"✓ gene_features: {df_gene_features.count():,} rows")
-print(f"✓ chromosome_features: {df_chromosome_features.count():,} rows")
-print(f"✓ gene_disease_association: {df_gene_disease.count():,} rows")
-print(f"✓ ml_features: {df_ml_features.count():,} rows")
+print(f" gene_features: {df_gene_features.count():,} rows")
+print(f" chromosome_features: {df_chromosome_features.count():,} rows")
+print(f" gene_disease_association: {df_gene_disease.count():,} rows")
+print(f" ml_features: {df_ml_features.count():,} rows")
 
 # COMMAND ----------
 
@@ -81,7 +81,7 @@ for table_name, df in tables_to_export.items():
       .option("header", "true") \
       .csv(output_path)
     
-    print(f"  ✓ Exported to: {output_path}")
+    print(f"  Exported to: {output_path}")
 
 print("\n" + "="*70)
 print("EXPORT COMPLETE!")
@@ -179,7 +179,7 @@ def export_in_chunks(df, table_name, chunk_size=50000):
                 .option("header", "true") \
                 .csv(chunk_path)
         
-        print(f"  ✓ Chunk {i+1}/{num_chunks} exported")
+        print(f"  Chunk {i+1}/{num_chunks} exported")
 
 # Example usage (uncomment to use):
 # export_in_chunks(df_gene_features, "gene_features_chunked", chunk_size=100000)
