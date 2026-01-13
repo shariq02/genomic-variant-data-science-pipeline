@@ -28,8 +28,8 @@ OUTPUT_DIR = PROJECT_ROOT / "data" / "raw" / "variants" / "chunks"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Settings
-ROWS_PER_CHUNK = 400000  # 400K rows per file (~140MB each)
-TOTAL_CHUNKS = 10
+ROWS_PER_CHUNK = 40000  # 40K rows per file (~15MB)
+TOTAL_CHUNKS = 100
 
 def split_csv_file():
     """Split large CSV into smaller chunks"""
