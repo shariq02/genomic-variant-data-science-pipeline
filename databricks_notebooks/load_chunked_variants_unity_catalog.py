@@ -19,6 +19,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit
 from pyspark.sql.types import StructType, StructField, StringType, LongType
+from pyspark.sql.functions import sum as spark_sum
 
 # COMMAND ----------
 
@@ -242,7 +243,7 @@ null_checks = df_final.select([
     (col(c).isNull().cast("int")).alias(c) 
     for c in ["gene_name", "chromosome", "position", "clinical_significance"]
 ])
-null_counts = null_checks.agg(*[sum(c).alias(c) for c in null_checks.columns])
+null_counts = null_checks.agg(*[spark_sum(c).alias(c) for c in null_checks.columns])
 display(null_counts)
 
 # Check chromosome distribution
