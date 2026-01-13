@@ -21,6 +21,7 @@ from pyspark.sql.functions import (
     regexp_extract, initcap
 )
 from pyspark.sql.types import StringType, ArrayType
+from pyspark.sql.functions import array
 
 # COMMAND ----------
 
