@@ -31,14 +31,14 @@ PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 # Databricks volume paths
-VOLUME_BASE = "/Volumes/workspace/gold/gold_exports"
+VOLUME_BASE = "/Volumes/workspace/gold/gold_exports_enriched"
 
-# Files to download (Spark creates .csv folders, not files)
+# Files to download (Spark creates folders with part files)
 FILES_TO_DOWNLOAD = {
-    "gene_features": f"{VOLUME_BASE}/gene_features.csv/",
-    "chromosome_features": f"{VOLUME_BASE}/chromosome_features.csv/",
-    "gene_disease_association": f"{VOLUME_BASE}/gene_disease_association.csv/",
-    "ml_features": f"{VOLUME_BASE}/ml_features.csv/"
+    "gene_features": f"{VOLUME_BASE}/gene_features/",
+    "chromosome_features": f"{VOLUME_BASE}/chromosome_features/",
+    "gene_disease_association": f"{VOLUME_BASE}/gene_disease_association/",
+    "ml_features": f"{VOLUME_BASE}/ml_features/"
 }
 
 # ====================================================================

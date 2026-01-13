@@ -38,10 +38,10 @@ df_chromosome_features = spark.table(f"{catalog_name}.gold.chromosome_features")
 df_gene_disease = spark.table(f"{catalog_name}.gold.gene_disease_association")
 df_ml_features = spark.table(f"{catalog_name}.gold.ml_features")
 
-print(f" gene_features: {df_gene_features.count():,} rows")
-print(f" chromosome_features: {df_chromosome_features.count():,} rows")
-print(f" gene_disease_association: {df_gene_disease.count():,} rows")
-print(f" ml_features: {df_ml_features.count():,} rows")
+print(f"✓ gene_features: {df_gene_features.count():,} rows")
+print(f"✓ chromosome_features: {df_chromosome_features.count():,} rows")
+print(f"✓ gene_disease_association: {df_gene_disease.count():,} rows")
+print(f"✓ ml_features: {df_ml_features.count():,} rows")
 
 # COMMAND ----------
 
@@ -81,7 +81,7 @@ for table_name, df in tables_to_export.items():
       .option("header", "true") \
       .csv(output_path)
     
-    print(f"  Exported to: {output_path}")
+    print(f"  ✓ Exported to: {output_path}")
 
 print("\n" + "="*70)
 print("EXPORT COMPLETE!")
@@ -107,7 +107,54 @@ for table_name in tables_to_export.keys():
 
 # COMMAND ----------
 
-# DBTITLE 1,METHOD 1: Split Large Tables into Chunks
+# DBTITLE 1,METHOD 1: Download via Databricks CLI (RECOMMENDED FOR LARGE FILES)
+print("\n" + "="*70)
+print("METHOD 1: DATABRICKS CLI (RECOMMENDED)")
+print("="*70)
+
+print("\n1. Install Databricks CLI (if not installed):")
+print("   pip install databricks-cli")
+
+print("\n2. Configure authentication:")
+print("   databricks configure --token")
+print("   Host: https://your-workspace.cloud.databricks.com")
+print("   Token: (generate from User Settings > Access Tokens)")
+
+print("\n3. Download files:")
+print(f"   databricks fs cp -r {volume_path}gene_features/ ./data/processed/gene_features/")
+print(f"   databricks fs cp -r {volume_path}chromosome_features/ ./data/processed/chromosome_features/")
+print(f"   databricks fs cp -r {volume_path}gene_disease_association/ ./data/processed/gene_disease_association/")
+print(f"   databricks fs cp -r {volume_path}ml_features/ ./data/processed/ml_features/")
+
+print("\n4. Each folder contains a .csv file - extract it:")
+print("   cd data/processed/gene_features")
+print("   mv *.csv ../gene_features.csv")
+print("   cd ..")
+print("   rm -rf gene_features/")
+
+# COMMAND ----------
+
+# DBTITLE 1,METHOD 2: Export to External Storage (S3/Azure/GCS)
+print("\n" + "="*70)
+print("METHOD 2: EXPORT TO CLOUD STORAGE")
+print("="*70)
+
+print("\nIf you have S3/Azure Blob/GCS configured:")
+print("\n# For S3:")
+print("s3_path = 's3://your-bucket/gold-exports/'")
+print("for table_name, df in tables_to_export.items():")
+print("    df.coalesce(1).write.mode('overwrite').option('header', 'true').csv(f'{s3_path}{table_name}.csv')")
+
+print("\n# For Azure Blob:")
+print("azure_path = 'wasbs://container@storage.blob.core.windows.net/gold-exports/'")
+print("for table_name, df in tables_to_export.items():")
+print("    df.coalesce(1).write.mode('overwrite').option('header', 'true').csv(f'{azure_path}{table_name}.csv')")
+
+print("\nThen download from cloud storage to local machine")
+
+# COMMAND ----------
+
+# DBTITLE 1,METHOD 3: Split Large Tables into Chunks
 print("\n" + "="*70)
 print("METHOD 3: SPLIT LARGE TABLES (ALTERNATIVE)")
 print("="*70)
@@ -144,7 +191,7 @@ print("  cat gene_features_chunk_*.csv > gene_features.csv")
 
 # COMMAND ----------
 
-# DBTITLE 1,METHOD 2: Use Databricks SQL Warehouse (If Available)
+# DBTITLE 1,METHOD 4: Use Databricks SQL Warehouse (If Available)
 print("\n" + "="*70)
 print("METHOD 4: SQL WAREHOUSE QUERY & DOWNLOAD")
 print("="*70)
@@ -158,6 +205,52 @@ print("5. Repeat for other tables")
 
 # COMMAND ----------
 
+# DBTITLE 1,RECOMMENDED APPROACH SUMMARY
+print("\n" + "="*70)
+print("RECOMMENDED APPROACH FOR YOUR DATA")
+print("="*70)
+
+print("\nBased on your data sizes:")
+print("  • gene_features: 5GB+ → Use Databricks CLI")
+print("  • gene_disease_association: 5GB+ → Use Databricks CLI")
+print("  • chromosome_features: Small → UI download OK")
+print("  • ml_features: Medium → UI download OK")
+
+print("\nStep-by-step:")
+print("\n1. Small tables (chromosome_features, ml_features):")
+print("   • Go to Catalog → workspace → gold → gold_exports")
+print("   • Download directly from UI")
+
+print("\n2. Large tables (gene_features, gene_disease_association):")
+print("   • Install Databricks CLI: pip install databricks-cli")
+print("   • Configure: databricks configure --token")
+print("   • Download via CLI commands shown above")
+
+print("\n3. Verify downloads:")
+print("   • Check file sizes match")
+print("   • Open in text editor to verify CSV format")
+
+print("\n4. Load to PostgreSQL:")
+print("   • python scripts/transformation/load_gold_to_postgres.py")
+
+# COMMAND ----------
+
+# DBTITLE 1,Generate Direct Download Links (if possible)
+print("\n" + "="*70)
+print("DIRECT DOWNLOAD PATHS")
+print("="*70)
+
+print("\nDirect volume paths for CLI download:")
+for table_name in tables_to_export.keys():
+    print(f"\n{table_name}:")
+    print(f"  {volume_path}{table_name}/")
+
+print("\n" + "="*70)
+print("Use these paths with 'databricks fs cp' command")
+print("="*70)
+
+# COMMAND ----------
+
 # DBTITLE 1,EXPORT VERIFICATION - ROW COUNTS AND FILE SIZES
 print("\n" + "="*70)
 print("EXPORT VERIFICATION")
@@ -165,7 +258,7 @@ print("="*70)
 
 try:
     for table_name, df in tables_to_export.items():
-        folder_path = f"{volume_path}{table_name}.csv/"
+        folder_path = f"{volume_path}{table_name}/"  # REMOVED .csv extension
         
         print(f"\n{table_name}:")
         print("-"*70)
@@ -228,14 +321,3 @@ print("\nRun on local machine:")
 print("  python scripts/databricks/export_csv_from_databricks.py")
 print("="*70)
 
-
-# COMMAND ----------
-
-# Top genes by variant count
-df_clean = spark.table("workspace.silver.variants_clean")
-display(
-    df_clean.groupBy("gene_name")
-            .count()
-            .orderBy(col("count").desc())
-            .limit(20)
-)
