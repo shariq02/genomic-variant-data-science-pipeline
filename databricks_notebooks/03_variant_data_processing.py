@@ -18,7 +18,7 @@ from pyspark.sql.functions import (
     col, trim, upper, lower, when, regexp_replace, split, explode,
     length, countDistinct, count, avg, sum as spark_sum, lit, coalesce, 
     concat_ws, array_distinct, flatten, collect_set, size, array_contains,
-    regexp_extract, array, first, row_number
+    regexp_extract, array, first, row_number, concat
 )
 from pyspark.sql.types import StringType, ArrayType
 from pyspark.sql import Window
