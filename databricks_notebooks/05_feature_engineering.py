@@ -30,7 +30,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, count, sum as spark_sum, avg, 
     when, round as spark_round, countDistinct, explode, size,
-    lit, concat, expr, coalesce, upper, trim
+    lit, concat, expr, coalesce, upper, lower, trim
 )
 
 # COMMAND ----------
@@ -106,6 +106,29 @@ else:
     print("WARNING: Generic rate above 5% target")
 
 # COMMAND ----------
+# COMMAND ----------
+
+# DBTITLE 1,Add Disease Category Flags
+print("")
+print("Adding disease category flags...")
+
+# Create disease category flags based on disease_enriched text
+df_variants = df_variants \
+    .withColumn("has_cancer_disease",
+                lower(coalesce(col("disease_enriched"), lit(""))).rlike("cancer|carcinoma|tumor|tumour|neoplasm|melanoma|leukemia|lymphoma|sarcoma")) \
+    .withColumn("has_syndrome",
+                lower(coalesce(col("disease_enriched"), lit(""))).contains("syndrome")) \
+    .withColumn("has_hereditary",
+                lower(coalesce(col("disease_enriched"), lit(""))).rlike("hereditary|familial|inherited")) \
+    .withColumn("has_rare_disease",
+                lower(coalesce(col("disease_enriched"), lit(""))).rlike("rare|orphan")) \
+    .withColumn("has_drug_response",
+                lower(coalesce(col("clinical_significance_simple"), lit(""))).contains("Drug Response")) \
+    .withColumn("has_risk_factor",
+                lower(coalesce(col("clinical_significance_simple"), lit(""))).contains("Risk Factor"))
+
+print("Disease category flags added")
+
 
 # DBTITLE 1,Create Enhanced Gene Features
 print("")
@@ -128,13 +151,13 @@ df_gene_features = (
         spark_sum(when(col("clinical_significance_simple") == "VUS", 1).otherwise(0)).alias("vus_count"),
         
         # Mutation type counts (NEW)
-        spark_sum(when(col("is_frameshift"), 1).otherwise(0)).alias("frameshift_count"),
-        spark_sum(when(col("is_nonsense"), 1).otherwise(0)).alias("nonsense_count"),
-        spark_sum(when(col("is_splice"), 1).otherwise(0)).alias("splice_count"),
-        spark_sum(when(col("is_missense"), 1).otherwise(0)).alias("missense_count"),
-        spark_sum(when(col("variant_type") == "deletion", 1).otherwise(0)).alias("deletion_count"),
-        spark_sum(when(col("variant_type") == "insertion", 1).otherwise(0)).alias("insertion_count"),
-        spark_sum(when(col("variant_type") == "duplication", 1).otherwise(0)).alias("duplication_count"),
+        spark_sum(when(col("is_frameshift_variant"), 1).otherwise(0)).alias("frameshift_count"),
+        spark_sum(when(col("is_nonsense_variant"), 1).otherwise(0)).alias("nonsense_count"),
+        spark_sum(when(col("is_splice_variant"), 1).otherwise(0)).alias("splice_count"),
+        spark_sum(when(col("is_missense_variant"), 1).otherwise(0)).alias("missense_count"),
+        spark_sum(when(col("is_deletion"), 1).otherwise(0)).alias("deletion_count"),
+        spark_sum(when(col("is_insertion"), 1).otherwise(0)).alias("insertion_count"),
+        spark_sum(when(col("is_duplication"), 1).otherwise(0)).alias("duplication_count"),
         spark_sum(when(col("is_indel"), 1).otherwise(0)).alias("indel_count"),
         
         # Origin counts (NEW)
@@ -315,10 +338,10 @@ df_chromosome_features = (
         spark_sum(when(col("clinical_significance_simple") == "Benign", 1).otherwise(0)).alias("benign_count"),
         
         # Mutation types (NEW)
-        spark_sum(when(col("is_frameshift"), 1).otherwise(0)).alias("frameshift_count"),
-        spark_sum(when(col("is_nonsense"), 1).otherwise(0)).alias("nonsense_count"),
-        spark_sum(when(col("is_splice"), 1).otherwise(0)).alias("splice_count"),
-        spark_sum(when(col("is_missense"), 1).otherwise(0)).alias("missense_count"),
+        spark_sum(when(col("is_frameshift_variant"), 1).otherwise(0)).alias("frameshift_count"),
+        spark_sum(when(col("is_nonsense_variant"), 1).otherwise(0)).alias("nonsense_count"),
+        spark_sum(when(col("is_splice_variant"), 1).otherwise(0)).alias("splice_count"),
+        spark_sum(when(col("is_missense_variant"), 1).otherwise(0)).alias("missense_count"),
         
         # Origin (NEW)
         spark_sum(when(col("is_germline"), 1).otherwise(0)).alias("germline_count"),
@@ -377,9 +400,9 @@ df_variants_for_disease = (
         "has_rare_disease",
         
         # Mutation details
-        "is_frameshift",
-        "is_nonsense",
-        "is_missense",
+        "is_frameshift_variant",
+        "is_nonsense_variant",
+        "is_missense_variant",
         "mutation_severity_score",
         
         # Quality and utility
@@ -414,9 +437,9 @@ df_gene_disease = (
         spark_sum(when(col("has_rare_disease"), 1).otherwise(0)).alias("rare_disease_flag"),
         
         # Mutation types (NEW)
-        spark_sum(when(col("is_frameshift"), 1).otherwise(0)).alias("frameshift_count"),
-        spark_sum(when(col("is_nonsense"), 1).otherwise(0)).alias("nonsense_count"),
-        spark_sum(when(col("is_missense"), 1).otherwise(0)).alias("missense_count"),
+        spark_sum(when(col("is_frameshift_variant"), 1).otherwise(0)).alias("frameshift_count"),
+        spark_sum(when(col("is_nonsense_variant"), 1).otherwise(0)).alias("nonsense_count"),
+        spark_sum(when(col("is_missense_variant"), 1).otherwise(0)).alias("missense_count"),
         
         # Quality and utility scores (NEW)
         avg(col("review_quality_score")).alias("avg_quality"),
