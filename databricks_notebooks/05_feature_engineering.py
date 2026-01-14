@@ -122,10 +122,10 @@ df_gene_features = (
         
         # Clinical significance counts
         spark_sum(when(col("is_pathogenic"), 1).otherwise(0)).alias("pathogenic_count"),
-        spark_sum(when(col("clinical_significance") == "Likely Pathogenic", 1).otherwise(0)).alias("likely_pathogenic_count"),
-        spark_sum(when(col("clinical_significance") == "Benign", 1).otherwise(0)).alias("benign_count"),
-        spark_sum(when(col("clinical_significance") == "Likely Benign", 1).otherwise(0)).alias("likely_benign_count"),
-        spark_sum(when(col("clinical_significance") == "VUS", 1).otherwise(0)).alias("vus_count"),
+        spark_sum(when(col("clinical_significance_simple") == "Likely Pathogenic", 1).otherwise(0)).alias("likely_pathogenic_count"),
+        spark_sum(when(col("clinical_significance_simple") == "Benign", 1).otherwise(0)).alias("benign_count"),
+        spark_sum(when(col("clinical_significance_simple") == "Likely Benign", 1).otherwise(0)).alias("likely_benign_count"),
+        spark_sum(when(col("clinical_significance_simple") == "VUS", 1).otherwise(0)).alias("vus_count"),
         
         # Mutation type counts (NEW)
         spark_sum(when(col("is_frameshift"), 1).otherwise(0)).alias("frameshift_count"),
@@ -312,7 +312,7 @@ df_chromosome_features = (
         
         # Clinical significance
         spark_sum(when(col("is_pathogenic"), 1).otherwise(0)).alias("pathogenic_count"),
-        spark_sum(when(col("clinical_significance") == "Benign", 1).otherwise(0)).alias("benign_count"),
+        spark_sum(when(col("clinical_significance_simple") == "Benign", 1).otherwise(0)).alias("benign_count"),
         
         # Mutation types (NEW)
         spark_sum(when(col("is_frameshift"), 1).otherwise(0)).alias("frameshift_count"),
@@ -363,7 +363,7 @@ df_variants_for_disease = (
     .select(
         "gene_name",
         col("disease_enriched").alias("disease"),
-        "clinical_significance",
+        "clinical_significance_simple",
         
         # Disease database IDs (NEW)
         "omim_disease_id",
@@ -397,10 +397,10 @@ df_gene_disease = (
         count("*").alias("mutation_count"),
         
         # Clinical significance
-        spark_sum(when(col("clinical_significance") == "Pathogenic", 1).otherwise(0)).alias("pathogenic_count"),
-        spark_sum(when(col("clinical_significance") == "Likely Pathogenic", 1).otherwise(0)).alias("likely_pathogenic_count"),
-        spark_sum(when(col("clinical_significance") == "Benign", 1).otherwise(0)).alias("benign_count"),
-        spark_sum(when(col("clinical_significance") == "Likely Benign", 1).otherwise(0)).alias("likely_benign_count"),
+        spark_sum(when(col("clinical_significance_simple") == "Pathogenic", 1).otherwise(0)).alias("pathogenic_count"),
+        spark_sum(when(col("clinical_significance_simple") == "Likely Pathogenic", 1).otherwise(0)).alias("likely_pathogenic_count"),
+        spark_sum(when(col("clinical_significance_simple") == "Benign", 1).otherwise(0)).alias("benign_count"),
+        spark_sum(when(col("clinical_significance_simple") == "Likely Benign", 1).otherwise(0)).alias("likely_benign_count"),
         
         # Disease database IDs (take first non-null)
         expr("first(omim_disease_id, true)").alias("omim_disease_id"),
