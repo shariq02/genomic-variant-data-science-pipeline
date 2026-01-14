@@ -21,7 +21,7 @@ from pyspark.sql.functions import (
     regexp_extract, array, initcap, substring, instr, datediff, current_date,
     to_date, year, month, expr
 )
-from pyspark.sql.types import StringType 
+from pyspark.sql.types import StringType, ArrayType
 
 # COMMAND ----------
 
@@ -469,21 +469,16 @@ df_quality = (
                 .otherwise(False))
     
     # Modification recency (if available)
-    .withColumn("modification_date_clean",
-                when((col("modification_date").isNotNull()) & 
-                     (col("modification_date").cast("string").rlike("^\\d{8}$")),
-                    col("modification_date"))
-                .otherwise(None))
-
     .withColumn("days_since_modification",
-                when(col("modification_date_clean").isNotNull(),
-                    expr("datediff(current_date(), try_to_date(modification_date_clean, 'yyyyMMdd'))"))
+                when((col("modification_date").isNotNull()) &
+                     (col("modification_date").cast("string").rlike("^\\d{8}$")),
+                     expr("datediff(current_date(), try_to_date(modification_date, 'yyyyMMdd'))"))
                 .otherwise(None))
-
+    
     .withColumn("is_recently_updated",
                 when(col("days_since_modification").isNotNull() &
                      (col("days_since_modification") < 365),
-                        True)
+                     True)
                 .otherwise(False))
 )
 

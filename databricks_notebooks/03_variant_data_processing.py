@@ -19,7 +19,7 @@ from pyspark.sql.functions import (
     length, countDistinct, count, avg, sum as spark_sum, lit, coalesce, 
     concat_ws, array_distinct, flatten, size, array_contains,
     regexp_extract, array, datediff, current_date, to_date, year, month,
-    dayofyear, concat, substring
+    dayofyear, concat, substring, expr
 )
 from pyspark.sql.types import StringType, ArrayType, IntegerType
 from pyspark.sql import Window
@@ -550,8 +550,10 @@ df_temporal = (
     
     # Parse last_evaluated date
     .withColumn("last_evaluated_date",
-                when(col("last_evaluated").isNotNull(),
-                     to_date(col("last_evaluated"), "dd-MMM-yy"))
+                when((col("last_evaluated").isNotNull()) & 
+                     (col("last_evaluated") != "-") &
+                     (col("last_evaluated") != ""),
+                     expr("try_to_date(last_evaluated, 'dd-MMM-yy')"))
                 .otherwise(None))
     
     # Calculate days since evaluation
