@@ -49,12 +49,10 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("="*80)
 print("GENE ALIAS MAPPER - CREATE UNIVERSAL SEARCH LOOKUP")
 print("="*80)
 print(f"Catalog: {catalog_name}")
 print("Purpose: Create lookup for feature engineering gene resolution")
-print("="*80)
 
 # COMMAND ----------
 
@@ -69,7 +67,6 @@ print(f" Loaded {gene_count:,} genes")
 # COMMAND ----------
 
 # DBTITLE 1,Create Designation Lookup
-print("\n" + "="*80)
 print("CREATING DESIGNATION→GENE LOOKUP")
 print("="*80)
 
@@ -156,7 +153,6 @@ print(f" Saved: {catalog_name}.reference.gene_designation_lookup")
 # COMMAND ----------
 
 # DBTITLE 1,Create Universal Search Table
-print("\n" + "="*80)
 print("CREATING UNIVERSAL SEARCH TABLE (ALIASES + DESIGNATIONS)")
 print("="*80)
 
@@ -249,7 +245,6 @@ print(f" Saved: {catalog_name}.reference.gene_universal_search")
 # COMMAND ----------
 
 # DBTITLE 1,Create SQL View
-print("\n" + "="*80)
 print("CREATING SQL VIEW")
 print("="*80)
 
@@ -274,7 +269,6 @@ print(f" Created: {catalog_name}.reference.gene_search_view")
 # COMMAND ----------
 
 # DBTITLE 1,Summary & Usage for Feature Engineering
-print("\n" + "="*80)
 print(" GENE ALIAS MAPPING COMPLETE")
 print("="*80)
 
@@ -287,7 +281,7 @@ print(f"   Avg terms per gene: {universal_count / gene_count:.1f}x")
 
 print(f"\n TABLES CREATED:")
 print(f"   1. {catalog_name}.reference.gene_designation_lookup")
-print(f"   2. {catalog_name}.reference.gene_universal_search ⭐ USE THIS")
+print(f"   2. {catalog_name}.reference.gene_universal_search --- USE THIS")
 print(f"   3. {catalog_name}.reference.gene_search_view")
 
 print(f"\n USAGE IN FEATURE ENGINEERING (PySpark):")
