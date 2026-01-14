@@ -32,11 +32,9 @@ from pyspark.sql import SparkSession
 # DBTITLE 1,Initialize Spark
 spark = SparkSession.builder.getOrCreate()
 
-print("="*80)
 print("DROP OLD VIEWS AND TABLES - DATABRICKS CLEANUP")
-print("="*80)
+print("="*50)
 print(f"Spark version: {spark.version}")
-print("="*80)
 
 # COMMAND ----------
 
@@ -47,13 +45,13 @@ spark.sql(f"USE CATALOG {catalog_name}")
 print(f"\n Catalog: {catalog_name}")
 print(f"  Purpose: Drop old tables and views to prevent conflicts")
 print(f"  Warning: This will delete existing data!")
-print("\n" + "="*80)
+print("\n" + "="*50)
 
 # COMMAND ----------
 
 # DBTITLE 1,STEP 1: Drop Old Silver Layer Tables
 print("\nSTEP 1: DROPPING OLD SILVER LAYER TABLES")
-print("="*80)
+print("="*50)
 
 silver_tables = [
     "genes_ultra_enriched",
@@ -85,7 +83,7 @@ print(f" Silver tables skipped: {len(skipped_silver)}")
 
 # DBTITLE 1,STEP 2: Drop Old Gold Layer Tables
 print("\nSTEP 2: DROPPING OLD GOLD LAYER TABLES")
-print("="*80)
+print("="*50)
 
 gold_tables = [
     "gene_features",
@@ -116,7 +114,7 @@ print(f" Gold tables skipped: {len(skipped_gold)}")
 
 # DBTITLE 1,STEP 3: Drop Old Bronze Layer Tables
 print("\nSTEP 3: DROPPING OLD BRONZE LAYER TABLES")
-print("="*80)
+print("="*50)
 
 bronze_tables = [
     "variants_raw",
@@ -142,7 +140,7 @@ print(f" Bronze tables skipped: {len(skipped_bronze)}")
 
 # DBTITLE 1,STEP 4: Drop Old Reference/Lookup Tables
 print("\nSTEP 4: DROPPING OLD REFERENCE/LOOKUP TABLES")
-print("="*80)
+print("="*50)
 
 reference_tables = [
     "omim_disease_lookup",
@@ -174,7 +172,7 @@ print(f" Reference tables skipped: {len(skipped_reference)}")
 
 # DBTITLE 1,STEP 5: Drop Old Views
 print("\nSTEP 5: DROPPING OLD VIEWS")
-print("="*80)
+print("="*50)
 
 views = [
     "silver.v_genes",
@@ -212,7 +210,7 @@ print(f" Views skipped: {len(skipped_views)}")
 
 # DBTITLE 1,STEP 6: Verify Cleanup
 print("\nSTEP 6: VERIFYING CLEANUP")
-print("="*80)
+print("="*50)
 
 # Check remaining tables in each schema
 schemas = ['bronze', 'silver', 'gold', 'reference']
@@ -235,7 +233,7 @@ for schema in schemas:
 
 # DBTITLE 1,STEP 7: List All Remaining Objects
 print("\nSTEP 7: LISTING ALL REMAINING OBJECTS")
-print("="*80)
+print("="*50)
 
 all_remaining = []
 
@@ -271,7 +269,7 @@ else:
 
 # DBTITLE 1,STEP 8: Summary Report
 print("\nSTEP 8: CLEANUP SUMMARY")
-print("="*80)
+print("="*50)
 
 total_dropped = len(dropped_bronze) + len(dropped_silver) + len(dropped_gold) + len(dropped_reference) + len(dropped_views)
 total_skipped = len(skipped_bronze) + len(skipped_silver) + len(skipped_gold) + len(skipped_reference) + len(skipped_views)
@@ -287,13 +285,13 @@ print(f"   Total objects dropped:    {total_dropped}")
 print(f"   Total objects skipped:    {total_skipped}")
 
 print("\n DATABRICKS CLEANUP COMPLETE!")
-print("="*80)
+print("="*50)
 
 # COMMAND ----------
 
 # DBTITLE 1,Optional: Vacuum Delta Tables
 print("\n  OPTIONAL: VACUUM DELTA TABLES")
-print("="*80)
+print("="*50)
 print("Uncomment the code below to vacuum delta tables and free up storage")
 print("WARNING: This is permanent and cannot be undone!")
 
