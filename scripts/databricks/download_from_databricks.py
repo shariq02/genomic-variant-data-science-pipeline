@@ -31,7 +31,7 @@ PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 # Databricks volume paths
-VOLUME_BASE = "/Volumes/workspace/gold/gold_exports_enriched"
+VOLUME_BASE = "/Volumes/workspace/gold/gold_exports"  # Ultra-enriched exports
 
 # Files to download (Spark creates folders with part files)
 FILES_TO_DOWNLOAD = {

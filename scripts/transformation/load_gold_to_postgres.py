@@ -12,7 +12,7 @@ Updated to handle disease names with commas/quotes.
 """
 
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from pathlib import Path
 import logging
 from dotenv import load_dotenv
@@ -106,6 +106,60 @@ def load_gold_tables():
             
             logger.info(f"  Read {len(df):,} rows, {len(df.columns)} columns")
             
+            # Convert boolean columns (ultra-enriched features)
+            boolean_columns = [
+                'is_kinase', 'is_phosphatase', 'is_receptor', 'is_gpcr',
+                'is_transcription_factor', 'is_enzyme', 'is_transporter',
+                'is_channel', 'is_membrane_protein', 'is_growth_factor',
+                'is_structural', 'is_regulatory', 'is_metabolic',
+                'is_dna_binding', 'is_rna_binding', 'is_ubiquitin_related',
+                'is_protease', 'cancer_related', 'immune_related',
+                'neurological_related', 'cardiovascular_related',
+                'metabolic_related', 'developmental_related',
+                'alzheimer_related', 'diabetes_related', 'breast_cancer_related',
+                'nuclear', 'mitochondrial', 'cytoplasmic', 'membrane',
+                'extracellular', 'endoplasmic_reticulum', 'golgi',
+                'lysosomal', 'peroxisomal', 'is_telomeric', 'is_centromeric',
+                'is_well_characterized'
+            ]
+            
+            for col in boolean_columns:
+                if col in df.columns:
+                    df[col] = df[col].map({
+                        'true': True, 'True': True, 'TRUE': True,
+                        'false': False, 'False': False, 'FALSE': False,
+                        True: True, False: False
+                    })
+                    logger.info(f"    Converted {col} to boolean")
+            
+            logger.info(f"  Processed {len(df):,} rows, {len(df.columns)} columns")
+            
+            # Convert boolean columns (stored as strings 'true'/'false' in CSV)
+            boolean_columns = [
+                'is_kinase', 'is_phosphatase', 'is_receptor', 'is_gpcr',
+                'is_transcription_factor', 'is_enzyme', 'is_transporter',
+                'is_channel', 'is_membrane_protein', 'is_growth_factor',
+                'is_structural', 'is_regulatory', 'is_metabolic',
+                'is_dna_binding', 'is_rna_binding', 'is_ubiquitin_related',
+                'is_protease', 'cancer_related', 'immune_related',
+                'neurological_related', 'cardiovascular_related',
+                'metabolic_related', 'developmental_related',
+                'alzheimer_related', 'diabetes_related', 'breast_cancer_related',
+                'nuclear', 'mitochondrial', 'cytoplasmic', 'membrane',
+                'extracellular', 'endoplasmic_reticulum', 'golgi',
+                'lysosomal', 'peroxisomal', 'is_telomeric', 'is_centromeric',
+                'is_well_characterized'
+            ]
+            
+            for col in boolean_columns:
+                if col in df.columns:
+                    df[col] = df[col].map({
+                        'true': True, 'false': False, 
+                        True: True, False: False,
+                        'True': True, 'False': False
+                    })
+                    logger.info(f"    Converted {col} to boolean")
+            
             # Load in chunks for large tables
             chunk_size = 10000
             if len(df) > chunk_size:
@@ -113,6 +167,24 @@ def load_gold_tables():
                 for i in range(0, len(df), chunk_size):
                     chunk = df.iloc[i:i+chunk_size]
                     if i == 0:
+                        # First chunk: replace table and CASCADE to drop dependent views
+                        chunk.to_sql(
+                            name=table_name,
+                            schema=schema,
+                            con=engine,
+                            if_exists='replace',
+                            index=False,
+                            method='multi'
+                        )
+                        # Manually drop views if they exist
+                        try:
+                            with engine.connect() as conn:
+                                conn.execute(text(f"DROP TABLE IF EXISTS {schema}.{table_name} CASCADE"))
+                                conn.commit()
+                        except Exception as e:
+                            logger.warning(f"  Could not drop table with CASCADE: {e}")
+                        
+                        # Now create fresh table
                         chunk.to_sql(
                             name=table_name,
                             schema=schema,
@@ -133,6 +205,14 @@ def load_gold_tables():
                     if (i + chunk_size) % 50000 == 0:
                         logger.info(f"    Progress: {i+chunk_size:,} rows loaded...")
             else:
+                # Small table: drop with CASCADE then reload
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(text(f"DROP TABLE IF EXISTS {schema}.{table_name} CASCADE"))
+                        conn.commit()
+                except Exception as e:
+                    logger.warning(f"  Could not drop table with CASCADE: {e}")
+                
                 df.to_sql(
                     name=table_name,
                     schema=schema,
