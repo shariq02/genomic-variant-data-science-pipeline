@@ -760,9 +760,10 @@ df_quality = (
     .withColumn("last_evaluated_date",
                 when(col("last_evaluated_clean").isNotNull(),
                      coalesce(
-                         expr("try_cast(to_date(last_evaluated_clean, 'dd-MMM-yy') as date)"),
+                         expr("try_cast(to_date(last_evaluated_clean, 'MMM dd, yyyy') as date)"),
                          expr("try_cast(to_date(last_evaluated_clean, 'yyyy-MM-dd') as date)"),
-                         expr("try_cast(to_date(last_evaluated_clean, 'MM/dd/yyyy') as date)")
+                         expr("try_cast(to_date(last_evaluated_clean, 'MM/dd/yyyy') as date)"),
+                         expr("try_cast(to_date(last_evaluated_clean, 'dd-MMM-yy') as date)")
                      ))
                 .otherwise(None))
     
