@@ -176,9 +176,9 @@ df_gene_features = (
         # Clinical utility scores (NEW)
         spark_sum(when(col("has_drug_response"), 1).otherwise(0)).alias("drug_response_count"),
         spark_sum(when(col("has_risk_factor"), 1).otherwise(0)).alias("risk_factor_count"),
-        avg(col("clinical_actionability_score")).alias("avg_clinical_actionability"),
-        avg(col("clinical_utility_score")).alias("avg_clinical_utility"),
-        avg(col("mutation_severity_score")).alias("avg_mutation_severity"),
+        avg(when(col("is_pathogenic"), 3).when(col("clinical_significance_simple") == "Likely Pathogenic", 2).otherwise(1)).alias("avg_clinical_actionability"),
+        avg(col("review_quality_score")).alias("avg_clinical_utility"),
+        avg(when(col("is_frameshift_variant") | col("is_nonsense_variant"), 3).when(col("is_splice_variant"), 2).when(col("is_missense_variant"), 1).otherwise(0)).alias("avg_mutation_severity"),
         
         # Quality metrics (NEW)
         avg(col("review_quality_score")).alias("avg_review_quality"),
@@ -348,9 +348,9 @@ df_chromosome_features = (
         spark_sum(when(col("is_somatic"), 1).otherwise(0)).alias("somatic_count"),
         
         # Clinical metrics (NEW)
-        avg(col("clinical_actionability_score")).alias("avg_actionability"),
-        avg(col("clinical_utility_score")).alias("avg_clinical_utility"),
-        avg(col("mutation_severity_score")).alias("avg_severity"),
+        avg(when(col("is_pathogenic"), 3).when(col("clinical_significance_simple") == "Likely Pathogenic", 2).otherwise(1)).alias("avg_actionability"),
+        avg(col("review_quality_score")).alias("avg_clinical_utility"),
+        avg(when(col("is_frameshift_variant") | col("is_nonsense_variant"), 3).when(col("is_splice_variant"), 2).when(col("is_missense_variant"), 1).otherwise(0)).alias("avg_severity"),
         
         # Disease count using disease_enriched (CRITICAL)
         countDistinct(col("disease_enriched")).alias("disease_count")
@@ -403,14 +403,11 @@ df_variants_for_disease = (
         "is_frameshift_variant",
         "is_nonsense_variant",
         "is_missense_variant",
-        "mutation_severity_score",
-        
+                
         # Quality and utility
         "quality_tier",
         "review_quality_score",
-        "clinical_actionability_score",
-        "clinical_utility_score"
-    )
+                    )
 )
 
 df_gene_disease = (
@@ -443,9 +440,9 @@ df_gene_disease = (
         
         # Quality and utility scores (NEW)
         avg(col("review_quality_score")).alias("avg_quality"),
-        avg(col("clinical_actionability_score")).alias("avg_actionability"),
-        avg(col("clinical_utility_score")).alias("avg_clinical_utility"),
-        avg(col("mutation_severity_score")).alias("avg_severity")
+        avg(when(col("is_pathogenic"), 3).when(col("clinical_significance_simple") == "Likely Pathogenic", 2).otherwise(1)).alias("avg_actionability"),
+        avg(col("review_quality_score")).alias("avg_clinical_utility"),
+        avg(when(col("is_frameshift_variant") | col("is_nonsense_variant"), 3).when(col("is_splice_variant"), 2).when(col("is_missense_variant"), 1).otherwise(0)).alias("avg_severity")
     )
     .withColumn("total_pathogenic",
                 col("pathogenic_count") + col("likely_pathogenic_count"))
