@@ -272,7 +272,8 @@ df_protein = (
     
     # Extract amino acid positions
     .withColumn("aa_start_position",
-                when(col("protein_change_full").isNotNull(),
+                when((col("protein_change_full").isNotNull()) &
+                     (regexp_extract(col("protein_change_full"), "(\\d+)", 1) != ""),
                      regexp_extract(col("protein_change_full"), "(\\d+)", 1).cast(IntegerType()))
                 .otherwise(None))
     
@@ -296,7 +297,8 @@ df_protein = (
     
     # Extract nucleotide position
     .withColumn("cdna_position",
-                when(col("cdna_change_full").isNotNull(),
+                when((col("cdna_change_full").isNotNull()) &
+                     (regexp_extract(col("cdna_change_full"), "(\\d+)", 1) != ""),
                      regexp_extract(col("cdna_change_full"), "(\\d+)", 1).cast(IntegerType()))
                 .otherwise(None))
     
@@ -397,11 +399,15 @@ df_cyto = (
     
     # Telomeric vs centromeric
     .withColumn("is_telomeric_variant",
-                when(col("cyto_region").cast("int") >= 20, True)
+                when((col("cyto_region").isNotNull()) &
+                     (col("cyto_region") != "") &
+                     (col("cyto_region").cast("int") >= 20), True)
                 .otherwise(False))
     
     .withColumn("is_centromeric_variant",
-                when(col("cyto_region").cast("int") <= 5, True)
+                when((col("cyto_region").isNotNull()) &
+                     (col("cyto_region") != "") &
+                     (col("cyto_region").cast("int") <= 5), True)
                 .otherwise(False))
 )
 

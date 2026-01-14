@@ -133,13 +133,19 @@ df_cyto = (
                      regexp_extract(col("map_location"), "[pq]\\d+\\.(\\d+)", 1))
                 .otherwise(None))
     
+    # Create integer version for comparison (handle empty strings)
+    .withColumn("cyto_region_int",
+                when((col("cyto_region").isNotNull()) & (col("cyto_region") != ""),
+                     col("cyto_region").cast("int"))
+                .otherwise(None))
+    
     # Telomeric vs centromeric location
     .withColumn("is_telomeric",
-                when(col("cyto_region").cast("int") >= 20, True)
+                when(col("cyto_region_int") >= 20, True)
                 .otherwise(False))
     
     .withColumn("is_centromeric",
-                when(col("cyto_region").cast("int") <= 5, True)
+                when(col("cyto_region_int") <= 5, True)
                 .otherwise(False))
 )
 
@@ -571,7 +577,7 @@ df_genes_ultra_enriched = df_clean.select(
     "strand",
     "gene_length",
     
-    # Cytogenetic details (NEW)
+    # Cytogenetic details (NEW) - keep as strings
     "cyto_arm",
     "cyto_region",
     "cyto_band",
@@ -586,7 +592,7 @@ df_genes_ultra_enriched = df_clean.select(
     "alias_count",
     "has_numeric_aliases",
     
-    # Database IDs (NEW - extracted)
+    # Database IDs (NEW - extracted) - keep as strings
     "mim_id",
     "hgnc_id",
     "ensembl_id",
