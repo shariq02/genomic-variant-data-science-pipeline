@@ -48,7 +48,6 @@ print("")
 # DBTITLE 1,Create Bronze Schema
 print("Creating bronze schema...")
 spark.sql("CREATE SCHEMA IF NOT EXISTS {}.bronze".format(catalog_name))
-spark.sql("DESCRIBE SCHEMA {}.bronze".format(catalog_name))
 print("SUCCESS: bronze schema created")
 
 # COMMAND ----------
@@ -57,7 +56,6 @@ print("SUCCESS: bronze schema created")
 print("")
 print("Creating silver schema...")
 spark.sql("CREATE SCHEMA IF NOT EXISTS {}.silver".format(catalog_name))
-spark.sql("DESCRIBE SCHEMA {}.silver".format(catalog_name))
 print("SUCCESS: silver schema created")
 
 # COMMAND ----------
@@ -66,7 +64,6 @@ print("SUCCESS: silver schema created")
 print("")
 print("Creating gold schema...")
 spark.sql("CREATE SCHEMA IF NOT EXISTS {}.gold".format(catalog_name))
-spark.sql("DESCRIBE SCHEMA {}.gold".format(catalog_name))
 print("SUCCESS: gold schema created")
 
 # COMMAND ----------
@@ -75,7 +72,6 @@ print("SUCCESS: gold schema created")
 print("")
 print("Creating reference schema...")
 spark.sql("CREATE SCHEMA IF NOT EXISTS {}.reference".format(catalog_name))
-spark.sql("DESCRIBE SCHEMA {}.reference".format(catalog_name))
 print("SUCCESS: reference schema created")
 
 # COMMAND ----------
@@ -91,7 +87,7 @@ schemas = spark.sql("SHOW SCHEMAS IN {}".format(catalog_name)).collect()
 print("")
 print("Available schemas in {}:".format(catalog_name))
 for schema in schemas:
-    schema_name = schema.namespace
+    schema_name = schema.databaseName
     print("  - {}".format(schema_name))
 
 # COMMAND ----------
