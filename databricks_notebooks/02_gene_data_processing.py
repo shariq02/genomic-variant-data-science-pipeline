@@ -1,14 +1,14 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### ENHANCED GENE DATA PROCESSING WITH TEXT PARSING
-# MAGIC ##### Extract Keywords, Aliases, and Functions from Gene Metadata
+# MAGIC #### ULTRA-ENRICHED GENE DATA PROCESSING
+# MAGIC ##### Extract MAXIMUM data from all text fields
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**   
 # MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** January 13, 2026  
-# MAGIC **Purpose:** Enhanced gene processing with text mining from description, aliases, designations
+# MAGIC **Date:** January 14, 2026  
+# MAGIC **Purpose:** Extract every possible piece of information from gene metadata
 # MAGIC **Input:** workspace.default.gene_metadata_all (193K genes)  
-# MAGIC **Output:** workspace.silver.genes_enriched (with parsed text data)
+# MAGIC **Output:** workspace.silver.genes_ultra_enriched
 
 # COMMAND ----------
 
@@ -18,10 +18,10 @@ from pyspark.sql.functions import (
     col, trim, upper, lower, when, regexp_replace, split, explode,
     length, countDistinct, count, avg, sum as spark_sum, lit, coalesce, 
     concat_ws, array_distinct, flatten, collect_set, size, array_contains,
-    regexp_extract, initcap
+    regexp_extract, array, initcap, substring, instr, datediff, current_date,
+    to_date, year, month
 )
 from pyspark.sql.types import StringType, ArrayType
-from pyspark.sql.functions import array
 
 # COMMAND ----------
 
@@ -37,9 +37,10 @@ catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
 print("="*70)
-print("ENHANCED GENE DATA PROCESSING WITH TEXT MINING")
+print("ULTRA-ENRICHED GENE DATA PROCESSING")
 print("="*70)
 print(f"Catalog: {catalog_name}")
+print("Extracting MAXIMUM data from all fields")
 print("="*70)
 
 # COMMAND ----------
@@ -51,36 +52,159 @@ df_genes_raw = spark.table(f"{catalog_name}.default.gene_metadata_all")
 
 raw_count = df_genes_raw.count()
 print(f"Loaded {raw_count:,} genes")
-print(f"Columns: {len(df_genes_raw.columns)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Inspect Text Fields
-print("\nSample text fields to parse:")
-display(
-    df_genes_raw.select(
-        "gene_name", 
-        "description", 
-        "other_aliases", 
-        "other_designations",
-        "full_name"
-    ).limit(5)
-)
-
-# COMMAND ----------
-
-# DBTITLE 1,Parse Aliases into Array
+# DBTITLE 1,STEP 1: Parse ALL Database Cross-References
 print("\n" + "="*70)
-print("STEP 1: PARSE ALIASES")
+print("STEP 1: ULTRA-PARSE DATABASE XREFS")
 print("="*70)
 
-df_parsed = (
+df_xrefs = (
     df_genes_raw
     .withColumn("gene_name", upper(trim(col("gene_name"))))
     .withColumn("official_symbol", 
                 when(col("official_symbol").isNotNull(), 
                      upper(trim(col("official_symbol"))))
                 .otherwise(col("gene_name")))
+    
+    # Parse db_xrefs (format: MIM:138670|HGNC:HGNC:5|Ensembl:ENSG00000121410)
+    .withColumn("xrefs_array",
+                when(col("db_xrefs").isNotNull(),
+                     split(col("db_xrefs"), "\\|"))
+                .otherwise(array()))
+    
+    # Extract specific database IDs
+    .withColumn("mim_id",
+                when(col("db_xrefs").isNotNull(),
+                     regexp_extract(col("db_xrefs"), "MIM:(\\d+)", 1))
+                .otherwise(None))
+    
+    .withColumn("hgnc_id",
+                when(col("db_xrefs").isNotNull(),
+                     regexp_extract(col("db_xrefs"), "HGNC:HGNC:(\\d+)", 1))
+                .otherwise(None))
+    
+    .withColumn("ensembl_id",
+                when(col("db_xrefs").isNotNull(),
+                     regexp_extract(col("db_xrefs"), "Ensembl:(ENSG\\d+)", 1))
+                .otherwise(None))
+    
+    .withColumn("alliance_id",
+                when(col("db_xrefs").isNotNull(),
+                     regexp_extract(col("db_xrefs"), "AllianceGenome:HGNC:(\\d+)", 1))
+                .otherwise(None))
+    
+    .withColumn("xref_count", size(col("xrefs_array")))
+    
+    # Database coverage score
+    .withColumn("database_coverage_score",
+                (when(col("mim_id").isNotNull(), 1).otherwise(0)) +
+                (when(col("hgnc_id").isNotNull(), 1).otherwise(0)) +
+                (when(col("ensembl_id").isNotNull(), 1).otherwise(0)) +
+                (when(col("alliance_id").isNotNull(), 1).otherwise(0)))
+)
+
+print("Database cross-references extracted")
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 2: Parse Cytogenetic Location in Detail
+print("\n" + "="*70)
+print("STEP 2: PARSE CYTOGENETIC LOCATION")
+print("="*70)
+
+df_cyto = (
+    df_xrefs
+    
+    # Extract cytogenetic band details from map_location (e.g., 19q13.43)
+    .withColumn("cyto_arm",
+                when(col("map_location").isNotNull(),
+                     regexp_extract(col("map_location"), "\\d+([pq])", 1))
+                .otherwise(None))
+    
+    .withColumn("cyto_region",
+                when(col("map_location").isNotNull(),
+                     regexp_extract(col("map_location"), "[pq](\\d+)", 1))
+                .otherwise(None))
+    
+    .withColumn("cyto_band",
+                when(col("map_location").isNotNull(),
+                     regexp_extract(col("map_location"), "[pq]\\d+\\.(\\d+)", 1))
+                .otherwise(None))
+    
+    # Telomeric vs centromeric location
+    .withColumn("is_telomeric",
+                when(col("cyto_region").cast("int") >= 20, True)
+                .otherwise(False))
+    
+    .withColumn("is_centromeric",
+                when(col("cyto_region").cast("int") <= 5, True)
+                .otherwise(False))
+)
+
+print("Cytogenetic details extracted")
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 3: Deep Parse Other Designations
+print("\n" + "="*70)
+print("STEP 3: ULTRA-PARSE OTHER DESIGNATIONS")
+print("="*70)
+
+df_designations = (
+    df_cyto
+    
+    # Parse other_designations (pipe-separated protein names and descriptions)
+    .withColumn("designations_array",
+                when(col("other_designations").isNotNull() & (col("other_designations") != "-"),
+                     split(col("other_designations"), "\\|"))
+                .otherwise(array()))
+    
+    .withColumn("designation_count", size(col("designations_array")))
+    
+    # Extract protein-related keywords
+    .withColumn("has_protein_keyword",
+                when(col("other_designations").isNotNull(),
+                     lower(col("other_designations")).contains("protein"))
+                .otherwise(False))
+    
+    # Extract domain information
+    .withColumn("has_domain_info",
+                when(col("other_designations").isNotNull(),
+                     lower(col("other_designations")).rlike("(?i)(domain|repeat|motif)"))
+                .otherwise(False))
+    
+    # Extract binding partner info
+    .withColumn("has_binding_info",
+                when(col("other_designations").isNotNull(),
+                     lower(col("other_designations")).rlike("(?i)(binding|interact|partner)"))
+                .otherwise(False))
+    
+    # Extract tissue specificity
+    .withColumn("tissue_specific",
+                when(col("other_designations").isNotNull(),
+                     lower(col("other_designations")).rlike("(?i)(liver|kidney|brain|heart|lung|muscle|blood|bone)"))
+                .otherwise(False))
+    
+    # Extract secretory/membrane info
+    .withColumn("is_secretory",
+                when(col("other_designations").isNotNull(),
+                     lower(col("other_designations")).rlike("(?i)(secret|excret)"))
+                .otherwise(False))
+)
+
+print("Designation details extracted")
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 4: Parse Aliases into Structured Array
+print("\n" + "="*70)
+print("STEP 4: COMPREHENSIVE ALIAS PARSING")
+print("="*70)
+
+df_aliases = (
+    df_designations
     
     # Parse other_aliases (pipe-separated: A1B|ABG|GAB)
     .withColumn("aliases_array",
@@ -99,194 +223,269 @@ df_parsed = (
                 ))
     
     .withColumn("alias_count", size(col("all_aliases")))
+    
+    # Check for numeric aliases (often indicates multiple isoforms)
+    .withColumn("has_numeric_aliases",
+                when(col("other_aliases").isNotNull(),
+                     lower(col("other_aliases")).rlike("\\d+"))
+                .otherwise(False))
 )
 
-print("Aliases parsed into arrays")
+print("Aliases comprehensively parsed")
 
 # COMMAND ----------
 
-# DBTITLE 1,Sample Parsed Aliases
-print("\nSample parsed aliases:")
-display(
-    df_parsed.select("gene_name", "other_aliases", "all_aliases", "alias_count")
-              .filter(col("alias_count") > 2)
-              .limit(10)
-)
-
-# COMMAND ----------
-
-# DBTITLE 1,Extract Keywords from Descriptions
+# DBTITLE 1,STEP 5: Advanced Functional Classification
 print("\n" + "="*70)
-print("STEP 2: EXTRACT KEYWORDS FROM DESCRIPTIONS")
+print("STEP 5: ADVANCED FUNCTIONAL CLASSIFICATION")
 print("="*70)
 
-# Define keyword categories
-df_keywords = (
-    df_parsed
+df_functions = (
+    df_aliases
     
-    # Parse other_designations (pipe-separated descriptions)
-    .withColumn("designations_array",
-                when(col("other_designations").isNotNull() & (col("other_designations") != "-"),
-                     split(col("other_designations"), "\\|"))
-                .otherwise(array()))
-    
-    # Combine description + full_name + designations
+    # Combine all text fields for comprehensive analysis
     .withColumn("full_text",
                 concat_ws(" | ",
                           coalesce(col("description"), lit("")),
                           coalesce(col("full_name"), lit("")),
                           coalesce(col("other_designations"), lit(""))))
     
-    # Extract function keywords
+    # Primary function categories
     .withColumn("is_kinase", 
                 lower(col("full_text")).contains("kinase"))
+    .withColumn("is_phosphatase",
+                lower(col("full_text")).contains("phosphatase"))
     .withColumn("is_receptor",
                 lower(col("full_text")).contains("receptor"))
     .withColumn("is_transcription_factor",
                 lower(col("full_text")).contains("transcription factor"))
     .withColumn("is_enzyme",
-                lower(col("full_text")).rlike("(?i)(enzyme|synthetase|dehydrogenase|transferase|ligase|hydrolase)"))
+                lower(col("full_text")).rlike("(?i)(enzyme|synthetase|dehydrogenase|transferase|ligase|hydrolase|reductase|oxidase)"))
     .withColumn("is_transporter",
-                lower(col("full_text")).contains("transport"))
+                lower(col("full_text")).rlike("(?i)(transport|carrier|exchanger)"))
     .withColumn("is_channel",
                 lower(col("full_text")).rlike("(?i)(channel|pore)"))
     .withColumn("is_membrane_protein",
                 lower(col("full_text")).rlike("(?i)(membrane|transmembrane)"))
     
-    # Disease-related keywords
-    .withColumn("cancer_related",
-                lower(col("full_text")).rlike("(?i)(cancer|tumor|oncogene|carcinoma)"))
-    .withColumn("immune_related",
-                lower(col("full_text")).rlike("(?i)(immune|antibody|lymphocyte|interleukin)"))
-    .withColumn("neurological_related",
-                lower(col("full_text")).rlike("(?i)(brain|neural|neuron|synap)"))
+    # Signaling-related
+    .withColumn("is_gpcr",
+                lower(col("full_text")).rlike("(?i)(g protein|gpcr)"))
+    .withColumn("is_growth_factor",
+                lower(col("full_text")).rlike("(?i)(growth factor)"))
     
-    # Cellular location keywords
+    # Structural proteins
+    .withColumn("is_structural",
+                lower(col("full_text")).rlike("(?i)(collagen|actin|tubulin|keratin|elastin)"))
+    
+    # Regulatory proteins
+    .withColumn("is_regulatory",
+                lower(col("full_text")).rlike("(?i)(regulat|control|modulator)"))
+    
+    # Metabolic enzymes
+    .withColumn("is_metabolic",
+                lower(col("full_text")).rlike("(?i)(metabol|glycolysis|citric|tca)"))
+    
+    # DNA/RNA related
+    .withColumn("is_dna_binding",
+                lower(col("full_text")).rlike("(?i)(dna binding|dna repair)"))
+    .withColumn("is_rna_binding",
+                lower(col("full_text")).rlike("(?i)(rna binding|splicing)"))
+    
+    # Protein modification
+    .withColumn("is_ubiquitin_related",
+                lower(col("full_text")).rlike("(?i)(ubiquit|sumo)"))
+    .withColumn("is_protease",
+                lower(col("full_text")).rlike("(?i)(protease|peptidase)"))
+)
+
+print("Advanced functional classification complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 6: Disease and Pathway Association
+print("\n" + "="*70)
+print("STEP 6: DISEASE AND PATHWAY CLASSIFICATION")
+print("="*70)
+
+df_disease = (
+    df_functions
+    
+    # Disease-related keywords (expanded)
+    .withColumn("cancer_related",
+                lower(col("full_text")).rlike("(?i)(cancer|tumor|oncogene|carcinoma|sarcoma|lymphoma|leukemia)"))
+    .withColumn("immune_related",
+                lower(col("full_text")).rlike("(?i)(immune|antibody|lymphocyte|interleukin|interferon|cytokine)"))
+    .withColumn("neurological_related",
+                lower(col("full_text")).rlike("(?i)(brain|neural|neuron|synap|alzheimer|parkinson)"))
+    .withColumn("cardiovascular_related",
+                lower(col("full_text")).rlike("(?i)(heart|cardiac|vascular|blood pressure|artery)"))
+    .withColumn("metabolic_related",
+                lower(col("full_text")).rlike("(?i)(diabetes|insulin|glucose|lipid|cholesterol)"))
+    .withColumn("developmental_related",
+                lower(col("full_text")).rlike("(?i)(development|embryo|morphogenesis)"))
+    
+    # Specific disease mentions
+    .withColumn("alzheimer_related",
+                lower(col("full_text")).contains("alzheimer"))
+    .withColumn("diabetes_related",
+                lower(col("full_text")).contains("diabetes"))
+    .withColumn("breast_cancer_related",
+                lower(col("full_text")).rlike("(?i)(breast cancer|brca)"))
+)
+
+print("Disease associations extracted")
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 7: Cellular Location Details
+print("\n" + "="*70)
+print("STEP 7: DETAILED CELLULAR LOCALIZATION")
+print("="*70)
+
+df_location = (
+    df_disease
+    
+    # Cellular compartments
     .withColumn("nuclear",
                 lower(col("full_text")).rlike("(?i)(nuclear|nucleus)"))
     .withColumn("mitochondrial",
                 lower(col("full_text")).rlike("(?i)(mitochondri)"))
     .withColumn("cytoplasmic",
                 lower(col("full_text")).rlike("(?i)(cytoplasm|cytosol)"))
+    .withColumn("membrane",
+                lower(col("full_text")).rlike("(?i)(membrane|transmembrane)"))
+    .withColumn("extracellular",
+                lower(col("full_text")).rlike("(?i)(extracellular|secreted)"))
+    .withColumn("endoplasmic_reticulum",
+                lower(col("full_text")).rlike("(?i)(endoplasmic reticulum|er)"))
+    .withColumn("golgi",
+                lower(col("full_text")).contains("golgi"))
+    .withColumn("lysosomal",
+                lower(col("full_text")).rlike("(?i)(lysosom)"))
+    .withColumn("peroxisomal",
+                lower(col("full_text")).rlike("(?i)(peroxisom)"))
+    
+    # Primary location (hierarchy)
+    .withColumn("primary_location",
+                when(col("mitochondrial"), "Mitochondrial")
+                .when(col("nuclear"), "Nuclear")
+                .when(col("membrane"), "Membrane")
+                .when(col("extracellular"), "Extracellular")
+                .when(col("cytoplasmic"), "Cytoplasmic")
+                .when(col("endoplasmic_reticulum"), "ER")
+                .otherwise("Unknown"))
 )
 
-print("Keywords extracted from descriptions")
+print("Cellular location details extracted")
 
 # COMMAND ----------
 
-# DBTITLE 1,Sample Keyword Extraction
-print("\nSample keyword extraction:")
-display(
-    df_keywords.select(
-        "gene_name",
-        "description",
-        "is_kinase",
-        "is_receptor",
-        "is_enzyme",
-        "cancer_related"
-    ).filter(col("is_kinase") | col("cancer_related"))
-     .limit(10)
-)
-
-# COMMAND ----------
-
-# DBTITLE 1,Create Functional Categories
+# DBTITLE 1,STEP 8: Create Comprehensive Function Category
 print("\n" + "="*70)
-print("STEP 3: CREATE FUNCTIONAL CATEGORIES")
+print("STEP 8: COMPREHENSIVE FUNCTIONAL CATEGORIZATION")
 print("="*70)
 
 df_categorized = (
-    df_keywords
+    df_location
     
-    # Primary function category
+    # Primary function (detailed hierarchy)
     .withColumn("primary_function",
                 when(col("is_transcription_factor"), "Transcription Factor")
                 .when(col("is_kinase"), "Kinase")
+                .when(col("is_phosphatase"), "Phosphatase")
                 .when(col("is_receptor"), "Receptor")
+                .when(col("is_gpcr"), "GPCR")
                 .when(col("is_channel"), "Ion Channel")
                 .when(col("is_transporter"), "Transporter")
+                .when(col("is_protease"), "Protease")
                 .when(col("is_enzyme"), "Enzyme")
+                .when(col("is_structural"), "Structural Protein")
+                .when(col("is_growth_factor"), "Growth Factor")
+                .when(col("is_regulatory"), "Regulatory Protein")
                 .otherwise("Other"))
     
-    # Biological process
+    # Biological process (primary)
     .withColumn("biological_process",
                 when(col("cancer_related"), "Cancer/Oncology")
                 .when(col("immune_related"), "Immune Response")
                 .when(col("neurological_related"), "Neurological")
+                .when(col("cardiovascular_related"), "Cardiovascular")
+                .when(col("metabolic_related"), "Metabolism")
+                .when(col("developmental_related"), "Development")
                 .otherwise("General"))
     
-    # Cellular location
-    .withColumn("cellular_location",
-                when(col("is_membrane_protein"), "Membrane")
-                .when(col("nuclear"), "Nuclear")
-                .when(col("mitochondrial"), "Mitochondrial")
-                .when(col("cytoplasmic"), "Cytoplasmic")
-                .otherwise("Unknown"))
+    # Cellular location (simplified)
+    .withColumn("cellular_location", col("primary_location"))
+    
+    # Druggability score (0-5 based on function)
+    .withColumn("druggability_score",
+                (when(col("is_kinase"), 1).otherwise(0)) +
+                (when(col("is_receptor"), 1).otherwise(0)) +
+                (when(col("is_gpcr"), 1).otherwise(0)) +
+                (when(col("is_channel"), 1).otherwise(0)) +
+                (when(col("is_enzyme"), 1).otherwise(0)))
 )
 
-print("Functional categories assigned")
+print("Comprehensive categorization complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Category Distribution
-print("\nFunctional category distribution:")
-
-print("\n1. Primary Function:")
-display(
-    df_categorized.groupBy("primary_function")
-                  .count()
-                  .orderBy(col("count").desc())
-)
-
-print("\n2. Biological Process:")
-display(
-    df_categorized.groupBy("biological_process")
-                  .count()
-                  .orderBy(col("count").desc())
-)
-
-print("\n3. Cellular Location:")
-display(
-    df_categorized.groupBy("cellular_location")
-                  .count()
-                  .orderBy(col("count").desc())
-)
-
-# COMMAND ----------
-
-# DBTITLE 1,Parse Database Cross-References
+# DBTITLE 1,STEP 9: Extract Metadata Quality Metrics
 print("\n" + "="*70)
-print("STEP 4: PARSE DATABASE XREFS")
+print("STEP 9: METADATA QUALITY SCORING")
 print("="*70)
 
-df_xrefs = (
+df_quality = (
     df_categorized
     
-    # Parse db_xrefs (format: MIM:138670|HGNC:HGNC:5|Ensembl:ENSG00000121410)
-    .withColumn("xrefs_array",
-                when(col("db_xrefs").isNotNull(),
-                     split(col("db_xrefs"), "\\|"))
-                .otherwise(array()))
+    # Calculate data completeness score
+    .withColumn("metadata_completeness",
+                (when(col("description").isNotNull() & (col("description") != "Unknown"), 1).otherwise(0)) +
+                (when(col("full_name").isNotNull(), 1).otherwise(0)) +
+                (when(col("other_aliases").isNotNull() & (col("other_aliases") != "-"), 1).otherwise(0)) +
+                (when(col("other_designations").isNotNull() & (col("other_designations") != "-"), 1).otherwise(0)) +
+                (when(col("map_location").isNotNull(), 1).otherwise(0)) +
+                (when(col("gene_type").isNotNull() & (col("gene_type") != "Unknown"), 1).otherwise(0)) +
+                (when(col("db_xrefs").isNotNull(), 1).otherwise(0)))
     
-    # Extract specific database IDs
-    .withColumn("has_mim", 
-                array_contains(col("xrefs_array"), "MIM"))
-    .withColumn("has_ensembl",
-                size(col("xrefs_array")) > 0)
-    .withColumn("xref_count", size(col("xrefs_array")))
+    # Information richness (text length score)
+    .withColumn("description_length",
+                when(col("description").isNotNull(),
+                     length(col("description")))
+                .otherwise(0))
+    
+    .withColumn("is_well_characterized",
+                when((col("metadata_completeness") >= 5) &
+                     (col("description_length") > 50) &
+                     (col("database_coverage_score") >= 2),
+                     True)
+                .otherwise(False))
+    
+    # Modification recency (if available)
+    .withColumn("days_since_modification",
+                when(col("modification_date").isNotNull(),
+                     datediff(current_date(), to_date(col("modification_date"), "yyyyMMdd")))
+                .otherwise(None))
+    
+    .withColumn("is_recently_updated",
+                when(col("days_since_modification").isNotNull() &
+                     (col("days_since_modification") < 365),
+                     True)
+                .otherwise(False))
 )
 
-print("Database cross-references parsed")
+print("Quality metrics calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Clean and Standardize Core Fields
+# DBTITLE 1,STEP 10: Clean and Standardize Core Fields
 print("\n" + "="*70)
-print("STEP 5: CLEAN CORE FIELDS")
+print("STEP 10: CLEAN CORE FIELDS")
 print("="*70)
 
 df_clean = (
-    df_xrefs
+    df_quality
     
     # Chromosome
     .withColumn("chromosome", 
@@ -346,16 +545,15 @@ clean_count = df_clean.count()
 print(f"\nCleaning complete!")
 print(f"   Before: {raw_count:,} genes")
 print(f"   After:  {clean_count:,} genes")
-print(f"   Removed: {raw_count - clean_count:,} invalid rows")
 
 # COMMAND ----------
 
-# DBTITLE 1,Create Final Enriched Table
+# DBTITLE 1,STEP 11: Create Ultra-Enriched Final Table
 print("\n" + "="*70)
-print("STEP 6: CREATE ENRICHED GENE TABLE")
+print("STEP 11: CREATE ULTRA-ENRICHED GENE TABLE")
 print("="*70)
 
-df_genes_enriched = df_clean.select(
+df_genes_ultra_enriched = df_clean.select(
     # Core identifiers
     "gene_id",
     "gene_name",
@@ -373,30 +571,94 @@ df_genes_enriched = df_clean.select(
     "strand",
     "gene_length",
     
+    # Cytogenetic details (NEW)
+    "cyto_arm",
+    "cyto_region",
+    "cyto_band",
+    "is_telomeric",
+    "is_centromeric",
+    
     # Gene classification
     col("gene_type_clean").alias("gene_type"),
     
-    # NEW ENRICHED FIELDS
+    # Aliases (NEW - expanded)
     "all_aliases",
     "alias_count",
+    "has_numeric_aliases",
+    
+    # Database IDs (NEW - extracted)
+    "mim_id",
+    "hgnc_id",
+    "ensembl_id",
+    "alliance_id",
+    "database_coverage_score",
+    
+    # Designation details (NEW)
+    "designation_count",
+    "has_protein_keyword",
+    "has_domain_info",
+    "has_binding_info",
+    "tissue_specific",
+    "is_secretory",
+    
+    # Primary function categories
     "primary_function",
     "biological_process",
     "cellular_location",
+    "primary_location",
+    "druggability_score",
     
-    # Keyword flags
+    # Functional flags (expanded)
     "is_kinase",
+    "is_phosphatase",
     "is_receptor",
+    "is_gpcr",
     "is_transcription_factor",
     "is_enzyme",
+    "is_transporter",
+    "is_channel",
+    "is_membrane_protein",
+    "is_growth_factor",
+    "is_structural",
+    "is_regulatory",
+    "is_metabolic",
+    "is_dna_binding",
+    "is_rna_binding",
+    "is_ubiquitin_related",
+    "is_protease",
+    
+    # Disease associations (expanded)
     "cancer_related",
     "immune_related",
     "neurological_related",
+    "cardiovascular_related",
+    "metabolic_related",
+    "developmental_related",
+    "alzheimer_related",
+    "diabetes_related",
+    "breast_cancer_related",
     
-    # Database xrefs
-    "db_xrefs",
-    "xref_count",
+    # Cellular localization (detailed)
+    "nuclear",
+    "mitochondrial",
+    "cytoplasmic",
+    "membrane",
+    "extracellular",
+    "endoplasmic_reticulum",
+    "golgi",
+    "lysosomal",
+    "peroxisomal",
+    
+    # Quality metrics (NEW)
+    "metadata_completeness",
+    "description_length",
+    "is_well_characterized",
+    "days_since_modification",
+    "is_recently_updated",
     
     # Metadata
+    "db_xrefs",
+    "xref_count",
     "nomenclature_status",
     "modification_date",
     "data_source"
@@ -404,56 +666,62 @@ df_genes_enriched = df_clean.select(
 
 # COMMAND ----------
 
-# DBTITLE 1,Save to Silver Layer
+# DBTITLE 1,Save Ultra-Enriched Genes
 print("\n" + "="*70)
-print("SAVING ENRICHED GENES TO SILVER LAYER")
+print("SAVING ULTRA-ENRICHED GENES TO SILVER LAYER")
 print("="*70)
 
-df_genes_enriched.write \
+df_genes_ultra_enriched.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.silver.genes_enriched")
+    .saveAsTable(f"{catalog_name}.silver.genes_ultra_enriched")
 
-saved_count = spark.table(f"{catalog_name}.silver.genes_enriched").count()
-print(f"Saved to: {catalog_name}.silver.genes_enriched")
-print(f"Verified: {saved_count:,} enriched genes")
+saved_count = spark.table(f"{catalog_name}.silver.genes_ultra_enriched").count()
+print(f"Saved to: {catalog_name}.silver.genes_ultra_enriched")
+print(f"Verified: {saved_count:,} ultra-enriched genes")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrichment Summary Statistics
+# DBTITLE 1,Ultra-Enrichment Summary
 print("\n" + "="*70)
-print("ENRICHMENT SUMMARY")
+print("ULTRA-ENRICHMENT SUMMARY")
 print("="*70)
 
 enrichment_stats = {
-    "total_genes": df_genes_enriched.count(),
-    "genes_with_aliases": df_genes_enriched.filter(col("alias_count") > 1).count(),
-    "kinases": df_genes_enriched.filter(col("is_kinase")).count(),
-    "receptors": df_genes_enriched.filter(col("is_receptor")).count(),
-    "transcription_factors": df_genes_enriched.filter(col("is_transcription_factor")).count(),
-    "cancer_related": df_genes_enriched.filter(col("cancer_related")).count(),
-    "immune_related": df_genes_enriched.filter(col("immune_related")).count(),
-    "neurological": df_genes_enriched.filter(col("neurological_related")).count()
+    "total_genes": df_genes_ultra_enriched.count(),
+    "with_mim_id": df_genes_ultra_enriched.filter(col("mim_id").isNotNull()).count(),
+    "with_ensembl_id": df_genes_ultra_enriched.filter(col("ensembl_id").isNotNull()).count(),
+    "well_characterized": df_genes_ultra_enriched.filter(col("is_well_characterized")).count(),
+    "recently_updated": df_genes_ultra_enriched.filter(col("is_recently_updated")).count(),
+    "kinases": df_genes_ultra_enriched.filter(col("is_kinase")).count(),
+    "receptors": df_genes_ultra_enriched.filter(col("is_receptor")).count(),
+    "gpcrs": df_genes_ultra_enriched.filter(col("is_gpcr")).count(),
+    "transcription_factors": df_genes_ultra_enriched.filter(col("is_transcription_factor")).count(),
+    "cancer_related": df_genes_ultra_enriched.filter(col("cancer_related")).count(),
+    "druggable": df_genes_ultra_enriched.filter(col("druggability_score") >= 2).count(),
+    "tissue_specific": df_genes_ultra_enriched.filter(col("tissue_specific")).count()
 }
 
-print("\nEnrichment Statistics:")
+print("\nUltra-Enrichment Statistics:")
 for key, value in enrichment_stats.items():
     print(f"  {key}: {value:,}")
 
+print(f"\nTotal columns: {len(df_genes_ultra_enriched.columns)}")
+
 # COMMAND ----------
 
-# DBTITLE 1,Sample Enriched Data
-print("\nSample enriched genes (cancer-related kinases):")
+# DBTITLE 1,Sample Ultra-Enriched Data
+print("\nSample ultra-enriched genes (druggable kinases):")
 display(
-    df_genes_enriched.filter(col("is_kinase") & col("cancer_related"))
-                     .select("gene_name", "description", "primary_function", 
-                            "biological_process", "all_aliases")
-                     .limit(10)
+    df_genes_ultra_enriched.filter(col("is_kinase") & (col("druggability_score") >= 3))
+                           .select("gene_name", "description", "primary_function", 
+                                  "druggability_score", "mim_id", "ensembl_id")
+                           .limit(10)
 )
 
 print("\n" + "="*70)
-print("GENE ENRICHMENT COMPLETE")
+print("ULTRA-ENRICHMENT COMPLETE")
 print("="*70)
-print("Next: Use silver.genes_enriched instead of silver.genes_clean")
-print("      in feature engineering for richer gene metadata")
+print(f"Total fields extracted: {len(df_genes_ultra_enriched.columns)}")
+print("Next: Use silver.genes_ultra_enriched in feature engineering")
 print("="*70)
