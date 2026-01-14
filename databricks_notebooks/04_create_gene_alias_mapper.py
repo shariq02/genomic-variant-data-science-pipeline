@@ -9,10 +9,10 @@
 # MAGIC
 # MAGIC **Run Order:** After gene processing, BEFORE feature engineering
 # MAGIC ```
-# MAGIC 1. ✅ 02_gene_data_processing_ENHANCED.py
-# MAGIC 2. ✅ 03_variant_data_processing_ENHANCED.py
-# MAGIC 3. ▶️ 06_create_gene_alias_mapper.py (THIS SCRIPT)
-# MAGIC 4. ⏭️ 04_feature_engineering.py
+# MAGIC 1.  02_gene_data_processing_ENHANCED.py
+# MAGIC 2.  03_variant_data_processing_ENHANCED.py
+# MAGIC 3.  04_create_gene_alias_mapper.py (THIS SCRIPT)
+# MAGIC 4.  05_feature_engineering.py
 # MAGIC ```
 # MAGIC
 # MAGIC **Purpose:** Create lookup tables to map ANY alias/designation to its primary gene
@@ -28,10 +28,10 @@
 # MAGIC alias_5: null  ← Can't search!
 # MAGIC
 # MAGIC AFTER (with mapping):
-# MAGIC Search: "A1B"  → "A1BG" ✅
-# MAGIC Search: "ABG"  → "A1BG" ✅
-# MAGIC Search: "GAB"  → "A1BG" ✅
-# MAGIC Search: "A1BG" → "A1BG" ✅
+# MAGIC Search: "A1B"  → "A1BG" 
+# MAGIC Search: "ABG"  → "A1BG" 
+# MAGIC Search: "GAB"  → "A1BG" 
+# MAGIC Search: "A1BG" → "A1BG" 
 # MAGIC ```
 
 # COMMAND ----------
@@ -63,9 +63,9 @@ print("="*80)
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print(f"\n📁 Catalog: {catalog_name}")
-print(f"📥 Input:  {catalog_name}.silver.genes_ultra_enriched")
-print(f"📤 Output: {catalog_name}.reference.gene_*_lookup tables")
+print(f"\n Catalog: {catalog_name}")
+print(f" Input:  {catalog_name}.silver.genes_ultra_enriched")
+print(f" Output: {catalog_name}.reference.gene_*_lookup tables")
 print("\n" + "="*80)
 
 # COMMAND ----------
@@ -77,10 +77,10 @@ print("="*80)
 df_genes = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
 
 gene_count = df_genes.count()
-print(f"✅ Loaded {gene_count:,} ultra-enriched genes")
+print(f" Loaded {gene_count:,} ultra-enriched genes")
 
 # Show sample data structure
-print("\n📋 Sample gene data:")
+print("\n Sample gene data:")
 df_genes.select(
     "gene_name", 
     "official_symbol",
@@ -141,7 +141,7 @@ df_all_designations = (
     .filter(col("all_designations_array") != array())
 )
 
-print(f"✅ Collected designations from {df_all_designations.count():,} genes")
+print(f" Collected designations from {df_all_designations.count():,} genes")
 
 # Explode designations into separate rows (one row per designation)
 df_designation_mapping = (
@@ -178,14 +178,14 @@ df_designation_mapping = (
 )
 
 designation_count = df_designation_mapping.count()
-print(f"✅ Created designation mapping table with {designation_count:,} searchable designations")
+print(f" Created designation mapping table with {designation_count:,} searchable designations")
 
 # Show sample mappings
-print("\n📋 Sample designation mappings:")
+print("\n Sample designation mappings:")
 df_designation_mapping.show(10, truncate=60)
 
 # Show statistics
-print("\n📊 Designation Statistics:")
+print("\n Designation Statistics:")
 print(f"   Total unique designations: {designation_count:,}")
 print(f"   Genes with designations: {df_all_designations.count():,}")
 print(f"   Avg designations per gene: {designation_count / df_all_designations.count():.2f}")
@@ -203,8 +203,8 @@ df_designation_mapping.write \
     .saveAsTable(f"{catalog_name}.reference.gene_designation_lookup")
 
 saved_count = spark.table(f"{catalog_name}.reference.gene_designation_lookup").count()
-print(f"✅ Saved to: {catalog_name}.reference.gene_designation_lookup")
-print(f"✅ Verified: {saved_count:,} designation mappings")
+print(f" Saved to: {catalog_name}.reference.gene_designation_lookup")
+print(f" Verified: {saved_count:,} designation mappings")
 
 # COMMAND ----------
 
@@ -216,7 +216,7 @@ print("Combines BOTH aliases and designations for comprehensive search")
 print("="*80)
 
 # First, create alias mappings
-print("\n📦 Creating alias mappings...")
+print("\n Creating alias mappings...")
 
 df_all_aliases = (
     df_genes
@@ -285,10 +285,10 @@ df_alias_search = (
 )
 
 alias_count = df_alias_search.count()
-print(f"✅ Created {alias_count:,} alias mappings")
+print(f" Created {alias_count:,} alias mappings")
 
 # Create designation search records
-print("\n📦 Creating designation search records...")
+print("\n Creating designation search records...")
 
 df_designation_search = (
     df_designation_mapping
@@ -306,10 +306,10 @@ df_designation_search = (
     )
 )
 
-print(f"✅ Using {designation_count:,} designation mappings")
+print(f" Using {designation_count:,} designation mappings")
 
 # Union both tables to create universal search
-print("\n🔗 Combining aliases and designations...")
+print("\n Combining aliases and designations...")
 
 df_universal_search = (
     df_alias_search
@@ -319,14 +319,14 @@ df_universal_search = (
 )
 
 universal_count = df_universal_search.count()
-print(f"✅ Created universal search table with {universal_count:,} total searchable terms")
+print(f" Created universal search table with {universal_count:,} total searchable terms")
 
 # Show sample from both match types
-print("\n📋 Sample universal search entries:")
-print("\n▶️ Alias matches:")
+print("\n Sample universal search entries:")
+print("\n Alias matches:")
 df_universal_search.filter(col("match_type") == "alias").show(5, truncate=60)
 
-print("\n▶️ Designation matches:")
+print("\n Designation matches:")
 df_universal_search.filter(col("match_type") == "designation").show(5, truncate=60)
 
 # COMMAND ----------
@@ -342,14 +342,14 @@ df_universal_search.write \
     .saveAsTable(f"{catalog_name}.reference.gene_universal_search")
 
 saved_universal = spark.table(f"{catalog_name}.reference.gene_universal_search").count()
-print(f"✅ Saved to: {catalog_name}.reference.gene_universal_search")
-print(f"✅ Verified: {saved_universal:,} searchable terms")
+print(f" Saved to: {catalog_name}.reference.gene_universal_search")
+print(f" Verified: {saved_universal:,} searchable terms")
 
 # COMMAND ----------
 
 # DBTITLE 1,Create Statistics Summary
 print("\n" + "="*80)
-print("📊 SEARCH TABLE STATISTICS")
+print(" SEARCH TABLE STATISTICS")
 print("="*80)
 
 # Calculate comprehensive statistics
@@ -363,7 +363,7 @@ stats = {
     "avg_search_terms_per_gene": universal_count / gene_count
 }
 
-print("\n📈 Coverage Statistics:")
+print("\n Coverage Statistics:")
 for key, value in stats.items():
     if "avg" in key:
         print(f"   {key:.<40} {value:.2f}")
@@ -371,11 +371,11 @@ for key, value in stats.items():
         print(f"   {key:.<40} {value:,}")
 
 # Match type distribution
-print("\n📋 Universal Search - Match Type Distribution:")
+print("\n Universal Search - Match Type Distribution:")
 df_universal_search.groupBy("match_type").count().orderBy(col("count").desc()).show()
 
 # Top genes by number of search terms
-print("\n🏆 Top 10 Genes by Number of Search Terms:")
+print("\n Top 10 Genes by Number of Search Terms:")
 df_universal_search.groupBy("mapped_gene_name") \
     .agg(count("*").alias("search_term_count")) \
     .orderBy(col("search_term_count").desc()) \
@@ -405,10 +405,10 @@ SELECT
 FROM {catalog_name}.reference.gene_universal_search
 """)
 
-print(f"✅ Created SQL view: {catalog_name}.reference.gene_search_view")
+print(f" Created SQL view: {catalog_name}.reference.gene_search_view")
 
 # Test the view
-print("\n🧪 Testing SQL view:")
+print("\n Testing SQL view:")
 spark.sql(f"""
     SELECT match_type, COUNT(*) as count 
     FROM {catalog_name}.reference.gene_search_view 
@@ -419,13 +419,13 @@ spark.sql(f"""
 
 # DBTITLE 1,USAGE EXAMPLES - SQL Queries
 print("\n" + "="*80)
-print("💡 USAGE EXAMPLES - SQL QUERIES")
+print(" USAGE EXAMPLES - SQL QUERIES")
 print("="*80)
 
 # Load the view for examples
 df_search = spark.table(f"{catalog_name}.reference.gene_search_view")
 
-print("\n▶️ Example 1: Search for gene by exact alias 'BRCA1'")
+print("\n Example 1: Search for gene by exact alias 'BRCA1'")
 print("-" * 80)
 result1 = spark.sql(f"""
     SELECT * 
@@ -434,7 +434,7 @@ result1 = spark.sql(f"""
 """)
 result1.show(truncate=False)
 
-print("\n▶️ Example 2: Get ALL aliases for a specific gene 'BRCA1'")
+print("\n Example 2: Get ALL aliases for a specific gene 'BRCA1'")
 print("-" * 80)
 result2 = spark.sql(f"""
     SELECT search_text, match_type 
@@ -444,7 +444,7 @@ result2 = spark.sql(f"""
 """)
 result2.show(20, truncate=False)
 
-print("\n▶️ Example 3: Search for genes containing 'KINASE' (case-insensitive)")
+print("\n Example 3: Search for genes containing 'KINASE' (case-insensitive)")
 print("-" * 80)
 result3 = spark.sql(f"""
     SELECT mapped_gene_name, search_text, match_type 
@@ -454,7 +454,7 @@ result3 = spark.sql(f"""
 """)
 result3.show(truncate=60)
 
-print("\n▶️ Example 4: Find genes by MIM ID")
+print("\n Example 4: Find genes by MIM ID")
 print("-" * 80)
 result4 = spark.sql(f"""
     SELECT DISTINCT mapped_gene_name, mim_id, chromosome 
@@ -467,15 +467,15 @@ result4.show(truncate=False)
 
 # DBTITLE 1,USAGE EXAMPLES - PySpark Queries
 print("\n" + "="*80)
-print("💡 USAGE EXAMPLES - PYSPARK QUERIES")
+print(" USAGE EXAMPLES - PYSPARK QUERIES")
 print("="*80)
 
-print("\n▶️ Example 5: Search using PySpark DataFrame API")
+print("\n Example 5: Search using PySpark DataFrame API")
 print("-" * 80)
 result5 = df_search.filter(col("search_term") == "TP53")
 result5.show(truncate=False)
 
-print("\n▶️ Example 6: Find all aliases for multiple genes")
+print("\n Example 6: Find all aliases for multiple genes")
 print("-" * 80)
 genes_of_interest = ["BRCA1", "BRCA2", "TP53"]
 result6 = df_search.filter(col("mapped_gene_name").isin(genes_of_interest)) \
@@ -483,7 +483,7 @@ result6 = df_search.filter(col("mapped_gene_name").isin(genes_of_interest)) \
                    .orderBy("mapped_gene_name", "match_type")
 result6.show(30, truncate=60)
 
-print("\n▶️ Example 7: Fuzzy search - genes with 'receptor' in designation")
+print("\n Example 7: Fuzzy search - genes with 'receptor' in designation")
 print("-" * 80)
 result7 = df_search.filter(
     (lower(col("search_term")).contains("receptor")) & 
@@ -497,10 +497,10 @@ result7.show(truncate=60)
 
 # DBTITLE 1,USAGE EXAMPLES - Join with Variant Data
 print("\n" + "="*80)
-print("💡 USAGE EXAMPLES - JOIN WITH VARIANT DATA")
+print(" USAGE EXAMPLES - JOIN WITH VARIANT DATA")
 print("="*80)
 
-print("\n▶️ Example 8: Resolve variant gene names using alias lookup")
+print("\n Example 8: Resolve variant gene names using alias lookup")
 print("-" * 80)
 
 # Load variants (sample)
@@ -541,7 +541,7 @@ df_variants_resolved.filter(col("gene_was_resolved")) \
     ).show(10, truncate=False)
 
 resolved_count = df_variants_resolved.filter(col("gene_was_resolved")).count()
-print(f"\n✅ Resolved {resolved_count} gene names using alias lookup (in sample of 1000)")
+print(f"\n Resolved {resolved_count} gene names using alias lookup (in sample of 1000)")
 
 # COMMAND ----------
 
@@ -629,23 +629,23 @@ def batch_lookup_genes(gene_list, catalog="workspace"):
     
     return result
 
-print("✅ Helper functions created:")
+print(" Helper functions created:")
 print("   1. lookup_gene_by_alias(alias_term)")
 print("   2. get_all_aliases(gene_name)")
 print("   3. batch_lookup_genes(gene_list)")
 
 # Test the functions
-print("\n🧪 Testing helper functions:")
+print("\n Testing helper functions:")
 
-print("\n▶️ Test 1: lookup_gene_by_alias('BRCA1')")
+print("\n Test 1: lookup_gene_by_alias('BRCA1')")
 test1 = lookup_gene_by_alias("BRCA1")
 test1.show(truncate=False)
 
-print("\n▶️ Test 2: get_all_aliases('BRCA1')")
+print("\n Test 2: get_all_aliases('BRCA1')")
 test2 = get_all_aliases("BRCA1")
 test2.show(10, truncate=False)
 
-print("\n▶️ Test 3: batch_lookup_genes(['BRCA1', 'BRCA2', 'TP53'])")
+print("\n Test 3: batch_lookup_genes(['BRCA1', 'BRCA2', 'TP53'])")
 test3 = batch_lookup_genes(["BRCA1", "BRCA2", "TP53"])
 test3.show(truncate=False)
 
@@ -653,10 +653,10 @@ test3.show(truncate=False)
 
 # DBTITLE 1,Final Summary & Documentation
 print("\n" + "="*80)
-print("🎉 GENE ALIAS MAPPING COMPLETE!")
+print(" GENE ALIAS MAPPING COMPLETE!")
 print("="*80)
 
-print("\n📁 CREATED TABLES:")
+print("\n CREATED TABLES:")
 print("-" * 80)
 print(f"1. {catalog_name}.reference.gene_designation_lookup")
 print(f"   ├─ {designation_count:,} designation mappings")
@@ -673,66 +673,60 @@ print()
 print(f"3. {catalog_name}.reference.gene_search_view")
 print(f"   └─ SQL view for easy querying")
 
-print("\n💡 HOW TO USE:")
+print("\n HOW TO USE:")
 print("-" * 80)
-print("\n1. 🐍 Python/PySpark:")
+print("\n1.  Python/PySpark:")
 print("   result = lookup_gene_by_alias('BRCA1')")
 print("   aliases = get_all_aliases('BRCA1')")
 print("   batch = batch_lookup_genes(['BRCA1', 'BRCA2', 'TP53'])")
 print()
-print("2. 📊 SQL:")
+print("2.  SQL:")
 print("   SELECT * FROM workspace.reference.gene_search_view")
 print("   WHERE search_term = 'BRCA1'")
 print()
-print("3. 🔗 Join with your data:")
+print("3.  Join with your data:")
 print("   variants_df.join(")
 print("       gene_search_df,")
 print("       variants_df.gene_name == gene_search_df.search_term,")
 print("       'left'")
 print("   )")
 
-print("\n✨ BENEFITS:")
+print("\n BENEFITS:")
 print("-" * 80)
-print("✅ NO MORE NULL VALUES - All aliases are searchable")
-print("✅ COMPREHENSIVE SEARCH - {0:,} searchable terms for {1:,} genes".format(universal_count, gene_count))
-print("✅ FAST LOOKUPS - Indexed by search_term")
-print("✅ FLEXIBLE - Works with ANY gene identifier (alias or designation)")
-print("✅ SQL FRIENDLY - Easy to query and join")
-print("✅ CASE INSENSITIVE - All searches are uppercase")
+print(" NO MORE NULL VALUES - All aliases are searchable")
+print(" COMPREHENSIVE SEARCH - {0:,} searchable terms for {1:,} genes".format(universal_count, gene_count))
+print(" FAST LOOKUPS - Indexed by search_term")
+print(" FLEXIBLE - Works with ANY gene identifier (alias or designation)")
+print(" SQL FRIENDLY - Easy to query and join")
+print(" CASE INSENSITIVE - All searches are uppercase")
 
-print("\n📈 SEARCH COVERAGE:")
+print("\n SEARCH COVERAGE:")
 print("-" * 80)
 print(f"   Genes: {gene_count:,}")
 print(f"   Total search terms: {universal_count:,}")
 print(f"   Avg terms per gene: {universal_count / gene_count:.2f}")
 print(f"   Coverage increase: {(universal_count / gene_count):.1f}x")
 
-print("\n⏭️ NEXT STEPS:")
-print("-" * 80)
-print("1. ✅ Gene alias mapping complete")
-print("2. ▶️ Run 04_feature_engineering.py")
-print("3. ▶️ Use these lookup tables in your analysis")
-print("4. ▶️ Re-run statistical analysis to see improvements")
 
 print("\n" + "="*80)
-print("✅ SCRIPT COMPLETE - READY FOR FEATURE ENGINEERING")
+print(" SCRIPT COMPLETE - READY FOR FEATURE ENGINEERING")
 print("="*80)
 
 # COMMAND ----------
 
 # DBTITLE 1,Export Sample Data for Review
-print("\n📤 EXPORTING SAMPLE DATA FOR REVIEW")
+print("\n EXPORTING SAMPLE DATA FOR REVIEW")
 print("="*80)
 
 # Create sample CSV for review
 sample_search = df_universal_search.limit(1000).toPandas()
 
-print(f"✅ Exported {len(sample_search):,} sample search terms to Pandas DataFrame")
+print(f" Exported {len(sample_search):,} sample search terms to Pandas DataFrame")
 print("\nSample data preview:")
 print(sample_search.head(10))
 
 # Show how many terms per gene (distribution)
-print("\n📊 Search Terms per Gene Distribution:")
+print("\n Search Terms per Gene Distribution:")
 terms_per_gene = df_universal_search.groupBy("mapped_gene_name") \
     .agg(count("*").alias("term_count")) \
     .groupBy("term_count") \
@@ -742,5 +736,5 @@ terms_per_gene = df_universal_search.groupBy("mapped_gene_name") \
 terms_per_gene.show(20)
 
 print("\n" + "="*80)
-print("🎉 ALL DONE!")
+print(" ALL DONE!")
 print("="*80)

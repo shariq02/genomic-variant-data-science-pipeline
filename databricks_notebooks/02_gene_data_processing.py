@@ -543,7 +543,7 @@ print("\n" + "="*70)
 print("MAXIMUM DATA EXTRACTION SUMMARY")
 print("="*70)
 
-print("\n📊 NEW COLUMNS ADDED:")
+print("\n NEW COLUMNS ADDED:")
 print("1. Aliases: alias_1 to alias_10 (10 columns)")
 print("2. Designations: designation_1 to designation_15 (15 columns)")
 print("3. Database IDs: uniprot_id, refseq_id, entrez_id (3 new)")
@@ -552,7 +552,7 @@ print("5. Cytogenetic: cyto_sub_band, is_pericentromeric (2 new)")
 print("6. Position handling: needs_position_lookup flag (1 new)")
 print("7. Keywords: has_glycoprotein, has_*_keyword (5 new)")
 
-print(f"\n📈 Column Statistics:")
+print(f"\n Column Statistics:")
 print(f"   Total columns: {len(df_genes_ultra_enriched.columns)}")
 print(f"   Original columns: ~70")
 print(f"   NEW columns added: ~40")
@@ -569,7 +569,7 @@ enrichment_stats = {
     "with_chain_type": df_genes_ultra_enriched.filter(col("chain_type").isNotNull()).count()
 }
 
-print("\n📋 Extraction Statistics:")
+print("\n Extraction Statistics:")
 for key, value in enrichment_stats.items():
     pct = (value / enrichment_stats["total_genes"] * 100) if enrichment_stats["total_genes"] > 0 else 0
     print(f"  {key}: {value:,} ({pct:.1f}%)")
@@ -603,7 +603,7 @@ display(
 )
 
 print("\n" + "="*70)
-print("✅ MAXIMUM DATA EXTRACTION COMPLETE")
+print(" MAXIMUM DATA EXTRACTION COMPLETE")
 print("="*70)
 print("Next steps:")
 print("1. Use these enriched fields in variant processing")

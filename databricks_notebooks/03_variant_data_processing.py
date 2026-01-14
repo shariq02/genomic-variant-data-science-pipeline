@@ -187,7 +187,7 @@ df_omim_lookup.write \
     .option("overwriteSchema", "true") \
     .saveAsTable(f"{catalog_name}.reference.omim_disease_lookup")
 
-print(f"✅ Saved to: {catalog_name}.reference.omim_disease_lookup")
+print(f" Saved to: {catalog_name}.reference.omim_disease_lookup")
 
 # COMMAND ----------
 
@@ -225,7 +225,7 @@ df_orphanet_lookup.write \
     .option("overwriteSchema", "true") \
     .saveAsTable(f"{catalog_name}.reference.orphanet_disease_lookup")
 
-print(f"✅ Saved to: {catalog_name}.reference.orphanet_disease_lookup")
+print(f" Saved to: {catalog_name}.reference.orphanet_disease_lookup")
 
 # COMMAND ----------
 
@@ -263,7 +263,7 @@ df_mondo_lookup.write \
     .option("overwriteSchema", "true") \
     .saveAsTable(f"{catalog_name}.reference.mondo_disease_lookup")
 
-print(f"✅ Saved to: {catalog_name}.reference.mondo_disease_lookup")
+print(f" Saved to: {catalog_name}.reference.mondo_disease_lookup")
 
 # COMMAND ----------
 
@@ -368,13 +368,13 @@ enriched_count = df_disease_enriched.filter(col("disease_was_enriched")).count()
 generic_count = df_disease_enriched.filter(col("is_generic_disease")).count()
 enrichment_rate = (enriched_count / generic_count * 100) if generic_count > 0 else 0
 
-print(f"\n📊 Disease Enrichment Statistics:")
+print(f"\n Disease Enrichment Statistics:")
 print(f"   Generic diseases found: {generic_count:,}")
 print(f"   Successfully enriched: {enriched_count:,}")
 print(f"   Enrichment rate: {enrichment_rate:.1f}%")
 print(f"   Remaining unknown: {generic_count - enriched_count:,}")
 
-print("\n✨ Sample disease enrichment:")
+print("\n Sample disease enrichment:")
 df_disease_enriched.filter(col("disease_was_enriched")).select(
     "gene_name", 
     col("disease").alias("original_disease"),
@@ -867,7 +867,7 @@ df_variants_ultra_enriched = df_quality.select(
 )
 
 final_count = df_variants_ultra_enriched.count()
-print(f"✅ Ultra-enriched variant table created!")
+print(f" Ultra-enriched variant table created!")
 print(f"   Total variants: {final_count:,}")
 print(f"   Total columns: {len(df_variants_ultra_enriched.columns)}")
 
@@ -884,26 +884,26 @@ df_variants_ultra_enriched.write \
     .saveAsTable(f"{catalog_name}.silver.variants_ultra_enriched")
 
 saved_count = spark.table(f"{catalog_name}.silver.variants_ultra_enriched").count()
-print(f"✅ Saved to: {catalog_name}.silver.variants_ultra_enriched")
-print(f"✅ Verified: {saved_count:,} ultra-enriched variants")
+print(f" Saved to: {catalog_name}.silver.variants_ultra_enriched")
+print(f" Verified: {saved_count:,} ultra-enriched variants")
 
 # COMMAND ----------
 
 # DBTITLE 1,Maximum Extraction Summary
 print("\n" + "="*70)
-print("🎉 MAXIMUM DATA EXTRACTION COMPLETE - VARIANTS")
+print(" MAXIMUM DATA EXTRACTION COMPLETE - VARIANTS")
 print("="*70)
 
-print("\n📊 NEW FEATURES ADDED:")
-print("1. ✅ Disease Database IDs: OMIM, Orphanet, MONDO, MedGen, HPO, SNOMED (12 columns)")
-print("2. ✅ Disease Name Enrichment: Replaced 'not specified' with real names (3 columns)")
-print("3. ✅ RCV Accession IDs: rcv_id_1 to rcv_id_10 (13 columns)")
-print("4. ✅ Variant Components: transcript_id, cdna_change, protein_change, etc. (6 columns)")
-print("5. ✅ Disease Arrays: Multiple diseases per variant (4 columns)")
-print("6. ✅ Mutation Type Flags: frameshift, nonsense, splice, missense (4 columns)")
-print("7. ✅ Variant Type Flags: SNV, deletion, insertion, CNV, etc. (7 columns)")
-print("8. ✅ Quality Metrics: review_quality_score, quality_tier, recency (6 columns)")
-print("9. ✅ Lookup Tables: OMIM, Orphanet, MONDO disease mappings (3 tables)")
+print("\n NEW FEATURES ADDED:")
+print("1.  Disease Database IDs: OMIM, Orphanet, MONDO, MedGen, HPO, SNOMED (12 columns)")
+print("2.  Disease Name Enrichment: Replaced 'not specified' with real names (3 columns)")
+print("3.  RCV Accession IDs: rcv_id_1 to rcv_id_10 (13 columns)")
+print("4.  Variant Components: transcript_id, cdna_change, protein_change, etc. (6 columns)")
+print("5.  Disease Arrays: Multiple diseases per variant (4 columns)")
+print("6.  Mutation Type Flags: frameshift, nonsense, splice, missense (4 columns)")
+print("7.  Variant Type Flags: SNV, deletion, insertion, CNV, etc. (7 columns)")
+print("8.  Quality Metrics: review_quality_score, quality_tier, recency (6 columns)")
+print("9.  Lookup Tables: OMIM, Orphanet, MONDO disease mappings (3 tables)")
 
 # Statistics
 enrichment_stats = {
@@ -919,7 +919,7 @@ enrichment_stats = {
     "high_quality": df_variants_ultra_enriched.filter(col("quality_tier") == "High Quality").count()
 }
 
-print("\n📋 ENRICHMENT STATISTICS:")
+print("\n ENRICHMENT STATISTICS:")
 for key, value in enrichment_stats.items():
     if "rate" in key or "pct" in key:
         print(f"  {key}: {value:.1f}%")
@@ -931,7 +931,7 @@ for key, value in enrichment_stats.items():
 
 # DBTITLE 1,Sample Enriched Data
 print("\n" + "="*70)
-print("📋 SAMPLE ENRICHED VARIANTS")
+print(" SAMPLE ENRICHED VARIANTS")
 print("="*70)
 
 print("\n1. Disease Enrichment Examples (Before → After):")
@@ -978,10 +978,10 @@ display(
 )
 
 print("\n" + "="*70)
-print("✅ VARIANT PROCESSING COMPLETE!")
+print(" VARIANT PROCESSING COMPLETE!")
 print("="*70)
-print(f"📁 Output Table: {catalog_name}.silver.variants_ultra_enriched")
-print(f"📁 Lookup Tables:")
+print(f" Output Table: {catalog_name}.silver.variants_ultra_enriched")
+print(f" Lookup Tables:")
 print(f"   - {catalog_name}.reference.omim_disease_lookup")
 print(f"   - {catalog_name}.reference.orphanet_disease_lookup")
 print(f"   - {catalog_name}.reference.mondo_disease_lookup")
