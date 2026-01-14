@@ -29,19 +29,16 @@ from pyspark.sql import SparkSession
 # DBTITLE 1,Initialize Spark
 spark = SparkSession.builder.getOrCreate()
 
-print("="*80)
 print("CREATE DATABRICKS SCHEMAS")
-print("="*80)
+print("="*50)
 
 # COMMAND ----------
 
 # DBTITLE 1,Configuration
 catalog_name = "workspace"
 
-print("")
 print("Catalog: {}".format(catalog_name))
 print("Creating schemas: bronze, silver, gold, reference")
-print("")
 
 # COMMAND ----------
 
@@ -53,7 +50,6 @@ print("SUCCESS: bronze schema created")
 # COMMAND ----------
 
 # DBTITLE 1,Create Silver Schema
-print("")
 print("Creating silver schema...")
 spark.sql("CREATE SCHEMA IF NOT EXISTS {}.silver".format(catalog_name))
 print("SUCCESS: silver schema created")
@@ -61,7 +57,6 @@ print("SUCCESS: silver schema created")
 # COMMAND ----------
 
 # DBTITLE 1,Create Gold Schema
-print("")
 print("Creating gold schema...")
 spark.sql("CREATE SCHEMA IF NOT EXISTS {}.gold".format(catalog_name))
 print("SUCCESS: gold schema created")
@@ -69,7 +64,6 @@ print("SUCCESS: gold schema created")
 # COMMAND ----------
 
 # DBTITLE 1,Create Reference Schema
-print("")
 print("Creating reference schema...")
 spark.sql("CREATE SCHEMA IF NOT EXISTS {}.reference".format(catalog_name))
 print("SUCCESS: reference schema created")
@@ -77,10 +71,8 @@ print("SUCCESS: reference schema created")
 # COMMAND ----------
 
 # DBTITLE 1,Verify All Schemas
-print("")
-print("="*80)
 print("VERIFYING ALL SCHEMAS")
-print("="*80)
+print("="*50)
 
 schemas = spark.sql("SHOW SCHEMAS IN {}".format(catalog_name)).collect()
 
@@ -93,10 +85,8 @@ for schema in schemas:
 # COMMAND ----------
 
 # DBTITLE 1,Check Each Schema
-print("")
-print("="*80)
 print("SCHEMA DETAILS")
-print("="*80)
+print("="*50)
 
 for schema_name in ["bronze", "silver", "gold", "reference"]:
     full_schema = "{}.{}".format(catalog_name, schema_name)
@@ -105,7 +95,6 @@ for schema_name in ["bronze", "silver", "gold", "reference"]:
         tables = spark.sql("SHOW TABLES IN {}".format(full_schema)).collect()
         table_count = len(tables)
         
-        print("")
         print("Schema: {}".format(full_schema))
         print("  Tables: {}".format(table_count))
         
@@ -117,25 +106,19 @@ for schema_name in ["bronze", "silver", "gold", "reference"]:
             print("  (No tables yet - ready for processing)")
             
     except Exception as e:
-        print("")
         print("ERROR checking {}: {}".format(full_schema, str(e)))
 
 # COMMAND ----------
 
 # DBTITLE 1,Final Summary
-print("")
-print("="*80)
 print("SUCCESS: ALL SCHEMAS READY")
-print("="*80)
+print("="*50)
 
-print("")
 print("Created/verified schemas:")
 print("  1. {}.bronze   - Raw data layer".format(catalog_name))
 print("  2. {}.silver   - Cleaned and enriched data".format(catalog_name))
 print("  3. {}.gold     - Analytical features".format(catalog_name))
 print("  4. {}.reference - Lookup tables".format(catalog_name))
 
-print("")
-print("="*80)
 print("NEXT: Run gene and variant processing scripts")
-print("="*80)
+print("="*50)
