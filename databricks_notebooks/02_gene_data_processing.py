@@ -42,12 +42,11 @@ print(f"Spark version: {spark.version}")
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("="*70)
+
 print("MAXIMUM DATA EXTRACTION - GENE PROCESSING")
 print("="*70)
 print(f"Catalog: {catalog_name}")
 print("Extracting ALL hidden data from text fields")
-print("="*70)
 
 # COMMAND ----------
 
@@ -66,7 +65,6 @@ df_genes_raw.select("gene_name", "other_aliases", "other_designations", "db_xref
 # COMMAND ----------
 
 # DBTITLE 1,STEP 1: MAXIMUM ALIAS EXTRACTION
-print("\n" + "="*70)
 print("STEP 1: EXTRACT ALL ALIASES INTO SEPARATE COLUMNS")
 print("="*70)
 
@@ -112,7 +110,6 @@ df_aliases_expanded.select(
 # COMMAND ----------
 
 # DBTITLE 1,STEP 2: MAXIMUM DESIGNATION EXTRACTION
-print("\n" + "="*70)
 print("STEP 2: EXTRACT ALL DESIGNATIONS INTO SEPARATE COLUMNS")
 print("="*70)
 
@@ -170,7 +167,6 @@ df_designations_expanded.select(
 # COMMAND ----------
 
 # DBTITLE 1,STEP 3: ULTRA DATABASE XREFS EXTRACTION
-print("\n" + "="*70)
 print("STEP 3: EXTRACT ALL DATABASE IDs INTO SEPARATE COLUMNS")
 print("="*70)
 
@@ -240,7 +236,6 @@ df_xrefs_expanded.select(
 # COMMAND ----------
 
 # DBTITLE 1,STEP 4: ENHANCED DESCRIPTION PARSING
-print("\n" + "="*70)
 print("STEP 4: PARSE DESCRIPTION FIELD FOR HIDDEN DATA")
 print("="*70)
 
@@ -297,7 +292,6 @@ df_description_parsed.select(
 # COMMAND ----------
 
 # DBTITLE 1,STEP 5: CYTOGENETIC LOCATION ULTRA-PARSING
-print("\n" + "="*70)
 print("STEP 5: ULTRA-PARSE CYTOGENETIC LOCATION")
 print("="*70)
 
@@ -358,7 +352,6 @@ df_cyto_parsed.select(
 # COMMAND ----------
 
 # DBTITLE 1,STEP 6: GENOMIC POSITION HANDLING
-print("\n" + "="*70)
 print("STEP 6: HANDLE GENOMIC POSITIONS")
 print("="*70)
 
@@ -413,11 +406,8 @@ df_positions.select(
 # COMMAND ----------
 
 # DBTITLE 1,STEP 7: MERGE WITH EXISTING FUNCTIONAL CLASSIFICATION
-print("\n" + "="*70)
 print("STEP 7: ADD FUNCTIONAL CLASSIFICATION")
 print("="*70)
-print("NOTE: Merge this with your existing functional classification code")
-print("This is a placeholder - use your complete classification logic")
 
 # Basic functional classification (expand with your full logic)
 df_with_functions = (
@@ -430,12 +420,11 @@ df_with_functions = (
     # ... add all other classifications from your original script ...
 )
 
-print("Functional classification applied (use full logic from original script)")
+print("\n Functional classification applied (use full logic from original script)")
 
 # COMMAND ----------
 
 # DBTITLE 1,STEP 8: CREATE FINAL ULTRA-ENRICHED TABLE
-print("\n" + "="*70)
 print("STEP 8: CREATE ULTRA-ENRICHED GENE TABLE")
 print("="*70)
 
@@ -523,7 +512,6 @@ print(f"Ultra-enriched table created with {len(df_genes_ultra_enriched.columns)}
 # COMMAND ----------
 
 # DBTITLE 1,Save Ultra-Enriched Genes
-print("\n" + "="*70)
 print("SAVING ULTRA-ENRICHED GENES TO SILVER LAYER")
 print("="*70)
 
@@ -539,7 +527,6 @@ print(f"Verified: {saved_count:,} ultra-enriched genes")
 # COMMAND ----------
 
 # DBTITLE 1,Ultra-Enrichment Summary
-print("\n" + "="*70)
 print("MAXIMUM DATA EXTRACTION SUMMARY")
 print("="*70)
 
@@ -602,11 +589,9 @@ display(
     .limit(10)
 )
 
-print("\n" + "="*70)
 print(" MAXIMUM DATA EXTRACTION COMPLETE")
 print("="*70)
 print("Next steps:")
 print("1. Use these enriched fields in variant processing")
 print("2. Create OMIM disease mapping from mim_id")
 print("3. Fetch missing positions using Ensembl API")
-print("="*70)
