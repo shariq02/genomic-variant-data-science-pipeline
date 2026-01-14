@@ -271,11 +271,12 @@ df_protein = (
                 .otherwise(None))
     
     # Extract amino acid positions
-    .withColumn("aa_start_position",
-                when((col("protein_change_full").isNotNull()) &
-                     (regexp_extract(col("protein_change_full"), "(\\d+)", 1) != ""),
-                     regexp_extract(col("protein_change_full"), "(\\d+)", 1).cast(IntegerType()))
+    .withColumn("aa_start_position_str",
+                when(col("protein_change_full").isNotNull(),
+                     regexp_extract(col("protein_change_full"), "(\\d+)", 1))
                 .otherwise(None))
+    .withColumn("aa_start_position",
+                expr("try_cast(aa_start_position_str as int)"))
     
     # Extract reference amino acid
     .withColumn("ref_amino_acid",
@@ -296,11 +297,12 @@ df_protein = (
                 .otherwise(None))
     
     # Extract nucleotide position
-    .withColumn("cdna_position",
-                when((col("cdna_change_full").isNotNull()) &
-                     (regexp_extract(col("cdna_change_full"), "(\\d+)", 1) != ""),
-                     regexp_extract(col("cdna_change_full"), "(\\d+)", 1).cast(IntegerType()))
+    .withColumn("cdna_position_str",
+                when(col("cdna_change_full").isNotNull(),
+                     regexp_extract(col("cdna_change_full"), "(\\d+)", 1))
                 .otherwise(None))
+    .withColumn("cdna_position",
+                expr("try_cast(cdna_position_str as int)"))
     
     # Extract transcript ID and version
     .withColumn("transcript_id",
@@ -398,16 +400,14 @@ df_cyto = (
                 .otherwise(None))
     
     # Telomeric vs centromeric
+    .withColumn("cyto_region_int",
+                expr("try_cast(cyto_region as int)"))
     .withColumn("is_telomeric_variant",
-                when((col("cyto_region").isNotNull()) &
-                     (col("cyto_region") != "") &
-                     (col("cyto_region").cast("int") >= 20), True)
+                when(col("cyto_region_int") >= 20, True)
                 .otherwise(False))
     
     .withColumn("is_centromeric_variant",
-                when((col("cyto_region").isNotNull()) &
-                     (col("cyto_region") != "") &
-                     (col("cyto_region").cast("int") <= 5), True)
+                when(col("cyto_region_int") <= 5, True)
                 .otherwise(False))
 )
 
