@@ -753,8 +753,13 @@ df_quality = (
     
     # Recent evaluation flag (within 2 years)
     .withColumn("last_evaluated_clean",
-                when(col("last_evaluated").isNotNull() & (trim(col("last_evaluated")) != ""),
-                     trim(col("last_evaluated")))
+                when(
+                    col("last_evaluated").isNotNull() & 
+                    (trim(col("last_evaluated")) != "") &
+                    (trim(col("last_evaluated")) != "-") &
+                    (length(trim(col("last_evaluated"))) > 2),
+                    trim(col("last_evaluated"))
+                )
                 .otherwise(None))
     
     .withColumn("last_evaluated_date",
