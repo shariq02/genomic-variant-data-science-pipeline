@@ -65,8 +65,6 @@ df_variants_raw.select("gene_name", "disease", "phenotype_ids", "accession").sho
 # COMMAND ----------
 
 # DBTITLE 1,Save to Bronze Layer  
-print("")
-print("="*80)
 print("SAVING TO BRONZE LAYER")
 print("="*80)
 
@@ -78,7 +76,6 @@ df_variants_raw.write \
 bronze_count = spark.table("{}.bronze.variants_raw".format(catalog_name)).count()
 print("Saved to: {}.bronze.variants_raw".format(catalog_name))
 print("Verified: {:,} variants in bronze layer".format(bronze_count))
-print("="*80)
 
 # COMMAND ----------
 

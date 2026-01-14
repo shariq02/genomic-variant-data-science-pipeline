@@ -77,7 +77,6 @@ bronze_count = spark.table("{}.bronze.genes_raw".format(catalog_name)).count()
 print("Saved to: {}.bronze.genes_raw".format(catalog_name))
 print("Verified: {:,} genes in bronze layer".format(bronze_count))
 
-
 # COMMAND ----------
 
 # DBTITLE 1,STEP 1: MAXIMUM ALIAS EXTRACTION
