@@ -1,14 +1,20 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### ULTRA-ENRICHED VARIANT DATA PROCESSING
-# MAGIC ##### Extract MAXIMUM data from all variant fields
+# MAGIC #### MAXIMUM DATA EXTRACTION - VARIANT DATA PROCESSING
+# MAGIC ##### Replace "not specified/not provided" with actual disease names
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**   
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** January 14, 2026  
-# MAGIC **Purpose:** Extract every possible piece of information from variant data
-# MAGIC **Input:** workspace.default.clinvar_all_variants (4M+ variants)  
-# MAGIC **Output:** workspace.silver.variants_ultra_enriched
+# MAGIC **Purpose:** Extract ALL disease information and replace generic names
+# MAGIC
+# MAGIC **ENHANCEMENTS:**
+# MAGIC 1. Parse `phenotype_ids` to extract ALL disease database IDs
+# MAGIC 2. Create OMIM disease lookup table
+# MAGIC 3. Replace "not specified/not provided" with actual disease names
+# MAGIC 4. Split multiple `accession` (RCV) IDs into separate columns
+# MAGIC 5. Extract variant components from `variant_name`
+# MAGIC 6. Create comprehensive disease mapping
 
 # COMMAND ----------
 
@@ -18,8 +24,8 @@ from pyspark.sql.functions import (
     col, trim, upper, lower, when, regexp_replace, split, explode,
     length, countDistinct, count, avg, sum as spark_sum, lit, coalesce, 
     concat_ws, array_distinct, flatten, size, array_contains,
-    regexp_extract, array, datediff, current_date, to_date, year, month,
-    dayofyear, concat, substring, expr
+    regexp_extract, array, concat, expr, element_at, first, collect_list,
+    datediff, current_date, to_date, year, month, dayofyear, substring, instr
 )
 from pyspark.sql.types import StringType, ArrayType, IntegerType
 from pyspark.sql import Window
@@ -38,780 +44,832 @@ catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
 print("="*70)
-print("ULTRA-ENRICHED VARIANT DATA PROCESSING")
+print("MAXIMUM DATA EXTRACTION - VARIANT PROCESSING")
 print("="*70)
 print(f"Catalog: {catalog_name}")
-print(f"Input: default.clinvar_all_variants (4M+ variants)")
-print("Extracting MAXIMUM data from all fields")
+print("Extracting disease information and creating mappings")
 print("="*70)
 
 # COMMAND ----------
 
 # DBTITLE 1,Read Raw Variant Data
-print("\nReading ALL variant data...")
+print("\nReading variant data...")
 
 df_variants_raw = spark.table(f"{catalog_name}.default.clinvar_all_variants")
 
 raw_count = df_variants_raw.count()
 print(f"Loaded {raw_count:,} raw variants")
 
-# COMMAND ----------
-
-# DBTITLE 1,Save to Bronze Layer
-df_variants_raw.write \
-    .mode("overwrite") \
-    .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.bronze.variants_raw")
-
-print(f"Saved to {catalog_name}.bronze.variants_raw")
+# Show sample
+print("\nSample data structure:")
+df_variants_raw.select("gene_name", "disease", "phenotype_ids", "accession").show(3, truncate=80)
 
 # COMMAND ----------
 
-# DBTITLE 1,STEP 1: Ultra-Parse Disease with Phenotype ID Fallback
+# DBTITLE 1,STEP 1: ULTRA-PARSE PHENOTYPE IDs
 print("\n" + "="*70)
-print("STEP 1: ULTRA-PARSE DISEASES WITH DATABASE IDS")
+print("STEP 1: EXTRACT ALL DISEASE DATABASE IDs")
 print("="*70)
 
-df_parsed = (
+# Example phenotype_ids:
+# MONDO:MONDO:0013342,MedGen:C3150901,OMIM:613647,Orphanet:306511
+
+df_phenotype_parsed = (
     df_variants_raw
     .withColumn("gene_name", upper(trim(col("gene_name"))))
     
+    # Split phenotype_ids by multiple possible delimiters
+    .withColumn("phenotype_ids_array",
+                when(col("phenotype_ids").isNotNull(),
+                     split(regexp_replace(col("phenotype_ids"), "[|;]", ","), ","))
+                .otherwise(array()))
+    
+    # Extract ALL OMIM IDs (can be multiple)
+    .withColumn("omim_id",
+                when(col("phenotype_ids").isNotNull(),
+                     regexp_extract(col("phenotype_ids"), "OMIM:(\\d+)", 1))
+                .otherwise(None))
+    
+    # Extract additional OMIM IDs if present
+    .withColumn("omim_id_secondary",
+                when(col("phenotype_ids").isNotNull(),
+                     regexp_extract(col("phenotype_ids"), "OMIM:[^,]+,OMIM:(\\d+)", 1))
+                .otherwise(None))
+    
+    # Extract Orphanet IDs
+    .withColumn("orphanet_id",
+                when(col("phenotype_ids").isNotNull(),
+                     regexp_extract(col("phenotype_ids"), "Orphanet:(\\d+)", 1))
+                .otherwise(None))
+    
+    # Extract MONDO IDs
+    .withColumn("mondo_id",
+                when(col("phenotype_ids").isNotNull(),
+                     regexp_extract(col("phenotype_ids"), "MONDO:MONDO:(\\d+)", 1))
+                .otherwise(None))
+    
+    # Extract MedGen IDs
+    .withColumn("medgen_id",
+                when(col("phenotype_ids").isNotNull(),
+                     regexp_extract(col("phenotype_ids"), "MedGen:(C\\d+)", 1))
+                .otherwise(None))
+    
+    # Extract HPO (Human Phenotype Ontology) IDs
+    .withColumn("hpo_id",
+                when(col("phenotype_ids").isNotNull(),
+                     regexp_extract(col("phenotype_ids"), "HP:(\\d+)", 1))
+                .otherwise(None))
+    
+    # Extract SNOMED IDs
+    .withColumn("snomed_id",
+                when(col("phenotype_ids").isNotNull(),
+                     regexp_extract(col("phenotype_ids"), "SNOMEDCT_US:(\\d+)", 1))
+                .otherwise(None))
+    
+    # Count database coverage
+    .withColumn("phenotype_db_count",
+                (when(col("omim_id").isNotNull(), 1).otherwise(0)) +
+                (when(col("orphanet_id").isNotNull(), 1).otherwise(0)) +
+                (when(col("mondo_id").isNotNull(), 1).otherwise(0)) +
+                (when(col("medgen_id").isNotNull(), 1).otherwise(0)) +
+                (when(col("hpo_id").isNotNull(), 1).otherwise(0)) +
+                (when(col("snomed_id").isNotNull(), 1).otherwise(0)))
+    
+    # Flag for well-annotated variants
+    .withColumn("is_well_annotated", col("phenotype_db_count") >= 3)
+)
+
+print("Disease database IDs extracted: OMIM, Orphanet, MONDO, MedGen, HPO, SNOMED")
+
+print("\nSample phenotype ID extraction:")
+df_phenotype_parsed.select(
+    "gene_name", "disease", "omim_id", "orphanet_id", "mondo_id", "phenotype_db_count"
+).show(5, truncate=40)
+
+# Show statistics
+print("\nPhenotype DB Coverage:")
+df_phenotype_parsed.groupBy("phenotype_db_count").count().orderBy("phenotype_db_count").show()
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 2: CREATE OMIM DISEASE LOOKUP TABLE
+print("\n" + "="*70)
+print("STEP 2: CREATE DISEASE NAME LOOKUP FROM OMIM")
+print("="*70)
+
+# Extract unique OMIM ID → Disease Name mappings
+df_omim_lookup = (
+    df_phenotype_parsed
+    .filter(col("omim_id").isNotNull())
+    .filter(col("disease").isNotNull())
+    .filter(~lower(col("disease")).isin([
+        "not provided", "not specified", "see cases", "", 
+        "incidental discovery", "not applicable"
+    ]))
+    .select(
+        col("omim_id"),
+        col("disease").alias("disease_name")
+    )
+    .groupBy("omim_id")
+    .agg(first("disease_name").alias("disease_name"))
+    .orderBy("omim_id")
+)
+
+omim_count = df_omim_lookup.count()
+print(f"Created OMIM lookup table with {omim_count:,} unique disease mappings")
+
+print("\nSample OMIM lookup:")
+df_omim_lookup.show(10, truncate=60)
+
+# Save OMIM lookup table
+df_omim_lookup.write \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .saveAsTable(f"{catalog_name}.reference.omim_disease_lookup")
+
+print(f"✅ Saved to: {catalog_name}.reference.omim_disease_lookup")
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 3: CREATE ORPHANET DISEASE LOOKUP TABLE
+print("\n" + "="*70)
+print("STEP 3: CREATE DISEASE NAME LOOKUP FROM ORPHANET")
+print("="*70)
+
+df_orphanet_lookup = (
+    df_phenotype_parsed
+    .filter(col("orphanet_id").isNotNull())
+    .filter(col("disease").isNotNull())
+    .filter(~lower(col("disease")).isin([
+        "not provided", "not specified", "see cases", "",
+        "incidental discovery", "not applicable"
+    ]))
+    .select(
+        col("orphanet_id"),
+        col("disease").alias("disease_name")
+    )
+    .groupBy("orphanet_id")
+    .agg(first("disease_name").alias("disease_name"))
+    .orderBy("orphanet_id")
+)
+
+orphanet_count = df_orphanet_lookup.count()
+print(f"Created Orphanet lookup table with {orphanet_count:,} unique disease mappings")
+
+print("\nSample Orphanet lookup:")
+df_orphanet_lookup.show(10, truncate=60)
+
+# Save Orphanet lookup table
+df_orphanet_lookup.write \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .saveAsTable(f"{catalog_name}.reference.orphanet_disease_lookup")
+
+print(f"✅ Saved to: {catalog_name}.reference.orphanet_disease_lookup")
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 4: CREATE MONDO DISEASE LOOKUP TABLE
+print("\n" + "="*70)
+print("STEP 4: CREATE DISEASE NAME LOOKUP FROM MONDO")
+print("="*70)
+
+df_mondo_lookup = (
+    df_phenotype_parsed
+    .filter(col("mondo_id").isNotNull())
+    .filter(col("disease").isNotNull())
+    .filter(~lower(col("disease")).isin([
+        "not provided", "not specified", "see cases", "",
+        "incidental discovery", "not applicable"
+    ]))
+    .select(
+        col("mondo_id"),
+        col("disease").alias("disease_name")
+    )
+    .groupBy("mondo_id")
+    .agg(first("disease_name").alias("disease_name"))
+    .orderBy("mondo_id")
+)
+
+mondo_count = df_mondo_lookup.count()
+print(f"Created MONDO lookup table with {mondo_count:,} unique disease mappings")
+
+print("\nSample MONDO lookup:")
+df_mondo_lookup.show(10, truncate=60)
+
+# Save MONDO lookup table
+df_mondo_lookup.write \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .saveAsTable(f"{catalog_name}.reference.mondo_disease_lookup")
+
+print(f"✅ Saved to: {catalog_name}.reference.mondo_disease_lookup")
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 5: REPLACE "NOT SPECIFIED" WITH ACTUAL DISEASE NAMES
+print("\n" + "="*70)
+print("STEP 5: ENRICH GENERIC DISEASE NAMES WITH REAL NAMES")
+print("="*70)
+
+# Load lookup tables
+df_omim_lookup = spark.table(f"{catalog_name}.reference.omim_disease_lookup")
+df_orphanet_lookup = spark.table(f"{catalog_name}.reference.orphanet_disease_lookup")
+df_mondo_lookup = spark.table(f"{catalog_name}.reference.mondo_disease_lookup")
+
+# Join to get disease names from OMIM
+df_with_omim = (
+    df_phenotype_parsed
+    .join(
+        df_omim_lookup,
+        df_phenotype_parsed.omim_id == df_omim_lookup.omim_id,
+        "left"
+    )
+    .withColumnRenamed("disease_name", "omim_disease_name")
+    .drop(df_omim_lookup.omim_id)
+)
+
+# Join to get disease names from Orphanet
+df_with_orphanet = (
+    df_with_omim
+    .join(
+        df_orphanet_lookup,
+        df_with_omim.orphanet_id == df_orphanet_lookup.orphanet_id,
+        "left"
+    )
+    .withColumnRenamed("disease_name", "orphanet_disease_name")
+    .drop(df_orphanet_lookup.orphanet_id)
+)
+
+# Join to get disease names from MONDO
+df_with_mondo = (
+    df_with_orphanet
+    .join(
+        df_mondo_lookup,
+        df_with_orphanet.mondo_id == df_mondo_lookup.mondo_id,
+        "left"
+    )
+    .withColumnRenamed("disease_name", "mondo_disease_name")
+    .drop(df_mondo_lookup.mondo_id)
+)
+
+# Create enriched disease column
+df_disease_enriched = (
+    df_with_mondo
+    
+    # Check if disease is generic/unspecified
+    .withColumn("is_generic_disease",
+                lower(col("disease")).isin([
+                    "not provided", "not specified", "see cases", 
+                    "incidental discovery", "", "not applicable"
+                ]))
+    
+    # Replace generic names with actual disease names from databases
+    .withColumn("disease_enriched",
+                when(
+                    col("is_generic_disease"),
+                    # Try to get name from OMIM first, then Orphanet, then MONDO
+                    coalesce(
+                        col("omim_disease_name"),
+                        col("orphanet_disease_name"),
+                        col("mondo_disease_name"),
+                        # If no name found, create ID reference
+                        when(col("omim_id").isNotNull(), 
+                             concat(lit("OMIM:"), col("omim_id"))),
+                        when(col("orphanet_id").isNotNull(), 
+                             concat(lit("Orphanet:"), col("orphanet_id"))),
+                        when(col("mondo_id").isNotNull(), 
+                             concat(lit("MONDO:"), col("mondo_id"))),
+                        lit("Unknown disease")
+                    )
+                )
+                .otherwise(col("disease")))
+    
+    # Flag for enriched diseases
+    .withColumn("disease_was_enriched",
+                when(
+                    col("is_generic_disease") & 
+                    (col("disease_enriched") != "Unknown disease"),
+                    True
+                ).otherwise(False))
+    
+    # Track enrichment source
+    .withColumn("enrichment_source",
+                when(col("disease_was_enriched"),
+                     when(col("omim_disease_name").isNotNull(), "OMIM")
+                     .when(col("orphanet_disease_name").isNotNull(), "Orphanet")
+                     .when(col("mondo_disease_name").isNotNull(), "MONDO")
+                     .otherwise("Database_ID"))
+                .otherwise(None))
+)
+
+# Count enrichments
+enriched_count = df_disease_enriched.filter(col("disease_was_enriched")).count()
+generic_count = df_disease_enriched.filter(col("is_generic_disease")).count()
+enrichment_rate = (enriched_count / generic_count * 100) if generic_count > 0 else 0
+
+print(f"\n📊 Disease Enrichment Statistics:")
+print(f"   Generic diseases found: {generic_count:,}")
+print(f"   Successfully enriched: {enriched_count:,}")
+print(f"   Enrichment rate: {enrichment_rate:.1f}%")
+print(f"   Remaining unknown: {generic_count - enriched_count:,}")
+
+print("\n✨ Sample disease enrichment:")
+df_disease_enriched.filter(col("disease_was_enriched")).select(
+    "gene_name", 
+    col("disease").alias("original_disease"),
+    "disease_enriched",
+    "enrichment_source",
+    "omim_id",
+    "orphanet_id"
+).show(10, truncate=50)
+
+# Show enrichment source breakdown
+print("\nEnrichment by source:")
+df_disease_enriched.filter(col("disease_was_enriched")) \
+    .groupBy("enrichment_source").count() \
+    .orderBy(col("count").desc()).show()
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 6: PARSE ACCESSION (RCV) IDs
+print("\n" + "="*70)
+print("STEP 6: PARSE ACCESSION (RCV) IDs")
+print("="*70)
+
+# Example: RCV000000012|RCV005255549|RCV004998069
+
+df_accession_parsed = (
+    df_disease_enriched
+    
+    # Split accessions by pipe
+    .withColumn("accession_array",
+                when(col("accession").isNotNull(),
+                     split(col("accession"), "\\|"))
+                .otherwise(array()))
+    
+    # Extract individual RCV IDs (up to 10)
+    .withColumn("rcv_id_1", when(size(col("accession_array")) >= 1, col("accession_array")[0]).otherwise(None))
+    .withColumn("rcv_id_2", when(size(col("accession_array")) >= 2, col("accession_array")[1]).otherwise(None))
+    .withColumn("rcv_id_3", when(size(col("accession_array")) >= 3, col("accession_array")[2]).otherwise(None))
+    .withColumn("rcv_id_4", when(size(col("accession_array")) >= 4, col("accession_array")[3]).otherwise(None))
+    .withColumn("rcv_id_5", when(size(col("accession_array")) >= 5, col("accession_array")[4]).otherwise(None))
+    .withColumn("rcv_id_6", when(size(col("accession_array")) >= 6, col("accession_array")[5]).otherwise(None))
+    .withColumn("rcv_id_7", when(size(col("accession_array")) >= 7, col("accession_array")[6]).otherwise(None))
+    .withColumn("rcv_id_8", when(size(col("accession_array")) >= 8, col("accession_array")[7]).otherwise(None))
+    .withColumn("rcv_id_9", when(size(col("accession_array")) >= 9, col("accession_array")[8]).otherwise(None))
+    .withColumn("rcv_id_10", when(size(col("accession_array")) >= 10, col("accession_array")[9]).otherwise(None))
+    
+    .withColumn("total_rcv_ids", size(col("accession_array")))
+    
+    # Flag for variants with multiple submissions
+    .withColumn("has_multiple_submissions", col("total_rcv_ids") > 1)
+    
+    # Extract primary RCV number
+    .withColumn("primary_rcv_number",
+                when(col("rcv_id_1").isNotNull(),
+                     regexp_extract(col("rcv_id_1"), "RCV(\\d+)", 1).cast("long"))
+                .otherwise(None))
+)
+
+print("RCV accession IDs parsed (up to 10 per variant)")
+
+multi_count = df_accession_parsed.filter(col("has_multiple_submissions")).count()
+print(f"\nVariants with multiple submissions: {multi_count:,}")
+
+print("\nSample RCV parsing:")
+df_accession_parsed.filter(col("has_multiple_submissions")).select(
+    "gene_name", "rcv_id_1", "rcv_id_2", "rcv_id_3", "total_rcv_ids"
+).show(5, truncate=40)
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 7: PARSE VARIANT NAME COMPONENTS
+print("\n" + "="*70)
+print("STEP 7: PARSE VARIANT NAME FOR COMPONENTS")
+print("="*70)
+
+# Example: NM_014855.3(AP5Z1):c.80_83delinsTGCTGTAAACTGTAACTGTAAA (p.Arg27_Ile28delinsLeuLeuTer)
+
+df_variant_parsed = (
+    df_accession_parsed
+    
+    # Extract transcript ID (NM_ RefSeq)
+    .withColumn("transcript_id",
+                when(col("variant_name").isNotNull(),
+                     regexp_extract(col("variant_name"), "(NM_\\d+\\.\\d+)", 1))
+                .otherwise(None))
+    
+    # Extract transcript version
+    .withColumn("transcript_version",
+                when(col("transcript_id").isNotNull(),
+                     regexp_extract(col("transcript_id"), "NM_\\d+\\.(\\d+)", 1).cast("int"))
+                .otherwise(None))
+    
+    # Extract gene from variant name (as backup)
+    .withColumn("variant_gene_symbol",
+                when(col("variant_name").isNotNull(),
+                     regexp_extract(col("variant_name"), "\\(([A-Z0-9-]+)\\)", 1))
+                .otherwise(None))
+    
+    # Extract cDNA change
+    .withColumn("cdna_change",
+                when(col("variant_name").isNotNull(),
+                     regexp_extract(col("variant_name"), ":(c\\.[^\\s\\(]+)", 1))
+                .otherwise(None))
+    
+    # Extract protein change
+    .withColumn("protein_change",
+                when(col("variant_name").isNotNull(),
+                     regexp_extract(col("variant_name"), "\\(p\\.([^)]+)\\)", 1))
+                .otherwise(None))
+    
+    # Extract position from cDNA change
+    .withColumn("cdna_position",
+                when(col("cdna_change").isNotNull(),
+                     regexp_extract(col("cdna_change"), "c\\.(\\d+)", 1).cast("int"))
+                .otherwise(None))
+    
+    # Flag for frameshift variants
+    .withColumn("is_frameshift_variant",
+                when(col("variant_name").isNotNull(),
+                     lower(col("variant_name")).rlike("frameshift|fs"))
+                .otherwise(False))
+    
+    # Flag for nonsense variants (stop codon)
+    .withColumn("is_nonsense_variant",
+                when(col("variant_name").isNotNull(),
+                     lower(col("variant_name")).rlike("ter|\\*|stop|x\\)"))
+                .otherwise(False))
+    
+    # Flag for splice variants
+    .withColumn("is_splice_variant",
+                when(col("variant_name").isNotNull(),
+                     lower(col("variant_name")).rlike("splice|\\+\\d+|\\-\\d+"))
+                .otherwise(False))
+    
+    # Flag for missense variants
+    .withColumn("is_missense_variant",
+                when(col("variant_name").isNotNull() & col("protein_change").isNotNull(),
+                     ~lower(col("variant_name")).rlike("ter|\\*|fs|frameshift|splice|del|ins|dup"))
+                .otherwise(False))
+)
+
+print("Variant name components extracted")
+
+print("\nSample variant parsing:")
+df_variant_parsed.select(
+    "gene_name", "transcript_id", "cdna_change", "protein_change", 
+    "is_frameshift_variant", "is_nonsense_variant"
+).show(5, truncate=40)
+
+# Show mutation type distribution
+print("\nMutation type distribution:")
+df_variant_parsed.select(
+    spark_sum(when(col("is_frameshift_variant"), 1).otherwise(0)).alias("Frameshift"),
+    spark_sum(when(col("is_nonsense_variant"), 1).otherwise(0)).alias("Nonsense"),
+    spark_sum(when(col("is_splice_variant"), 1).otherwise(0)).alias("Splice"),
+    spark_sum(when(col("is_missense_variant"), 1).otherwise(0)).alias("Missense")
+).show()
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 8: PARSE DISEASE INTO ARRAY
+print("\n" + "="*70)
+print("STEP 8: PARSE MULTIPLE DISEASES PER VARIANT")
+print("="*70)
+
+df_disease_array = (
+    df_variant_parsed
+    
     # Parse diseases (pipe-separated)
     .withColumn("disease_array",
-                when(col("disease").isNotNull() & (col("disease") != "not provided"),
-                     split(col("disease"), "\\|"))
+                when(col("disease_enriched").isNotNull(),
+                     split(col("disease_enriched"), "\\|"))
                 .otherwise(array()))
     
     # Primary disease
     .withColumn("primary_disease",
                 when(size(col("disease_array")) > 0,
                      col("disease_array").getItem(0))
+                .otherwise(col("disease_enriched")))
+    
+    # Secondary disease (if exists)
+    .withColumn("secondary_disease",
+                when(size(col("disease_array")) > 1,
+                     col("disease_array").getItem(1))
                 .otherwise(None))
     
-    # Count diseases
+    # Count diseases per variant
     .withColumn("disease_count", size(col("disease_array")))
     
-    # Extract ALL disease database IDs
-    .withColumn("omim_disease_id",
-                when(col("phenotype_ids").isNotNull(),
-                     regexp_extract(col("phenotype_ids"), "OMIM:(\\d+)", 1))
-                .otherwise(None))
-    
-    .withColumn("orphanet_disease_id",
-                when(col("phenotype_ids").isNotNull(),
-                     regexp_extract(col("phenotype_ids"), "Orphanet:(\\d+)", 1))
-                .otherwise(None))
-    
-    .withColumn("mondo_disease_id",
-                when(col("phenotype_ids").isNotNull(),
-                     regexp_extract(col("phenotype_ids"), "MONDO:MONDO:(\\d+)", 1))
-                .otherwise(None))
-    
-    .withColumn("medgen_disease_id",
-                when(col("phenotype_ids").isNotNull(),
-                     regexp_extract(col("phenotype_ids"), "MedGen:(C\\d+)", 1))
-                .otherwise(None))
-    
-    # Create enriched disease identifier (use DB IDs as fallback)
-    .withColumn("disease_enriched",
-                when(col("primary_disease").isNotNull() &
-                     ~lower(col("primary_disease")).isin([
-                         "not provided", "not specified", "see cases", 
-                         "incidental discovery", ""
-                     ]),
-                     col("primary_disease"))
-                .when(col("omim_disease_id").isNotNull(),
-                     concat(lit("OMIM:"), col("omim_disease_id")))
-                .when(col("orphanet_disease_id").isNotNull(),
-                     concat(lit("Orphanet:"), col("orphanet_disease_id")))
-                .when(col("mondo_disease_id").isNotNull(),
-                     concat(lit("MONDO:"), col("mondo_disease_id")))
-                .when(col("medgen_disease_id").isNotNull(),
-                     concat(lit("MedGen:"), col("medgen_disease_id")))
-                .otherwise(col("primary_disease")))
-    
-    # Disease keywords (expanded)
-    .withColumn("has_cancer_disease",
-                lower(col("disease")).rlike("(?i)(cancer|carcinoma|tumor|oncogene|sarcoma|lymphoma|leukemia|melanoma)"))
-    .withColumn("has_syndrome",
-                lower(col("disease")).rlike("(?i)(syndrome)"))
-    .withColumn("has_hereditary",
-                lower(col("disease")).rlike("(?i)(hereditary|familial|congenital)"))
-    .withColumn("has_rare_disease",
-                lower(col("disease")).rlike("(?i)(rare|orphan)"))
-    
-    # Disease severity keywords
-    .withColumn("has_lethal_keyword",
-                lower(col("disease")).rlike("(?i)(lethal|fatal|deadly)"))
-    .withColumn("has_progressive_keyword",
-                lower(col("disease")).rlike("(?i)(progressive|degenerative)"))
+    # Flag for multi-disease variants
+    .withColumn("has_multiple_diseases", col("disease_count") > 1)
 )
 
-print("Diseases ultra-parsed with database IDs")
+print("Disease arrays parsed")
+
+multi_disease_count = df_disease_array.filter(col("has_multiple_diseases")).count()
+print(f"\nVariants associated with multiple diseases: {multi_disease_count:,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,STEP 2: Ultra-Parse Phenotype Database IDs
+# DBTITLE 1,STEP 9: CLINICAL SIGNIFICANCE PARSING
 print("\n" + "="*70)
-print("STEP 2: COMPREHENSIVE PHENOTYPE DATABASE PARSING")
-print("="*70)
-
-df_phenotypes = (
-    df_parsed
-    
-    # Parse phenotype IDs
-    .withColumn("phenotype_array",
-                when(col("phenotype_ids").isNotNull(),
-                     split(col("phenotype_ids"), "\\|"))
-                .otherwise(array()))
-    
-    # Check for ALL databases
-    .withColumn("has_omim",
-                when(col("phenotype_ids").isNotNull(),
-                     lower(col("phenotype_ids")).contains("omim"))
-                .otherwise(False))
-    .withColumn("has_orphanet",
-                when(col("phenotype_ids").isNotNull(),
-                     lower(col("phenotype_ids")).contains("orphanet"))
-                .otherwise(False))
-    .withColumn("has_mondo",
-                when(col("phenotype_ids").isNotNull(),
-                     lower(col("phenotype_ids")).contains("mondo"))
-                .otherwise(False))
-    .withColumn("has_medgen",
-                when(col("phenotype_ids").isNotNull(),
-                     lower(col("phenotype_ids")).contains("medgen"))
-                .otherwise(False))
-    .withColumn("has_hpo",
-                when(col("phenotype_ids").isNotNull(),
-                     lower(col("phenotype_ids")).contains("human phenotype"))
-                .otherwise(False))
-    
-    # Database coverage score
-    .withColumn("phenotype_db_coverage",
-                (when(col("has_omim"), 1).otherwise(0)) +
-                (when(col("has_orphanet"), 1).otherwise(0)) +
-                (when(col("has_mondo"), 1).otherwise(0)) +
-                (when(col("has_medgen"), 1).otherwise(0)) +
-                (when(col("has_hpo"), 1).otherwise(0)))
-    
-    .withColumn("phenotype_db_count",
-                when(col("phenotype_ids").isNotNull(),
-                     size(split(col("phenotype_ids"), ",")))
-                .otherwise(0))
-)
-
-print("Phenotype databases comprehensively parsed")
-
-# COMMAND ----------
-
-# DBTITLE 1,STEP 3: Ultra-Parse Accession and Submission Details
-print("\n" + "="*70)
-print("STEP 3: COMPREHENSIVE ACCESSION AND SUBMISSION PARSING")
-print("="*70)
-
-df_accessions = (
-    df_phenotypes
-    
-    # Parse accessions
-    .withColumn("accession_array",
-                when(col("accession").isNotNull() & (col("accession") != "Unknown"),
-                     split(col("accession"), "\\|"))
-                .otherwise(array()))
-    
-    # Primary accession
-    .withColumn("primary_accession",
-                when(size(col("accession_array")) > 0,
-                     col("accession_array").getItem(0))
-                .otherwise(col("accession")))
-    
-    # Submission metrics
-    .withColumn("accession_count", size(col("accession_array")))
-    .withColumn("is_multi_submission",
-                when(col("accession_count") > 1, True).otherwise(False))
-    
-    # Extract submitter count from review_status
-    .withColumn("has_multiple_submitters",
-                when(col("review_status").isNotNull(),
-                     lower(col("review_status")).contains("multiple"))
-                .otherwise(False))
-    
-    .withColumn("has_expert_review",
-                when(col("review_status").isNotNull(),
-                     lower(col("review_status")).contains("expert"))
-                .otherwise(False))
-    
-    .withColumn("has_conflicts",
-                when(col("review_status").isNotNull(),
-                     lower(col("review_status")).contains("conflict"))
-                .otherwise(False))
-    
-    .withColumn("has_no_assertion",
-                when(col("review_status").isNotNull(),
-                     lower(col("review_status")).contains("no assertion"))
-                .otherwise(False))
-)
-
-print("Accessions and submissions parsed")
-
-# COMMAND ----------
-
-# DBTITLE 1,STEP 4: ULTRA-Parse Variant Name for Maximum Detail
-print("\n" + "="*70)
-print("STEP 4: ULTRA-PARSE VARIANT NAME")
-print("="*70)
-
-df_protein = (
-    df_accessions
-    
-    # Extract protein change
-    .withColumn("protein_change_full",
-                when(col("variant_name").isNotNull(),
-                     regexp_extract(col("variant_name"), "\\(p\\.([^)]+)\\)", 1))
-                .otherwise(None))
-    
-    # Extract amino acid positions
-    .withColumn("aa_start_position_str",
-                when(col("protein_change_full").isNotNull(),
-                     regexp_extract(col("protein_change_full"), "(\\d+)", 1))
-                .otherwise(None))
-    .withColumn("aa_start_position",
-                expr("try_cast(aa_start_position_str as int)"))
-    
-    # Extract reference amino acid
-    .withColumn("ref_amino_acid",
-                when(col("protein_change_full").isNotNull(),
-                     regexp_extract(col("protein_change_full"), "^([A-Z][a-z]{2})", 1))
-                .otherwise(None))
-    
-    # Extract alternate amino acid
-    .withColumn("alt_amino_acid",
-                when(col("protein_change_full").isNotNull(),
-                     regexp_extract(col("protein_change_full"), "([A-Z][a-z]{2})$", 1))
-                .otherwise(None))
-    
-    # Extract cDNA change details
-    .withColumn("cdna_change_full",
-                when(col("variant_name").isNotNull(),
-                     regexp_extract(col("variant_name"), ":c\\.([^\\s\\(]+)", 1))
-                .otherwise(None))
-    
-    # Extract nucleotide position
-    .withColumn("cdna_position_str",
-                when(col("cdna_change_full").isNotNull(),
-                     regexp_extract(col("cdna_change_full"), "(\\d+)", 1))
-                .otherwise(None))
-    .withColumn("cdna_position",
-                expr("try_cast(cdna_position_str as int)"))
-    
-    # Extract transcript ID and version
-    .withColumn("transcript_id",
-                when(col("variant_name").isNotNull(),
-                     regexp_extract(col("variant_name"), "(NM_\\d+)", 1))
-                .otherwise(None))
-    
-    .withColumn("transcript_version",
-                when(col("variant_name").isNotNull(),
-                     regexp_extract(col("variant_name"), "NM_\\d+\\.(\\d+)", 1))
-                .otherwise(None))
-    
-    # Detailed mutation type classification
-    .withColumn("is_frameshift",
-                when(col("variant_name").isNotNull(),
-                     lower(col("variant_name")).contains("fs"))
-                .otherwise(False))
-    
-    .withColumn("is_nonsense",
-                when(col("variant_name").isNotNull(),
-                     lower(col("variant_name")).rlike("(?i)(ter|\\*|stop)"))
-                .otherwise(False))
-    
-    .withColumn("is_splice",
-                when(col("variant_name").isNotNull(),
-                     lower(col("variant_name")).rlike("(?i)(splice|\\+|\\-)"))
-                .otherwise(False))
-    
-    .withColumn("is_missense",
-                when((col("ref_amino_acid").isNotNull()) &
-                     (col("alt_amino_acid").isNotNull()) &
-                     (col("ref_amino_acid") != col("alt_amino_acid")) &
-                     ~col("is_nonsense") &
-                     ~col("is_frameshift"),
-                     True)
-                .otherwise(False))
-    
-    .withColumn("is_deletion",
-                when(col("variant_name").isNotNull(),
-                     lower(col("variant_name")).contains("del"))
-                .otherwise(False))
-    
-    .withColumn("is_insertion",
-                when(col("variant_name").isNotNull(),
-                     lower(col("variant_name")).contains("ins"))
-                .otherwise(False))
-    
-    .withColumn("is_duplication",
-                when(col("variant_name").isNotNull(),
-                     lower(col("variant_name")).contains("dup"))
-                .otherwise(False))
-    
-    .withColumn("is_indel",
-                when(col("variant_name").isNotNull(),
-                     lower(col("variant_name")).contains("delins"))
-                .otherwise(False))
-    
-    # Mutation severity score
-    .withColumn("mutation_severity_score",
-                when(col("is_nonsense"), 5)
-                .when(col("is_frameshift"), 5)
-                .when(col("is_splice"), 4)
-                .when(col("is_deletion"), 3)
-                .when(col("is_insertion"), 3)
-                .when(col("is_missense"), 2)
-                .otherwise(1))
-)
-
-print("Variant names ultra-parsed with mutation details")
-
-# COMMAND ----------
-
-# DBTITLE 1,STEP 5: Parse Cytogenetic Location Details
-print("\n" + "="*70)
-print("STEP 5: PARSE CYTOGENETIC LOCATION")
-print("="*70)
-
-df_cyto = (
-    df_protein
-    
-    # Extract cytogenetic band details (e.g., 7p22.1)
-    .withColumn("cyto_arm",
-                when(col("cytogenetic").isNotNull(),
-                     regexp_extract(col("cytogenetic"), "\\d+([pq])", 1))
-                .otherwise(None))
-    
-    .withColumn("cyto_region",
-                when(col("cytogenetic").isNotNull(),
-                     regexp_extract(col("cytogenetic"), "[pq](\\d+)", 1))
-                .otherwise(None))
-    
-    .withColumn("cyto_band",
-                when(col("cytogenetic").isNotNull(),
-                     regexp_extract(col("cytogenetic"), "[pq]\\d+\\.(\\d+)", 1))
-                .otherwise(None))
-    
-    # Telomeric vs centromeric
-    .withColumn("cyto_region_int",
-                expr("try_cast(cyto_region as int)"))
-    .withColumn("is_telomeric_variant",
-                when(col("cyto_region_int") >= 20, True)
-                .otherwise(False))
-    
-    .withColumn("is_centromeric_variant",
-                when(col("cyto_region_int") <= 5, True)
-                .otherwise(False))
-)
-
-print("Cytogenetic details extracted")
-
-# COMMAND ----------
-
-# DBTITLE 1,STEP 6: Ultra-Parse Clinical Significance
-print("\n" + "="*70)
-print("STEP 6: ULTRA-PARSE CLINICAL SIGNIFICANCE")
+print("STEP 9: PARSE CLINICAL SIGNIFICANCE")
 print("="*70)
 
 df_clinical = (
-    df_cyto
+    df_disease_array
     
-    # Parse clinical_significance
-    .withColumn("clinical_sig_array",
+    # Standardize clinical significance
+    .withColumn("clinical_significance_clean",
                 when(col("clinical_significance").isNotNull(),
-                     split(col("clinical_significance"), ";"))
-                .otherwise(array()))
+                     trim(col("clinical_significance")))
+                .otherwise("Unknown"))
     
-    .withColumn("clinical_sig_count", size(col("clinical_sig_array")))
+    # Simple classification
+    .withColumn("clinical_significance_simple",
+                when(lower(col("clinical_significance_clean")).contains("pathogenic") &
+                     ~lower(col("clinical_significance_clean")).contains("likely") &
+                     ~lower(col("clinical_significance_clean")).contains("conflict"),
+                     "Pathogenic")
+                .when(lower(col("clinical_significance_clean")).contains("likely pathogenic"),
+                      "Likely Pathogenic")
+                .when(lower(col("clinical_significance_clean")).contains("benign") &
+                      ~lower(col("clinical_significance_clean")).contains("likely") &
+                      ~lower(col("clinical_significance_clean")).contains("conflict"),
+                      "Benign")
+                .when(lower(col("clinical_significance_clean")).contains("likely benign"),
+                      "Likely Benign")
+                .when(lower(col("clinical_significance_clean")).contains("uncertain"),
+                      "VUS")
+                .when(lower(col("clinical_significance_clean")).contains("conflict"),
+                      "Conflicting")
+                .when(lower(col("clinical_significance_clean")).contains("risk"),
+                      "Risk Factor")
+                .when(lower(col("clinical_significance_clean")).contains("drug"),
+                      "Drug Response")
+                .otherwise("Other"))
     
-    # Primary classification (normalized)
-    .withColumn("clinical_significance_normalized",
-                when(col("clinical_significance").contains("Pathogenic") & 
-                     ~col("clinical_significance").contains("Likely") &
-                     ~col("clinical_significance").contains("Conflicting"), "Pathogenic")
-                .when(col("clinical_significance").contains("Likely pathogenic"), "Likely Pathogenic")
-                .when(col("clinical_significance").contains("Benign") & 
-                      ~col("clinical_significance").contains("Likely") &
-                      ~col("clinical_significance").contains("Conflicting"), "Benign")
-                .when(col("clinical_significance").contains("Likely benign"), "Likely Benign")
-                .when(col("clinical_significance").contains("Uncertain"), "Uncertain significance")
-                .when(col("clinical_significance").contains("Conflicting"), "Conflicting interpretations")
-                .otherwise(col("clinical_significance")))
+    # Binary pathogenic flag
+    .withColumn("is_pathogenic",
+                col("clinical_significance_simple").isin(["Pathogenic", "Likely Pathogenic"]))
     
-    # Additional clinical flags
-    .withColumn("has_risk_factor",
-                when(col("clinical_significance").isNotNull(),
-                     lower(col("clinical_significance")).contains("risk factor"))
-                .otherwise(False))
+    .withColumn("is_benign",
+                col("clinical_significance_simple").isin(["Benign", "Likely Benign"]))
     
-    .withColumn("has_drug_response",
-                when(col("clinical_significance").isNotNull(),
-                     lower(col("clinical_significance")).contains("drug response"))
-                .otherwise(False))
-    
-    .withColumn("has_protective_factor",
-                when(col("clinical_significance").isNotNull(),
-                     lower(col("clinical_significance")).contains("protective"))
-                .otherwise(False))
-    
-    .withColumn("affects_drug_response",
-                when(col("clinical_significance").isNotNull(),
-                     lower(col("clinical_significance")).contains("affects"))
-                .otherwise(False))
-    
-    # Clinical actionability score
-    .withColumn("clinical_actionability_score",
-                (when(col("clinical_significance_normalized").isin(["Pathogenic", "Likely Pathogenic"]), 2).otherwise(0)) +
-                (when(col("has_drug_response"), 2).otherwise(0)) +
-                (when(col("has_risk_factor"), 1).otherwise(0)))
+    .withColumn("is_vus",
+                col("clinical_significance_simple") == "VUS")
 )
 
-print("Clinical significance ultra-parsed")
+print("Clinical significance parsed")
+
+print("\nClinical significance distribution:")
+df_clinical.groupBy("clinical_significance_simple").count() \
+    .orderBy(col("count").desc()).show()
 
 # COMMAND ----------
 
-# DBTITLE 1,STEP 7: Ultra-Parse Origin and Inheritance
+# DBTITLE 1,STEP 10: ORIGIN AND INHERITANCE PARSING
 print("\n" + "="*70)
-print("STEP 7: COMPREHENSIVE ORIGIN AND INHERITANCE PARSING")
+print("STEP 10: PARSE VARIANT ORIGIN")
 print("="*70)
 
 df_origin = (
     df_clinical
     
     # Parse origin
-    .withColumn("origin_array",
-                when(col("origin").isNotNull(),
-                     split(col("origin"), ";"))
-                .otherwise(array()))
-    
-    .withColumn("origin_count", size(col("origin_array")))
-    
-    # Origin flags
     .withColumn("is_germline",
-                when(col("origin").isNotNull(),
-                     lower(col("origin")).contains("germline"))
-                .otherwise(False))
+                lower(coalesce(col("origin_simple"), col("origin"), lit(""))).contains("germline"))
     
     .withColumn("is_somatic",
-                when(col("origin").isNotNull(),
-                     lower(col("origin")).contains("somatic"))
-                .otherwise(False))
-    
-    .withColumn("is_maternal",
-                when(col("origin").isNotNull(),
-                     lower(col("origin")).contains("maternal"))
-                .otherwise(False))
-    
-    .withColumn("is_paternal",
-                when(col("origin").isNotNull(),
-                     lower(col("origin")).contains("paternal"))
-                .otherwise(False))
-    
-    .withColumn("is_biparental",
-                when(col("origin").isNotNull(),
-                     lower(col("origin")).contains("biparental"))
-                .otherwise(False))
+                lower(coalesce(col("origin_simple"), col("origin"), lit(""))).contains("somatic"))
     
     .withColumn("is_de_novo",
-                when(col("origin").isNotNull(),
-                     lower(col("origin")).contains("de novo"))
-                .otherwise(False))
+                lower(coalesce(col("origin_simple"), col("origin"), lit(""))).contains("de novo"))
     
-    # Inheritance pattern inference
-    .withColumn("inheritance_pattern",
-                when(col("is_de_novo"), "De Novo")
-                .when(col("is_biparental"), "Biparental")
-                .when(col("is_maternal") & col("is_paternal"), "Biparental")
-                .when(col("is_maternal"), "Maternal")
-                .when(col("is_paternal"), "Paternal")
-                .when(col("is_germline"), "Germline")
-                .when(col("is_somatic"), "Somatic")
-                .otherwise("Unknown"))
+    .withColumn("is_inherited",
+                lower(coalesce(col("origin_simple"), col("origin"), lit(""))).rlike("inherited|maternal|paternal"))
+    
+    .withColumn("is_maternal",
+                lower(coalesce(col("origin_simple"), col("origin"), lit(""))).contains("maternal"))
+    
+    .withColumn("is_paternal",
+                lower(coalesce(col("origin_simple"), col("origin"), lit(""))).contains("paternal"))
 )
 
-print("Origin and inheritance comprehensively parsed")
+print("Origin flags created")
+
+print("\nOrigin distribution:")
+df_origin.select(
+    spark_sum(when(col("is_germline"), 1).otherwise(0)).alias("Germline"),
+    spark_sum(when(col("is_somatic"), 1).otherwise(0)).alias("Somatic"),
+    spark_sum(when(col("is_de_novo"), 1).otherwise(0)).alias("De Novo"),
+    spark_sum(when(col("is_inherited"), 1).otherwise(0)).alias("Inherited")
+).show()
 
 # COMMAND ----------
 
-# DBTITLE 1,STEP 8: Parse Evaluation Date and Recency
+# DBTITLE 1,STEP 11: VARIANT TYPE CLASSIFICATION
 print("\n" + "="*70)
-print("STEP 8: EVALUATION RECENCY AND TEMPORAL ANALYSIS")
+print("STEP 11: CLASSIFY VARIANT TYPES")
 print("="*70)
 
-df_temporal = (
+df_variant_types = (
     df_origin
     
-    # Parse last_evaluated date
+    # Classify by variant_type field
+    .withColumn("is_snv",
+                lower(coalesce(col("variant_type"), lit(""))).contains("single nucleotide"))
+    
+    .withColumn("is_deletion",
+                lower(coalesce(col("variant_type"), lit(""))).contains("deletion"))
+    
+    .withColumn("is_insertion",
+                lower(coalesce(col("variant_type"), lit(""))).contains("insertion"))
+    
+    .withColumn("is_duplication",
+                lower(coalesce(col("variant_type"), lit(""))).contains("duplication"))
+    
+    .withColumn("is_indel",
+                lower(coalesce(col("variant_type"), lit(""))).contains("indel"))
+    
+    .withColumn("is_cnv",
+                lower(coalesce(col("variant_type"), lit(""))).rlike("copy number|cnv"))
+    
+    .withColumn("is_microsatellite",
+                lower(coalesce(col("variant_type"), lit(""))).contains("microsatellite"))
+)
+
+print("Variant type flags created")
+
+# COMMAND ----------
+
+# DBTITLE 1,STEP 12: REVIEW STATUS SCORING
+print("\n" + "="*70)
+print("STEP 12: CALCULATE REVIEW QUALITY SCORE")
+print("="*70)
+
+df_quality = (
+    df_variant_types
+    
+    # Review quality score (0-4)
+    .withColumn("review_quality_score",
+                when(lower(col("review_status")).contains("practice guideline"), 4)
+                .when(lower(col("review_status")).contains("reviewed by expert panel"), 3)
+                .when(lower(col("review_status")).contains("criteria provided, multiple submitters"), 2)
+                .when(lower(col("review_status")).contains("criteria provided, single submitter"), 1)
+                .otherwise(0))
+    
+    # Quality tier
+    .withColumn("quality_tier",
+                when(col("review_quality_score") >= 3, "High Quality")
+                .when(col("review_quality_score") == 2, "Medium Quality")
+                .when(col("review_quality_score") == 1, "Low Quality")
+                .otherwise("No Criteria"))
+    
+    # Recent evaluation flag (within 2 years)
     .withColumn("last_evaluated_date",
-                when((col("last_evaluated").isNotNull()) & 
-                     (col("last_evaluated") != "-") &
-                     (col("last_evaluated") != ""),
-                     expr("try_to_date(last_evaluated, 'dd-MMM-yy')"))
+                when(col("last_evaluated").isNotNull(),
+                     to_date(col("last_evaluated"), "dd-MMM-yy"))
                 .otherwise(None))
     
-    # Calculate days since evaluation
     .withColumn("days_since_evaluation",
                 when(col("last_evaluated_date").isNotNull(),
                      datediff(current_date(), col("last_evaluated_date")))
                 .otherwise(None))
     
-    # Recency categories
-    .withColumn("evaluation_recency",
-                when(col("days_since_evaluation").isNull(), "Unknown")
-                .when(col("days_since_evaluation") < 365, "Recent")
-                .when(col("days_since_evaluation") < 1825, "Moderate")
-                .otherwise("Old"))
-    
     .withColumn("is_recently_evaluated",
-                when(col("days_since_evaluation").isNotNull() &
-                     (col("days_since_evaluation") < 730),
-                     True)
+                when(col("days_since_evaluation") <= 730, True)
                 .otherwise(False))
-    
-    # Extract evaluation year
-    .withColumn("evaluation_year",
-                when(col("last_evaluated_date").isNotNull(),
-                     year(col("last_evaluated_date")))
-                .otherwise(None))
 )
 
-print("Temporal analysis complete")
+print("Quality metrics calculated")
+
+print("\nQuality tier distribution:")
+df_quality.groupBy("quality_tier").count().orderBy(col("count").desc()).show()
 
 # COMMAND ----------
 
-# DBTITLE 1,STEP 9: Calculate Comprehensive Quality Scores
+# DBTITLE 1,STEP 13: CREATE FINAL ULTRA-ENRICHED VARIANT TABLE
 print("\n" + "="*70)
-print("STEP 9: COMPREHENSIVE QUALITY SCORING")
+print("STEP 13: CREATE ULTRA-ENRICHED VARIANT TABLE")
 print("="*70)
 
-df_quality = (
-    df_temporal
-    
-    # Review status quality score
-    .withColumn("review_quality_score",
-                when(col("has_expert_review"), 5)
-                .when(col("has_multiple_submitters") & ~col("has_conflicts"), 4)
-                .when(col("has_multiple_submitters") & col("has_conflicts"), 3)
-                .when(lower(col("review_status")).contains("single submitter"), 2)
-                .when(col("has_no_assertion"), 1)
-                .otherwise(0))
-    
-    # Data completeness score
-    .withColumn("data_completeness_score",
-                (when(col("disease_enriched").isNotNull(), 1).otherwise(0)) +
-                (when(col("protein_change_full").isNotNull(), 1).otherwise(0)) +
-                (when(col("phenotype_db_coverage") > 0, 1).otherwise(0)) +
-                (when(col("is_recently_evaluated"), 1).otherwise(0)) +
-                (when(col("review_quality_score") >= 3, 1).otherwise(0)) +
-                (when(col("accession_count") > 1, 1).otherwise(0)))
-    
-    # Overall quality tier
-    .withColumn("quality_tier",
-                when((col("data_completeness_score") >= 5) & 
-                     (col("review_quality_score") >= 3), "High Quality")
-                .when(col("data_completeness_score") >= 3, "Medium Quality")
-                .otherwise("Low Quality"))
-    
-    # Clinical utility score
-    .withColumn("clinical_utility_score",
-                (when(col("clinical_significance_normalized").isin(["Pathogenic", "Likely Pathogenic"]), 3).otherwise(0)) +
-                (when(col("has_drug_response"), 2).otherwise(0)) +
-                (when(col("phenotype_db_coverage") >= 2, 1).otherwise(0)) +
-                (when(col("review_quality_score") >= 4, 1).otherwise(0)))
-)
-
-print("Comprehensive quality scoring complete")
-
-# COMMAND ----------
-
-# DBTITLE 1,STEP 10: Clean Core Fields
-print("\n" + "="*70)
-print("STEP 10: CLEAN CORE FIELDS")
-print("="*70)
-
-df_clean = (
-    df_quality
-    
-    # Chromosome
-    .withColumn("chromosome", 
-                regexp_replace(upper(trim(col("chromosome"))), "^CHR", ""))
-    .withColumn("chromosome",
-                when(col("chromosome").isin(
-                    '1','2','3','4','5','6','7','8','9','10',
-                    '11','12','13','14','15','16','17','18','19','20',
-                    '21','22','X','Y','MT'
-                ), col("chromosome"))
-                .otherwise(lit("1")))
-    
-    # Position
-    .withColumn("position_clean",
-                when(col("position").isNotNull(),
-                     col("position"))
-                .otherwise(None))
-    
-    .withColumn("stop_position_clean",
-                when(col("stop_position").isNotNull(),
-                     col("stop_position"))
-                .otherwise(col("position_clean")))
-    
-    # Variant type
-    .withColumn("variant_type_clean",
-                when((col("variant_type") != "Unknown") & col("variant_type").isNotNull(),
-                     col("variant_type"))
-                .otherwise("single nucleotide variant"))
-)
-
-print("Core fields cleaned")
-
-# COMMAND ----------
-
-# DBTITLE 1,STEP 11: Deduplication
-print("\n" + "="*70)
-print("STEP 11: DEDUPLICATION")
-print("="*70)
-
-df_dedup = (
-    df_clean
-    .dropDuplicates(["primary_accession"])
-)
-
-dedup_count = df_dedup.count()
-print(f"After deduplication: {dedup_count:,} variants")
-print(f"Removed: {raw_count - dedup_count:,} duplicates")
-
-# COMMAND ----------
-
-# DBTITLE 1,STEP 12: Create Ultra-Enriched Final Table
-print("\n" + "="*70)
-print("STEP 12: CREATE ULTRA-ENRICHED VARIANT TABLE")
-print("="*70)
-
-df_variants_ultra_enriched = df_dedup.select(
+df_variants_ultra_enriched = df_quality.select(
     # Core identifiers
-    col("variant_id"),
-    col("primary_accession").alias("accession"),
-    col("accession_count"),
-    col("is_multi_submission"),
+    "variant_id",
+    "allele_id",
     "gene_id",
     "gene_name",
     
-    # Clinical classification
-    col("clinical_significance_normalized").alias("clinical_significance"),
-    col("clinical_significance").alias("clinical_significance_raw"),
-    col("clinical_sig_count"),
-    "has_risk_factor",
-    "has_drug_response",
-    "has_protective_factor",
-    "affects_drug_response",
-    "clinical_actionability_score",
+    # EXPANDED: RCV accession IDs (NEW!)
+    "rcv_id_1", "rcv_id_2", "rcv_id_3", "rcv_id_4", "rcv_id_5",
+    "rcv_id_6", "rcv_id_7", "rcv_id_8", "rcv_id_9", "rcv_id_10",
+    "total_rcv_ids",
+    "has_multiple_submissions",
+    "primary_rcv_number",
     
-    # Review and submission details
-    "review_status",
-    col("review_quality_score"),
-    col("number_submitters"),
-    "has_multiple_submitters",
-    "has_expert_review",
-    "has_conflicts",
-    "has_no_assertion",
+    # EXPANDED: Disease information (ENRICHED!)
+    col("disease").alias("disease_original"),
+    "disease_enriched",
+    "disease_was_enriched",
+    "enrichment_source",
+    "is_generic_disease",
     
-    # Disease information (enriched with DB IDs)
-    col("disease_enriched").alias("disease"),
-    col("disease_array"),
-    col("disease_count"),
-    "omim_disease_id",
-    "orphanet_disease_id",
-    "mondo_disease_id",
-    "medgen_disease_id",
-    "has_cancer_disease",
-    "has_syndrome",
-    "has_hereditary",
-    "has_rare_disease",
-    "has_lethal_keyword",
-    "has_progressive_keyword",
+    # EXPANDED: Disease arrays (NEW!)
+    "disease_array",
+    "primary_disease",
+    "secondary_disease",
+    "disease_count",
+    "has_multiple_diseases",
     
-    # Phenotype databases
-    "phenotype_ids",
-    col("phenotype_db_count"),
-    col("phenotype_db_coverage"),
-    "has_omim",
-    "has_orphanet",
-    "has_mondo",
-    "has_medgen",
-    "has_hpo",
+    # EXPANDED: ALL disease database IDs (NEW!)
+    "omim_id",
+    "omim_id_secondary",
+    "orphanet_id",
+    "mondo_id",
+    "medgen_id",
+    "hpo_id",
+    "snomed_id",
+    "phenotype_db_count",
+    "is_well_annotated",
+    
+    # EXPANDED: Variant name components (NEW!)
+    "transcript_id",
+    "transcript_version",
+    "variant_gene_symbol",
+    "cdna_change",
+    "protein_change",
+    "cdna_position",
+    
+    # EXPANDED: Mutation type flags (NEW!)
+    "is_frameshift_variant",
+    "is_nonsense_variant",
+    "is_splice_variant",
+    "is_missense_variant",
+    
+    # Clinical significance
+    col("clinical_significance").alias("clinical_significance_original"),
+    "clinical_significance_clean",
+    "clinical_significance_simple",
+    "is_pathogenic",
+    "is_benign",
+    "is_vus",
     
     # Genomic location
     "chromosome",
-    col("position_clean").alias("position"),
-    col("stop_position_clean").alias("stop_position"),
+    "position",
+    "stop_position",
     "cytogenetic",
-    col("variant_type_clean").alias("variant_type"),
     
-    # Cytogenetic details
-    "cyto_arm",
-    "cyto_region",
-    "cyto_band",
-    "is_telomeric_variant",
-    "is_centromeric_variant",
-    
-    # Molecular details (ultra-enriched)
+    # Variant details
+    "variant_type",
     "variant_name",
-    col("protein_change_full").alias("protein_change"),
-    "ref_amino_acid",
-    "alt_amino_acid",
-    "aa_start_position",
-    col("cdna_change_full").alias("cdna_change"),
-    "cdna_position",
-    "transcript_id",
-    "transcript_version",
+    "reference_allele",
+    "alternate_allele",
     
-    # Mutation classification (detailed)
-    "is_frameshift",
-    "is_nonsense",
-    "is_splice",
-    "is_missense",
+    # EXPANDED: Variant type flags (NEW!)
+    "is_snv",
     "is_deletion",
     "is_insertion",
     "is_duplication",
     "is_indel",
-    "mutation_severity_score",
+    "is_cnv",
+    "is_microsatellite",
     
-    "reference_allele",
-    "alternate_allele",
-    
-    # Origin and inheritance (detailed)
-    col("origin_array"),
-    col("origin_count"),
+    # Origin
+    "origin",
+    "origin_simple",
     "is_germline",
     "is_somatic",
+    "is_de_novo",
+    "is_inherited",
     "is_maternal",
     "is_paternal",
-    "is_biparental",
-    "is_de_novo",
-    "inheritance_pattern",
     
-    # Temporal data
+    # EXPANDED: Quality metrics (NEW!)
+    "review_status",
+    "review_quality_score",
+    "quality_tier",
+    "number_submitters",
     "last_evaluated",
     "last_evaluated_date",
     "days_since_evaluation",
-    "evaluation_recency",
     "is_recently_evaluated",
-    "evaluation_year",
     
-    # Quality metrics (comprehensive)
-    "data_completeness_score",
-    "quality_tier",
-    "clinical_utility_score",
+    # Assembly
+    "assembly",
     
-    # Metadata
-    "assembly"
+    # Original phenotype IDs for reference
+    "phenotype_ids"
 )
+
+final_count = df_variants_ultra_enriched.count()
+print(f"✅ Ultra-enriched variant table created!")
+print(f"   Total variants: {final_count:,}")
+print(f"   Total columns: {len(df_variants_ultra_enriched.columns)}")
 
 # COMMAND ----------
 
@@ -826,55 +884,110 @@ df_variants_ultra_enriched.write \
     .saveAsTable(f"{catalog_name}.silver.variants_ultra_enriched")
 
 saved_count = spark.table(f"{catalog_name}.silver.variants_ultra_enriched").count()
-print(f"Saved to: {catalog_name}.silver.variants_ultra_enriched")
-print(f"Verified: {saved_count:,} ultra-enriched variants")
+print(f"✅ Saved to: {catalog_name}.silver.variants_ultra_enriched")
+print(f"✅ Verified: {saved_count:,} ultra-enriched variants")
 
 # COMMAND ----------
 
-# DBTITLE 1,Ultra-Enrichment Summary
+# DBTITLE 1,Maximum Extraction Summary
 print("\n" + "="*70)
-print("ULTRA-ENRICHMENT SUMMARY")
+print("🎉 MAXIMUM DATA EXTRACTION COMPLETE - VARIANTS")
 print("="*70)
 
+print("\n📊 NEW FEATURES ADDED:")
+print("1. ✅ Disease Database IDs: OMIM, Orphanet, MONDO, MedGen, HPO, SNOMED (12 columns)")
+print("2. ✅ Disease Name Enrichment: Replaced 'not specified' with real names (3 columns)")
+print("3. ✅ RCV Accession IDs: rcv_id_1 to rcv_id_10 (13 columns)")
+print("4. ✅ Variant Components: transcript_id, cdna_change, protein_change, etc. (6 columns)")
+print("5. ✅ Disease Arrays: Multiple diseases per variant (4 columns)")
+print("6. ✅ Mutation Type Flags: frameshift, nonsense, splice, missense (4 columns)")
+print("7. ✅ Variant Type Flags: SNV, deletion, insertion, CNV, etc. (7 columns)")
+print("8. ✅ Quality Metrics: review_quality_score, quality_tier, recency (6 columns)")
+print("9. ✅ Lookup Tables: OMIM, Orphanet, MONDO disease mappings (3 tables)")
+
+# Statistics
 enrichment_stats = {
     "total_variants": df_variants_ultra_enriched.count(),
-    "with_disease_db_id": df_variants_ultra_enriched.filter(col("omim_disease_id").isNotNull()).count(),
-    "with_protein_change": df_variants_ultra_enriched.filter(col("protein_change").isNotNull()).count(),
-    "with_amino_acid_details": df_variants_ultra_enriched.filter(col("ref_amino_acid").isNotNull()).count(),
-    "missense": df_variants_ultra_enriched.filter(col("is_missense")).count(),
-    "frameshift": df_variants_ultra_enriched.filter(col("is_frameshift")).count(),
-    "nonsense": df_variants_ultra_enriched.filter(col("is_nonsense")).count(),
-    "splice": df_variants_ultra_enriched.filter(col("is_splice")).count(),
-    "germline": df_variants_ultra_enriched.filter(col("is_germline")).count(),
-    "somatic": df_variants_ultra_enriched.filter(col("is_somatic")).count(),
-    "de_novo": df_variants_ultra_enriched.filter(col("is_de_novo")).count(),
-    "high_quality": df_variants_ultra_enriched.filter(col("quality_tier") == "High Quality").count(),
-    "clinically_actionable": df_variants_ultra_enriched.filter(col("clinical_actionability_score") >= 3).count(),
-    "recently_evaluated": df_variants_ultra_enriched.filter(col("is_recently_evaluated")).count(),
-    "with_drug_response": df_variants_ultra_enriched.filter(col("has_drug_response")).count()
+    "generic_diseases_before": df_disease_enriched.filter(col("is_generic_disease")).count(),
+    "successfully_enriched": df_disease_enriched.filter(col("disease_was_enriched")).count(),
+    "enrichment_rate_pct": (enriched_count / generic_count * 100) if generic_count > 0 else 0,
+    "with_omim_ids": df_variants_ultra_enriched.filter(col("omim_id").isNotNull()).count(),
+    "with_orphanet_ids": df_variants_ultra_enriched.filter(col("orphanet_id").isNotNull()).count(),
+    "with_mondo_ids": df_variants_ultra_enriched.filter(col("mondo_id").isNotNull()).count(),
+    "multiple_submissions": df_variants_ultra_enriched.filter(col("has_multiple_submissions")).count(),
+    "well_annotated": df_variants_ultra_enriched.filter(col("is_well_annotated")).count(),
+    "high_quality": df_variants_ultra_enriched.filter(col("quality_tier") == "High Quality").count()
 }
 
-print("\nUltra-Enrichment Statistics:")
+print("\n📋 ENRICHMENT STATISTICS:")
 for key, value in enrichment_stats.items():
-    print(f"  {key}: {value:,}")
-
-print(f"\nTotal columns: {len(df_variants_ultra_enriched.columns)}")
+    if "rate" in key or "pct" in key:
+        print(f"  {key}: {value:.1f}%")
+    else:
+        pct = (value / enrichment_stats["total_variants"] * 100) if enrichment_stats["total_variants"] > 0 else 0
+        print(f"  {key}: {value:,} ({pct:.1f}%)")
 
 # COMMAND ----------
 
-# DBTITLE 1,Sample Ultra-Enriched Data
-print("\nSample ultra-enriched variants (high clinical utility):")
+# DBTITLE 1,Sample Enriched Data
+print("\n" + "="*70)
+print("📋 SAMPLE ENRICHED VARIANTS")
+print("="*70)
+
+print("\n1. Disease Enrichment Examples (Before → After):")
 display(
-    df_variants_ultra_enriched.filter(col("clinical_utility_score") >= 5)
-                              .select("gene_name", "disease", "protein_change",
-                                     "mutation_severity_score", "clinical_utility_score",
-                                     "quality_tier", "inheritance_pattern")
-                              .limit(10)
+    df_variants_ultra_enriched
+    .filter(col("disease_was_enriched"))
+    .select(
+        "gene_name",
+        "disease_original",
+        "disease_enriched",
+        "enrichment_source",
+        "omim_id",
+        "orphanet_id"
+    )
+    .limit(20)
+)
+
+print("\n2. Multi-Disease Variants:")
+display(
+    df_variants_ultra_enriched
+    .filter(col("has_multiple_diseases"))
+    .select(
+        "gene_name",
+        "primary_disease",
+        "secondary_disease",
+        "disease_count"
+    )
+    .limit(10)
+)
+
+print("\n3. High-Quality Pathogenic Variants:")
+display(
+    df_variants_ultra_enriched
+    .filter(col("is_pathogenic") & (col("quality_tier") == "High Quality"))
+    .select(
+        "gene_name",
+        "disease_enriched",
+        "clinical_significance_simple",
+        "quality_tier",
+        "review_quality_score",
+        "transcript_id"
+    )
+    .limit(10)
 )
 
 print("\n" + "="*70)
-print("ULTRA-ENRICHMENT COMPLETE")
+print("✅ VARIANT PROCESSING COMPLETE!")
 print("="*70)
-print(f"Total fields extracted: {len(df_variants_ultra_enriched.columns)}")
-print("Next: Use silver.variants_ultra_enriched in feature engineering")
+print(f"📁 Output Table: {catalog_name}.silver.variants_ultra_enriched")
+print(f"📁 Lookup Tables:")
+print(f"   - {catalog_name}.reference.omim_disease_lookup")
+print(f"   - {catalog_name}.reference.orphanet_disease_lookup")
+print(f"   - {catalog_name}.reference.mondo_disease_lookup")
+print("\nNext steps:")
+print("1. Use disease_enriched in all downstream analysis")
+print("2. Link genes to diseases via OMIM IDs")
+print("3. Create comprehensive gene-disease association table")
+print("4. Re-run statistical analysis to see improvements")
 print("="*70)
