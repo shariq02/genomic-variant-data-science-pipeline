@@ -64,6 +64,24 @@ df_variants_raw.select("gene_name", "disease", "phenotype_ids", "accession").sho
 
 # COMMAND ----------
 
+# DBTITLE 1,Save to Bronze Layer  
+print("")
+print("="*80)
+print("SAVING TO BRONZE LAYER")
+print("="*80)
+
+df_variants_raw.write \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .saveAsTable("{}.bronze.variants_raw".format(catalog_name))
+
+bronze_count = spark.table("{}.bronze.variants_raw".format(catalog_name)).count()
+print("Saved to: {}.bronze.variants_raw".format(catalog_name))
+print("Verified: {:,} variants in bronze layer".format(bronze_count))
+print("="*80)
+
+# COMMAND ----------
+
 # DBTITLE 1,STEP 1: ULTRA-PARSE PHENOTYPE IDs
 print("STEP 1: EXTRACT ALL DISEASE DATABASE IDs")
 print("="*70)
@@ -418,10 +436,17 @@ df_accession_parsed = (
     .withColumn("has_multiple_submissions", col("total_rcv_ids") > 1)
     
     # Extract primary RCV number
-    .withColumn("primary_rcv_number",
+    .withColumn("rcv_extracted",
                 when(col("rcv_id_1").isNotNull(),
-                     regexp_extract(col("rcv_id_1"), "RCV(\\d+)", 1).cast("long"))
+                     regexp_extract(col("rcv_id_1"), "RCV(\\d+)", 1))
+                .otherwise(lit("")))
+    
+    .withColumn("primary_rcv_number",
+                when((col("rcv_extracted") != "") & (col("rcv_extracted").isNotNull()),
+                     col("rcv_extracted").cast("long"))
                 .otherwise(None))
+    
+    .drop("rcv_extracted")
 )
 
 print("RCV accession IDs parsed (up to 10 per variant)")
@@ -452,10 +477,17 @@ df_variant_parsed = (
                 .otherwise(None))
     
     # Extract transcript version
-    .withColumn("transcript_version",
+    .withColumn("transcript_version_str",
                 when(col("transcript_id").isNotNull(),
-                     regexp_extract(col("transcript_id"), "NM_\\d+\\.(\\d+)", 1).cast("int"))
+                     regexp_extract(col("transcript_id"), "NM_\\d+\\.(\\d+)", 1))
+                .otherwise(lit("")))
+    
+    .withColumn("transcript_version",
+                when((col("transcript_version_str") != "") & (col("transcript_version_str").isNotNull()),
+                     col("transcript_version_str").cast("int"))
                 .otherwise(None))
+    
+    .drop("transcript_version_str")
     
     # Extract gene from variant name (as backup)
     .withColumn("variant_gene_symbol",
@@ -476,10 +508,17 @@ df_variant_parsed = (
                 .otherwise(None))
     
     # Extract position from cDNA change
-    .withColumn("cdna_position",
+    .withColumn("cdna_position_str",
                 when(col("cdna_change").isNotNull(),
-                     regexp_extract(col("cdna_change"), "c\\.(\\d+)", 1).cast("int"))
+                     regexp_extract(col("cdna_change"), "c\\.(\\d+)", 1))
+                .otherwise(lit("")))
+    
+    .withColumn("cdna_position",
+                when((col("cdna_position_str") != "") & (col("cdna_position_str").isNotNull()),
+                     col("cdna_position_str").cast("int"))
                 .otherwise(None))
+    
+    .drop("cdna_position_str")
     
     # Flag for frameshift variants
     .withColumn("is_frameshift_variant",
@@ -716,9 +755,18 @@ df_quality = (
                 .otherwise("No Criteria"))
     
     # Recent evaluation flag (within 2 years)
+    .withColumn("last_evaluated_clean",
+                when(col("last_evaluated").isNotNull() & (trim(col("last_evaluated")) != ""),
+                     trim(col("last_evaluated")))
+                .otherwise(None))
+    
     .withColumn("last_evaluated_date",
-                when(col("last_evaluated").isNotNull(),
-                     to_date(col("last_evaluated"), "dd-MMM-yy"))
+                when(col("last_evaluated_clean").isNotNull(),
+                     coalesce(
+                         expr("try_cast(to_date(last_evaluated_clean, 'dd-MMM-yy') as date)"),
+                         expr("try_cast(to_date(last_evaluated_clean, 'yyyy-MM-dd') as date)"),
+                         expr("try_cast(to_date(last_evaluated_clean, 'MM/dd/yyyy') as date)")
+                     ))
                 .otherwise(None))
     
     .withColumn("days_since_evaluation",
@@ -727,8 +775,10 @@ df_quality = (
                 .otherwise(None))
     
     .withColumn("is_recently_evaluated",
-                when(col("days_since_evaluation") <= 730, True)
+                when(col("days_since_evaluation").isNotNull() & (col("days_since_evaluation") <= 730), True)
                 .otherwise(False))
+    
+    .drop("last_evaluated_clean")
 )
 
 print("Quality metrics calculated")

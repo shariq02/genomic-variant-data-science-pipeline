@@ -64,6 +64,22 @@ df_genes_raw.select("gene_name", "other_aliases", "other_designations", "db_xref
 
 # COMMAND ----------
 
+# DBTITLE 1,Save to Bronze Layer
+print("SAVING TO BRONZE LAYER")
+print("="*70)
+
+df_genes_raw.write \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .saveAsTable("{}.bronze.genes_raw".format(catalog_name))
+
+bronze_count = spark.table("{}.bronze.genes_raw".format(catalog_name)).count()
+print("Saved to: {}.bronze.genes_raw".format(catalog_name))
+print("Verified: {:,} genes in bronze layer".format(bronze_count))
+
+
+# COMMAND ----------
+
 # DBTITLE 1,STEP 1: MAXIMUM ALIAS EXTRACTION
 print("STEP 1: EXTRACT ALL ALIASES INTO SEPARATE COLUMNS")
 print("="*70)
