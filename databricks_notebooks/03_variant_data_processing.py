@@ -43,12 +43,10 @@ print(f"Spark version: {spark.version}")
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("="*70)
 print("MAXIMUM DATA EXTRACTION - VARIANT PROCESSING")
 print("="*70)
 print(f"Catalog: {catalog_name}")
 print("Extracting disease information and creating mappings")
-print("="*70)
 
 # COMMAND ----------
 
@@ -67,7 +65,6 @@ df_variants_raw.select("gene_name", "disease", "phenotype_ids", "accession").sho
 # COMMAND ----------
 
 # DBTITLE 1,STEP 1: ULTRA-PARSE PHENOTYPE IDs
-print("\n" + "="*70)
 print("STEP 1: EXTRACT ALL DISEASE DATABASE IDs")
 print("="*70)
 
@@ -153,7 +150,6 @@ df_phenotype_parsed.groupBy("phenotype_db_count").count().orderBy("phenotype_db_
 # COMMAND ----------
 
 # DBTITLE 1,STEP 2: CREATE OMIM DISEASE LOOKUP TABLE
-print("\n" + "="*70)
 print("STEP 2: CREATE DISEASE NAME LOOKUP FROM OMIM")
 print("="*70)
 
@@ -192,7 +188,6 @@ print(f" Saved to: {catalog_name}.reference.omim_disease_lookup")
 # COMMAND ----------
 
 # DBTITLE 1,STEP 3: CREATE ORPHANET DISEASE LOOKUP TABLE
-print("\n" + "="*70)
 print("STEP 3: CREATE DISEASE NAME LOOKUP FROM ORPHANET")
 print("="*70)
 
@@ -230,7 +225,6 @@ print(f" Saved to: {catalog_name}.reference.orphanet_disease_lookup")
 # COMMAND ----------
 
 # DBTITLE 1,STEP 4: CREATE MONDO DISEASE LOOKUP TABLE
-print("\n" + "="*70)
 print("STEP 4: CREATE DISEASE NAME LOOKUP FROM MONDO")
 print("="*70)
 
@@ -268,7 +262,6 @@ print(f" Saved to: {catalog_name}.reference.mondo_disease_lookup")
 # COMMAND ----------
 
 # DBTITLE 1,STEP 5: REPLACE "NOT SPECIFIED" WITH ACTUAL DISEASE NAMES
-print("\n" + "="*70)
 print("STEP 5: ENRICH GENERIC DISEASE NAMES WITH REAL NAMES")
 print("="*70)
 
@@ -393,7 +386,6 @@ df_disease_enriched.filter(col("disease_was_enriched")) \
 # COMMAND ----------
 
 # DBTITLE 1,STEP 6: PARSE ACCESSION (RCV) IDs
-print("\n" + "="*70)
 print("STEP 6: PARSE ACCESSION (RCV) IDs")
 print("="*70)
 
@@ -445,7 +437,6 @@ df_accession_parsed.filter(col("has_multiple_submissions")).select(
 # COMMAND ----------
 
 # DBTITLE 1,STEP 7: PARSE VARIANT NAME COMPONENTS
-print("\n" + "="*70)
 print("STEP 7: PARSE VARIANT NAME FOR COMPONENTS")
 print("="*70)
 
@@ -535,7 +526,6 @@ df_variant_parsed.select(
 # COMMAND ----------
 
 # DBTITLE 1,STEP 8: PARSE DISEASE INTO ARRAY
-print("\n" + "="*70)
 print("STEP 8: PARSE MULTIPLE DISEASES PER VARIANT")
 print("="*70)
 
@@ -575,7 +565,6 @@ print(f"\nVariants associated with multiple diseases: {multi_disease_count:,}")
 # COMMAND ----------
 
 # DBTITLE 1,STEP 9: CLINICAL SIGNIFICANCE PARSING
-print("\n" + "="*70)
 print("STEP 9: PARSE CLINICAL SIGNIFICANCE")
 print("="*70)
 
@@ -632,7 +621,6 @@ df_clinical.groupBy("clinical_significance_simple").count() \
 # COMMAND ----------
 
 # DBTITLE 1,STEP 10: ORIGIN AND INHERITANCE PARSING
-print("\n" + "="*70)
 print("STEP 10: PARSE VARIANT ORIGIN")
 print("="*70)
 
@@ -672,7 +660,6 @@ df_origin.select(
 # COMMAND ----------
 
 # DBTITLE 1,STEP 11: VARIANT TYPE CLASSIFICATION
-print("\n" + "="*70)
 print("STEP 11: CLASSIFY VARIANT TYPES")
 print("="*70)
 
@@ -707,7 +694,6 @@ print("Variant type flags created")
 # COMMAND ----------
 
 # DBTITLE 1,STEP 12: REVIEW STATUS SCORING
-print("\n" + "="*70)
 print("STEP 12: CALCULATE REVIEW QUALITY SCORE")
 print("="*70)
 
@@ -753,7 +739,6 @@ df_quality.groupBy("quality_tier").count().orderBy(col("count").desc()).show()
 # COMMAND ----------
 
 # DBTITLE 1,STEP 13: CREATE FINAL ULTRA-ENRICHED VARIANT TABLE
-print("\n" + "="*70)
 print("STEP 13: CREATE ULTRA-ENRICHED VARIANT TABLE")
 print("="*70)
 
@@ -874,7 +859,6 @@ print(f"   Total columns: {len(df_variants_ultra_enriched.columns)}")
 # COMMAND ----------
 
 # DBTITLE 1,Save Ultra-Enriched Variants
-print("\n" + "="*70)
 print("SAVING ULTRA-ENRICHED VARIANTS TO SILVER LAYER")
 print("="*70)
 
@@ -890,7 +874,6 @@ print(f" Verified: {saved_count:,} ultra-enriched variants")
 # COMMAND ----------
 
 # DBTITLE 1,Maximum Extraction Summary
-print("\n" + "="*70)
 print(" MAXIMUM DATA EXTRACTION COMPLETE - VARIANTS")
 print("="*70)
 
@@ -930,7 +913,6 @@ for key, value in enrichment_stats.items():
 # COMMAND ----------
 
 # DBTITLE 1,Sample Enriched Data
-print("\n" + "="*70)
 print(" SAMPLE ENRICHED VARIANTS")
 print("="*70)
 
@@ -977,7 +959,6 @@ display(
     .limit(10)
 )
 
-print("\n" + "="*70)
 print(" VARIANT PROCESSING COMPLETE!")
 print("="*70)
 print(f" Output Table: {catalog_name}.silver.variants_ultra_enriched")
@@ -990,4 +971,3 @@ print("1. Use disease_enriched in all downstream analysis")
 print("2. Link genes to diseases via OMIM IDs")
 print("3. Create comprehensive gene-disease association table")
 print("4. Re-run statistical analysis to see improvements")
-print("="*70)
