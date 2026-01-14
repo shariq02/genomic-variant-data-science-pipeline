@@ -88,7 +88,7 @@ display(
 
 # DBTITLE 1,Parse Disease Field (Pipe-Separated)
 print("\n" + "="*70)
-print("STEP 1: PARSE DISEASES")
+print("STEP 1: PARSE DISEASES WITH PHENOTYPE ID FALLBACK")
 print("="*70)
 
 df_parsed = (
@@ -110,6 +110,41 @@ df_parsed = (
     # Count diseases
     .withColumn("disease_count", size(col("disease_array")))
     
+    # NEW: Extract OMIM disease ID from phenotype_ids
+    .withColumn("omim_disease_id",
+                when(col("phenotype_ids").isNotNull(),
+                     regexp_extract(col("phenotype_ids"), "OMIM:(\\d+)", 1))
+                .otherwise(None))
+    
+    # NEW: Extract Orphanet disease ID
+    .withColumn("orphanet_disease_id",
+                when(col("phenotype_ids").isNotNull(),
+                     regexp_extract(col("phenotype_ids"), "Orphanet:(\\d+)", 1))
+                .otherwise(None))
+    
+    # NEW: Extract MONDO disease ID
+    .withColumn("mondo_disease_id",
+                when(col("phenotype_ids").isNotNull(),
+                     regexp_extract(col("phenotype_ids"), "MONDO:MONDO:(\\d+)", 1))
+                .otherwise(None))
+    
+    # NEW: Create enriched disease identifier
+    # Use disease name if meaningful, otherwise use database ID
+    .withColumn("disease_enriched",
+                when(col("primary_disease").isNotNull() &
+                     ~lower(col("primary_disease")).isin([
+                         "not provided", "not specified", "see cases", 
+                         "incidental discovery", ""
+                     ]),
+                     col("primary_disease"))
+                .when(col("omim_disease_id").isNotNull(),
+                     concat(lit("OMIM:"), col("omim_disease_id")))
+                .when(col("orphanet_disease_id").isNotNull(),
+                     concat(lit("Orphanet:"), col("orphanet_disease_id")))
+                .when(col("mondo_disease_id").isNotNull(),
+                     concat(lit("MONDO:"), col("mondo_disease_id")))
+                .otherwise(col("primary_disease")))
+    
     # Check for specific disease keywords
     .withColumn("has_cancer_disease",
                 lower(col("disease")).rlike("(?i)(cancer|carcinoma|tumor|oncogene)"))
@@ -119,7 +154,7 @@ df_parsed = (
                 lower(col("disease")).rlike("(?i)(hereditary|familial)"))
 )
 
-print("Diseases parsed into arrays")
+print("Diseases parsed with phenotype ID fallback")
 
 # COMMAND ----------
 
@@ -462,12 +497,17 @@ df_variants_enriched = df_dedup.select(
     col("number_submitters"),
     
     # Disease information
-    col("primary_disease").alias("disease"),
+    col("disease_enriched").alias("disease"),  # Uses phenotype IDs as fallback
     col("disease_array"),
     col("disease_count"),
     "has_cancer_disease",
     "has_syndrome",
     "has_hereditary",
+    
+    # Disease database IDs
+    "omim_disease_id",
+    "orphanet_disease_id",
+    "mondo_disease_id",
     
     # Phenotype databases
     "phenotype_ids",
