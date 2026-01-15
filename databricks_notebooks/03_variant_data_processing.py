@@ -79,6 +79,39 @@ print("Verified: {:,} variants in bronze layer".format(bronze_count))
 
 # COMMAND ----------
 
+# DBTITLE 1,Read and Save Allele ID Mapping to Bronze
+print("\nReading allele ID mapping...")
+
+df_allele_raw = spark.table(f"{catalog_name}.default.allele_id_mapping")
+
+# Cast to String immediately to prevent type issues
+df_allele_raw = (
+    df_allele_raw
+    .withColumn("variation_id", trim(col("variation_id").cast("string")))
+    .withColumn("allele_id", trim(col("allele_id").cast("string")))
+)
+
+allele_count = df_allele_raw.count()
+print(f"Loaded {allele_count:,} allele ID mappings")
+
+print("\nSample allele mappings:")
+df_allele_raw.show(3, truncate=False)
+
+# Save to Bronze Layer
+print("\nSAVING ALLELE MAPPING TO BRONZE LAYER")
+print("="*80)
+
+df_allele_raw.write \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .saveAsTable(f"{catalog_name}.bronze.allele_id_mapping")
+
+bronze_allele_count = spark.table(f"{catalog_name}.bronze.allele_id_mapping").count()
+print(f"Saved to: {catalog_name}.bronze.allele_id_mapping")
+print(f"Verified: {bronze_allele_count:,} mappings in bronze layer")
+
+# COMMAND ----------
+
 # DBTITLE 1,STEP 1: ULTRA-PARSE PHENOTYPE IDs
 print("STEP 1: EXTRACT ALL DISEASE DATABASE IDs")
 print("="*70)
