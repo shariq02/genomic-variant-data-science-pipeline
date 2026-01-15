@@ -189,7 +189,7 @@ df_gene_features = (
         spark_sum(when(col("omim_id").isNotNull(), 1).otherwise(0)).alias("omim_linked_count"),
         spark_sum(when(col("orphanet_id").isNotNull(), 1).otherwise(0)).alias("orphanet_linked_count"),
         spark_sum(when(col("mondo_id").isNotNull(), 1).otherwise(0)).alias("mondo_linked_count"),
-        avg(col("phenotype_db_coverage")).alias("avg_phenotype_db_coverage"),
+        avg(col("phenotype_db_count")).alias("avg_phenotype_db_count"),
         
         # Disease count using disease_enriched (CRITICAL - uses real names)
         countDistinct(col("disease_enriched")).alias("disease_count")
@@ -249,40 +249,40 @@ df_gene_features_full = (
             "ensembl_id",
             
             # Functional classification
-            "primary_function",
-            "biological_process",
-            "cellular_location",
-            "druggability_score",
+            #"primary_function",
+            #"biological_process",
+            #"cellular_location",
+            #"druggability_score",
             
             # Protein types
             "is_kinase",
             "is_phosphatase",
             "is_receptor",
-            "is_gpcr",
-            "is_transcription_factor",
+            #"is_gpcr",
+            #"is_transcription_factor",
             "is_enzyme",
             "is_transporter",
-            "is_channel",
-            "is_membrane_protein",
-            "is_growth_factor",
+            #"is_channel",
+            #"is_membrane_protein",
+            #"is_growth_factor",
             
             # Disease categories
-            "cancer_related",
-            "immune_related",
-            "neurological_related",
-            "cardiovascular_related",
-            "metabolic_related",
-            "developmental_related",
-            "alzheimer_related",
-            "diabetes_related",
-            "breast_cancer_related",
+            #"cancer_related",
+            #"immune_related",
+            #"neurological_related",
+            #"cardiovascular_related",
+            #"metabolic_related",
+            #"developmental_related",
+            #"alzheimer_related",
+            #"diabetes_related",
+            #"breast_cancer_related",
             
             # Cellular locations
-            "nuclear",
-            "mitochondrial",
-            "cytoplasmic",
-            "membrane",
-            "extracellular",
+            #"nuclear",
+            #"mitochondrial",
+            #"cytoplasmic",
+            #"membrane",
+            #"extracellular",
             
             # Quality
             "is_well_characterized"
@@ -312,8 +312,6 @@ display(
         "mutation_count",
         "pathogenic_ratio",
         "disease_count",
-        "primary_function",
-        "druggability_score"
     )
     .limit(20)
 )
@@ -550,7 +548,7 @@ df_ml_features = (
         "omim_linked_count",
         "orphanet_linked_count",
         "mondo_linked_count",
-        "avg_phenotype_db_coverage",
+        "avg_phenotype_db_count",
         
         # Risk scoring
         "risk_score",
@@ -564,41 +562,41 @@ df_ml_features = (
         "rare_disease_variant_count",
         
         # Functional classification (17 features)
-        "primary_function",
-        "biological_process",
-        "cellular_location",
-        "druggability_score",
-        "is_kinase",
-        "is_phosphatase",
-        "is_receptor",
-        "is_gpcr",
-        "is_transcription_factor",
-        "is_enzyme",
-        "is_transporter",
-        "is_channel",
-        "is_membrane_protein",
-        "is_growth_factor",
+        #"primary_function",
+        #"biological_process",
+        #"cellular_location",
+        #"druggability_score",
+        #"is_kinase",
+        #"is_phosphatase",
+        #"is_receptor",
+        #"is_gpcr",
+        #"is_transcription_factor",
+        #"is_enzyme",
+        #"is_transporter",
+        #"is_channel",
+        #"is_membrane_protein",
+        #"is_growth_factor",
         
         # Disease categories (9 features)
-        "cancer_related",
-        "immune_related",
-        "neurological_related",
-        "cardiovascular_related",
-        "metabolic_related",
-        "developmental_related",
-        "alzheimer_related",
-        "diabetes_related",
-        "breast_cancer_related",
+        #"cancer_related",
+        #"immune_related",
+        #"neurological_related",
+        #"cardiovascular_related",
+        #"metabolic_related",
+        #"developmental_related",
+        #"alzheimer_related",
+        #"diabetes_related",
+        #"breast_cancer_related",
         
         # Cellular locations (5 features)
-        "nuclear",
-        "mitochondrial",
-        "cytoplasmic",
-        "membrane",
-        "extracellular",
+        #"nuclear",
+        #"mitochondrial",
+        #"cytoplasmic",
+        #"membrane",
+        #"extracellular",
         
         # Quality
-        "is_well_characterized",
+        #"is_well_characterized",
         
         # Database IDs
         "mim_id",
