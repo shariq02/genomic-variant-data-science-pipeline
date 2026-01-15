@@ -399,6 +399,10 @@ df_variants_for_disease = (
         "is_frameshift_variant",
         "is_nonsense_variant",
         "is_missense_variant",
+        "is_splice_variant",
+
+        # Clinical significance flags
+        "is_pathogenic",
                 
         # Quality and utility
         "quality_tier",
