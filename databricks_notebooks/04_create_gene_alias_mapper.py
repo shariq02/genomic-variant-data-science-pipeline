@@ -312,7 +312,6 @@ print(f"    Ready for feature engineering")
 
 print("\n" + "="*80)
 print("  NEXT: Run 05_feature_engineering.py")
-print("="*80)
 
 # COMMAND ----------
 

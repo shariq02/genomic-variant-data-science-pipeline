@@ -47,19 +47,15 @@ print("Spark version: {}".format(spark.version))
 catalog_name = "workspace"
 spark.sql("USE CATALOG {}".format(catalog_name))
 
-print("")
-print("="*80)
 print("ENHANCED FEATURE ENGINEERING WITH DISEASE ENRICHMENT")
 print("="*80)
 print("Catalog: {}".format(catalog_name))
 print("Using: disease_enriched field (real disease names)")
 print("Using: gene_universal_search for alias resolution")
-print("="*80)
 
 # COMMAND ----------
 
 # DBTITLE 1,Load Enhanced Data
-print("")
 print("Loading ENHANCED data...")
 
 df_genes = spark.table("{}.silver.genes_ultra_enriched".format(catalog_name))
@@ -77,8 +73,6 @@ print("Loaded {:,} searchable gene terms".format(search_count))
 # COMMAND ----------
 
 # DBTITLE 1,Verify Disease Enrichment
-print("")
-print("="*80)
 print("VERIFYING DISEASE ENRICHMENT")
 print("="*80)
 
@@ -97,7 +91,6 @@ print("Total variants: {:,}".format(total))
 print("Successfully enriched: {:,}".format(enriched))
 print("Still generic: {:,}".format(generic))
 print("Generic rate: {:.2f}%".format(generic / total * 100))
-print("")
 print("Target: <5% generic (should be ~{:,} or less)".format(int(total * 0.05)))
 
 if generic / total <= 0.05:
@@ -108,7 +101,6 @@ else:
 # COMMAND ----------
 
 # DBTITLE 1,Create Enhanced Gene Features
-print("")
 print("Adding disease category flags...")
 
 # Create disease category flags based on disease_enriched text
@@ -129,8 +121,6 @@ df_variants = df_variants \
 print("Disease category flags added")
 
 
-print("")
-print("="*80)
 print("CREATING ENHANCED GENE FEATURES")
 print("="*80)
 
@@ -246,44 +236,6 @@ df_gene_features_full = (
             "hgnc_id",
             "ensembl_id",
             
-            # Functional classification
-            #"primary_function",
-            #"biological_process",
-            #"cellular_location",
-            #"druggability_score",
-            
-            # Protein types
-            "is_kinase",
-            "is_phosphatase",
-            "is_receptor",
-            #"is_gpcr",
-            #"is_transcription_factor",
-            "is_enzyme",
-            "is_transporter",
-            #"is_channel",
-            #"is_membrane_protein",
-            #"is_growth_factor",
-            
-            # Disease categories
-            #"cancer_related",
-            #"immune_related",
-            #"neurological_related",
-            #"cardiovascular_related",
-            #"metabolic_related",
-            #"developmental_related",
-            #"alzheimer_related",
-            #"diabetes_related",
-            #"breast_cancer_related",
-            
-            # Cellular locations
-            #"nuclear",
-            #"mitochondrial",
-            #"cytoplasmic",
-            #"membrane",
-            #"extracellular",
-            
-            # Quality
-            #"is_well_characterized"
         ),
         "gene_name",
         "left"
@@ -297,7 +249,6 @@ print("Using disease_enriched field for accurate disease associations")
 # COMMAND ----------
 
 # DBTITLE 1,Sample Gene Features
-print("")
 print("Sample high-risk genes with real disease names:")
 display(
     df_gene_features_full
@@ -317,8 +268,6 @@ display(
 # COMMAND ----------
 
 # DBTITLE 1,Create Chromosome Features
-print("")
-print("="*80)
 print("CREATING CHROMOSOME FEATURES")
 print("="*80)
 
@@ -367,8 +316,6 @@ print("Created chromosome features for {} chromosomes".format(chrom_count))
 # COMMAND ----------
 
 # DBTITLE 1,Create Enhanced Gene-Disease Associations
-print("")
-print("="*80)
 print("CREATING ENHANCED GENE-DISEASE ASSOCIATIONS")
 print("="*80)
 print("CRITICAL: Using disease_enriched field (real disease names)")
@@ -470,7 +417,6 @@ print("All associations use REAL disease names (from disease_enriched)")
 # COMMAND ----------
 
 # DBTITLE 1,Sample Gene-Disease Associations
-print("")
 print("Sample gene-disease associations with REAL disease names:")
 display(
     df_gene_disease
@@ -492,8 +438,6 @@ display(
 # COMMAND ----------
 
 # DBTITLE 1,Create ML Features
-print("")
-print("="*80)
 print("CREATING ML FEATURES")
 print("="*80)
 
@@ -563,43 +507,6 @@ df_ml_features = (
         "hereditary_variant_count",
         "rare_disease_variant_count",
         
-        # Functional classification (17 features)
-        #"primary_function",
-        #"biological_process",
-        #"cellular_location",
-        #"druggability_score",
-        #"is_kinase",
-        #"is_phosphatase",
-        #"is_receptor",
-        #"is_gpcr",
-        #"is_transcription_factor",
-        #"is_enzyme",
-        #"is_transporter",
-        #"is_channel",
-        #"is_membrane_protein",
-        #"is_growth_factor",
-        
-        # Disease categories (9 features)
-        #"cancer_related",
-        #"immune_related",
-        #"neurological_related",
-        #"cardiovascular_related",
-        #"metabolic_related",
-        #"developmental_related",
-        #"alzheimer_related",
-        #"diabetes_related",
-        #"breast_cancer_related",
-        
-        # Cellular locations (5 features)
-        #"nuclear",
-        #"mitochondrial",
-        #"cytoplasmic",
-        #"membrane",
-        #"extracellular",
-        
-        # Quality
-        #"is_well_characterized",
-        
         # Database IDs
         "mim_id",
         "hgnc_id",
@@ -615,8 +522,6 @@ print("Total feature columns: {}".format(ml_columns))
 # COMMAND ----------
 
 # DBTITLE 1,Save to Gold Layer
-print("")
-print("="*80)
 print("SAVING TO GOLD LAYER")
 print("="*80)
 
@@ -651,8 +556,6 @@ print("Saved: {}.gold.ml_features".format(catalog_name))
 # COMMAND ----------
 
 # DBTITLE 1,Verify Gold Layer Tables
-print("")
-print("="*80)
 print("VERIFYING GOLD LAYER TABLES")
 print("="*80)
 
@@ -673,19 +576,15 @@ for table_name, table_path in tables:
 # COMMAND ----------
 
 # DBTITLE 1,Final Summary
-print("")
-print("="*80)
 print("SUCCESS: ENHANCED FEATURE ENGINEERING COMPLETE")
 print("="*80)
 
-print("")
 print("GOLD LAYER TABLES CREATED:")
 print("  1. gene_features: {:,} genes, 105 columns".format(gene_features_count))
 print("  2. chromosome_features: {} chromosomes, 20 columns".format(chrom_count))
 print("  3. gene_disease_association: {:,} associations, 25 columns".format(assoc_count))
 print("  4. ml_features: {:,} genes, {} columns".format(ml_count, ml_columns))
 
-print("")
 print("KEY ENHANCEMENTS APPLIED:")
 print("  - Used disease_enriched field (real disease names)")
 print("  - Universal gene search table available")
@@ -694,14 +593,11 @@ print("  - Clinical utility scores integrated")
 print("  - Mutation type breakdown complete")
 print("  - Quality metrics tracked")
 
-print("")
 print("DISEASE ENRICHMENT SUCCESS:")
 print("  - Generic disease rate: {:.2f}%".format(generic / total * 100))
 print("  - Target achieved: <5% generic names")
 print("  - Gene-disease associations: {:,}".format(assoc_count))
 print("  - All associations use REAL disease names")
 
-print("")
 print("="*80)
 print("NEXT: Export to CSV or Load to PostgreSQL")
-print("="*80)
