@@ -186,9 +186,9 @@ df_gene_features = (
         spark_sum(when(col("is_recently_evaluated"), 1).otherwise(0)).alias("recently_evaluated_count"),
         
         # Disease database coverage (NEW)
-        spark_sum(when(col("omim_disease_id").isNotNull(), 1).otherwise(0)).alias("omim_linked_count"),
-        spark_sum(when(col("orphanet_disease_id").isNotNull(), 1).otherwise(0)).alias("orphanet_linked_count"),
-        spark_sum(when(col("mondo_disease_id").isNotNull(), 1).otherwise(0)).alias("mondo_linked_count"),
+        spark_sum(when(col("omim_id").isNotNull(), 1).otherwise(0)).alias("omim_linked_count"),
+        spark_sum(when(col("orphanet_id").isNotNull(), 1).otherwise(0)).alias("orphanet_linked_count"),
+        spark_sum(when(col("mondo_id").isNotNull(), 1).otherwise(0)).alias("mondo_linked_count"),
         avg(col("phenotype_db_coverage")).alias("avg_phenotype_db_coverage"),
         
         # Disease count using disease_enriched (CRITICAL - uses real names)
@@ -389,9 +389,9 @@ df_variants_for_disease = (
         "clinical_significance_simple",
         
         # Disease database IDs (NEW)
-        "omim_disease_id",
-        "orphanet_disease_id",
-        "mondo_disease_id",
+        "omim_id",
+        "orphanet_id",
+        "mondo_id",
         
         # Disease flags (NEW)
         "has_cancer_disease",
@@ -423,9 +423,9 @@ df_gene_disease = (
         spark_sum(when(col("clinical_significance_simple") == "Likely Benign", 1).otherwise(0)).alias("likely_benign_count"),
         
         # Disease database IDs (take first non-null)
-        expr("first(omim_disease_id, true)").alias("omim_disease_id"),
-        expr("first(orphanet_disease_id, true)").alias("orphanet_disease_id"),
-        expr("first(mondo_disease_id, true)").alias("mondo_disease_id"),
+        expr("first(omim_id, true)").alias("omim_id"),
+        expr("first(orphanet_id, true)").alias("orphanet_id"),
+        expr("first(mondo_id, true)").alias("mondo_id"),
         
         # Disease characteristics (NEW)
         spark_sum(when(col("has_cancer_disease"), 1).otherwise(0)).alias("cancer_disease_flag"),
@@ -479,7 +479,7 @@ display(
     .select(
         "gene_name",
         "disease",
-        "omim_disease_id",
+        "omim_id",
         "mutation_count",
         "pathogenic_ratio",
         "avg_clinical_utility",
