@@ -132,8 +132,11 @@ df_phenotype_parsed = (
     # Extract ALL OMIM IDs (can be multiple)
     .withColumn("omim_id",
                 when(col("phenotype_ids").isNotNull(),
-                     regexp_extract(col("phenotype_ids"), "OMIM:(\\d+)", 1))
+                     trim(regexp_extract(col("phenotype_ids"), "OMIM:(\\d+)", 1)))
                 .otherwise(None))
+    .withColumn("omim_id",
+                when((col("omim_id").isNull()) | (trim(col("omim_id")) == ""), None)
+                .otherwise(col("omim_id")))
     
     # Extract additional OMIM IDs if present
     .withColumn("omim_id_secondary",
@@ -197,6 +200,55 @@ df_phenotype_parsed.groupBy("phenotype_db_count").count().orderBy("phenotype_db_
 
 # COMMAND ----------
 
+# DBTITLE 1,STEP 1.5: Join Allele ID Mapping
+print("\nSTEP 1.5: INTEGRATE ALLELE ID MAPPING")
+print("="*70)
+
+# Load allele mapping from bronze (already String type)
+df_allele_mapping = spark.table(f"{catalog_name}.bronze.allele_id_mapping")
+
+# Ensure variant_id in phenotype_parsed is also String and trimmed
+df_phenotype_parsed = df_phenotype_parsed.withColumn(
+    "variant_id", 
+    trim(col("variant_id").cast("string"))
+)
+
+# Count before join
+total_variants = df_phenotype_parsed.count()
+before_unknown = df_phenotype_parsed.filter(
+    (col("allele_id") == "Unknown") | col("allele_id").isNull()
+).count()
+
+print(f"Before enrichment: {before_unknown:,} Unknown/Null allele_id ({before_unknown/total_variants*100:.1f}%)")
+
+# Join to get real allele IDs
+df_phenotype_parsed = (
+    df_phenotype_parsed
+    .join(
+        df_allele_mapping.select(
+            col("variation_id"),
+            col("allele_id").alias("allele_id_new")
+        ),
+        df_phenotype_parsed.variant_id == df_allele_mapping.variation_id,
+        "left"
+    )
+    .withColumn(
+        "allele_id",
+        coalesce(col("allele_id_new"), col("allele_id"), lit("Unknown"))
+    )
+    .drop("allele_id_new")
+)
+
+# Count after join
+after_unknown = df_phenotype_parsed.filter(
+    (col("allele_id") == "Unknown") | col("allele_id").isNull()
+).count()
+
+print(f"After enrichment: {after_unknown:,} Unknown/Null allele_id ({after_unknown/total_variants*100:.1f}%)")
+print(f"Successfully enriched: {before_unknown - after_unknown:,} variants")
+
+# COMMAND ----------
+
 # DBTITLE 1,STEP 2: CREATE OMIM DISEASE LOOKUP TABLE
 print("STEP 2: CREATE DISEASE NAME LOOKUP FROM OMIM")
 print("="*70)
@@ -217,6 +269,14 @@ df_omim_lookup = (
     .groupBy("omim_id")
     .agg(first("disease_name").alias("disease_name"))
     .orderBy("omim_id")
+)
+
+df_omim_lookup = (
+    df_omim_lookup
+    .withColumn("omim_id", trim(col("omim_id").cast("string")))
+    .withColumn("disease_name", trim(col("disease_name")))
+    .filter(trim(col("omim_id")) != "")
+    .filter(trim(col("disease_name")) != "")
 )
 
 omim_count = df_omim_lookup.count()
@@ -319,16 +379,32 @@ df_orphanet_lookup = spark.table(f"{catalog_name}.reference.orphanet_disease_loo
 df_mondo_lookup = spark.table(f"{catalog_name}.reference.mondo_disease_lookup")
 
 # Join to get disease names from OMIM
+df_phenotype_for_omim = df_phenotype_parsed.withColumn(
+    "omim_id_join", 
+    when(col("omim_id").isNotNull(), trim(col("omim_id").cast("string"))).otherwise(None)
+)
+
+df_omim_for_join = df_omim_lookup.withColumn(
+    "omim_id_join",
+    trim(col("omim_id").cast("string"))
+)
+
 df_with_omim = (
-    df_phenotype_parsed
+    df_phenotype_for_omim
     .join(
-        df_omim_lookup,
-        df_phenotype_parsed.omim_id == df_omim_lookup.omim_id,
+        df_omim_for_join.select(
+            col("omim_id_join"),
+            col("disease_name").alias("omim_disease_name")
+        ),
+        "omim_id_join",
         "left"
     )
-    .withColumnRenamed("disease_name", "omim_disease_name")
-    .drop(df_omim_lookup.omim_id)
+    .drop("omim_id_join")
 )
+
+join_count = df_with_omim.filter(col("omim_disease_name").isNotNull()).count()
+print(f"OMIM join matches: {join_count:,}")
+
 
 # Join to get disease names from Orphanet
 df_with_orphanet = (
