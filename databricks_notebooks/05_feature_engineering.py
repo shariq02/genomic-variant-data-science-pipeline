@@ -106,9 +106,8 @@ else:
     print("WARNING: Generic rate above 5% target")
 
 # COMMAND ----------
-# COMMAND ----------
 
-# DBTITLE 1,Add Disease Category Flags
+# DBTITLE 1,Create Enhanced Gene Features
 print("")
 print("Adding disease category flags...")
 
@@ -130,7 +129,6 @@ df_variants = df_variants \
 print("Disease category flags added")
 
 
-# DBTITLE 1,Create Enhanced Gene Features
 print("")
 print("="*80)
 print("CREATING ENHANCED GENE FEATURES")
@@ -285,7 +283,7 @@ df_gene_features_full = (
             #"extracellular",
             
             # Quality
-            "is_well_characterized"
+            #"is_well_characterized"
         ),
         "gene_name",
         "left"
