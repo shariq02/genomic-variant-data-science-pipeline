@@ -236,6 +236,26 @@ df_gene_features_full = (
             "hgnc_id",
             "ensembl_id",
             
+            # Functional protein flags (CRITICAL - for statistical analysis)
+            "is_kinase",
+            "is_phosphatase",
+            "is_receptor",
+            "is_enzyme",
+            "is_transporter",
+            
+            # Designation keywords (for enrichment analysis)
+            "has_glycoprotein",
+            "has_receptor_keyword",
+            "has_enzyme_keyword",
+            "has_kinase_keyword",
+            "has_binding_keyword",
+            
+            # Derived functional classifications (NEW)
+            "primary_function",
+            "biological_process",
+            "cellular_location",
+            "druggability_score",
+            
         ),
         "gene_name",
         "left"

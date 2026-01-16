@@ -432,6 +432,58 @@ df_with_functions = (
     .withColumn("is_enzyme", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(enzyme|ase\\b)"))
     .withColumn("is_phosphatase", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("phosphatase"))
     .withColumn("is_transporter", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("transport"))
+    
+    # Derive primary function from existing flags (NEW)
+    .withColumn("primary_function",
+        when(col("is_kinase"), "Kinase")
+        .when(col("is_phosphatase"), "Phosphatase")
+        .when(col("is_receptor"), "Receptor")
+        .when(col("is_enzyme") & ~col("is_kinase") & ~col("is_phosphatase"), "Enzyme")
+        .when(col("is_transporter"), "Transporter")
+        .when(col("has_receptor_keyword"), "Receptor-related")
+        .when(col("has_enzyme_keyword"), "Enzyme-related")
+        .otherwise("Other"))
+    
+    # Extract biological process from description (NEW)
+    .withColumn("biological_process",
+        when(lower(col("description")).rlike("signal transduction|signaling"), "Cell Signaling")
+        .when(lower(col("description")).rlike("metabol"), "Metabolism")
+        .when(lower(col("description")).rlike("transport|carrier"), "Transport")
+        .when(lower(col("description")).rlike("transcription factor|dna binding"), "Transcription Regulation")
+        .when(lower(col("description")).rlike("repair|replication"), "DNA Repair/Replication")
+        .when(lower(col("description")).rlike("immun|defense"), "Immune Response")
+        .when(lower(col("description")).rlike("apoptosis|cell death"), "Apoptosis")
+        .when(lower(col("description")).rlike("cell cycle|mitosis"), "Cell Cycle")
+        .when(lower(col("description")).rlike("growth|proliferation"), "Cell Growth")
+        .otherwise("Other"))
+    
+    # Extract cellular location from description (NEW)
+    .withColumn("cellular_location",
+        when(lower(col("description")).rlike("membrane|transmembrane"), "Membrane")
+        .when(lower(col("description")).rlike("nuclear|nucleus"), "Nuclear")
+        .when(lower(col("description")).rlike("mitochondri"), "Mitochondrial")
+        .when(lower(col("description")).rlike("cytoplasm|cytosol"), "Cytoplasmic")
+        .when(lower(col("description")).rlike("extracellular|secreted"), "Extracellular")
+        .when(lower(col("description")).rlike("endoplasmic reticulum|er "), "Endoplasmic Reticulum")
+        .when(lower(col("description")).rlike("golgi"), "Golgi Apparatus")
+        .when(lower(col("description")).rlike("lysosom"), "Lysosomal")
+        .when(lower(col("description")).rlike("peroxisom"), "Peroxisomal")
+        .otherwise("Unknown"))
+    
+    # Calculate druggability score (NEW)
+    .withColumn("druggability_score",
+        when(col("is_kinase"), 0.85)
+        .when(col("is_receptor") & lower(col("description")).contains("gpcr"), 0.90)
+        .when(col("is_receptor"), 0.75)
+        .when(col("is_enzyme") & lower(col("description")).contains("protease"), 0.80)
+        .when(col("is_enzyme"), 0.70)
+        .when(col("is_phosphatase"), 0.65)
+        .when(col("is_transporter"), 0.60)
+        .when(lower(col("description")).rlike("ion channel|channel protein"), 0.75)
+        .when(col("cellular_location") == "Membrane", 0.55)
+        .when(col("cellular_location") == "Extracellular", 0.70)
+        .when(col("cellular_location") == "Nuclear", 0.40)
+        .otherwise(0.30))
     # ... add all other classifications from your original script ...
 )
 
@@ -513,6 +565,13 @@ df_genes_ultra_enriched = df_with_functions.select(
     "has_enzyme_keyword",
     "has_kinase_keyword",
     "has_binding_keyword",
+    
+    # Derived functional classifications (NEW!)
+    "primary_function",
+    "biological_process",
+    "cellular_location",
+    "druggability_score",
+    
     
     # Metadata
     "gene_type",
