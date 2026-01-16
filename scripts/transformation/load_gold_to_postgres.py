@@ -2,13 +2,13 @@
 # Load Gold Layer to PostgreSQL - UPDATED FOR NEW SCHEMA
 # DNA Gene Mapping Project
 # Author: Sharique Mohammad
-# Date: 17 January 2026 (Updated for 65-column schema)
+# Date: 17 January 2026 (Updated for 95-column schema)
 # ====================================================================
 
 """
 Load Gold Layer to PostgreSQL
 Loads Databricks Gold layer exports to PostgreSQL database.
-UPDATED: Handles new 65-column schema with functional flags and derived columns.
+UPDATED: Handles new 95-column schema with functional flags and derived columns.
 """
 
 import pandas as pd
@@ -54,7 +54,7 @@ def load_gold_tables():
     print("LOADING GOLD LAYER TO POSTGRESQL (UPDATED SCHEMA)")
     print("="*70)
     print("\nNEW SCHEMA FEATURES:")
-    print("  - 65 columns in gene_features (was 51)")
+    print("  - 95 columns in gene_features (was 51)")
     print("  - 10 functional protein flags")
     print("  - 4 derived classification columns")
     print("  - All boolean columns properly handled")
@@ -250,7 +250,7 @@ def load_gold_tables():
     print("  ORDER BY column_name;")
     print("\n" + "="*70)
     print("Expected column count:")
-    print("  gene_features: 65 columns (was 51)")
+    print("  gene_features: 95 columns (was 51)")
     print("  - 10 functional flags (is_kinase, is_receptor, etc.)")
     print("  - 4 derived columns (primary_function, cellular_location, etc.)")
     print("="*70)
