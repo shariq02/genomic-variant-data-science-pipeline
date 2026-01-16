@@ -24,9 +24,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("="*70)
 print("EXPORT LARGE GOLD LAYER TABLES")
-print("="*70)
 
 # COMMAND ----------
 
@@ -57,7 +55,6 @@ print(f"Export volume: {volume_path}")
 # COMMAND ----------
 
 # DBTITLE 1,Export Tables to Volume (Single CSV per table)
-print("\n" + "="*70)
 print("EXPORTING TO VOLUME (SINGLE CSV FILES)")
 print("="*70)
 
@@ -85,7 +82,6 @@ for table_name, df in tables_to_export.items():
 
 print("\n" + "="*70)
 print("EXPORT COMPLETE!")
-print("="*70)
 
 # COMMAND ----------
 
