@@ -1,14 +1,14 @@
 # ====================================================================
-# Load Gold Layer to PostgreSQL
+# Load Gold Layer to PostgreSQL - UPDATED FOR NEW SCHEMA
 # DNA Gene Mapping Project
 # Author: Sharique Mohammad
-# Date: 13 January 2026 (Updated)
+# Date: 17 January 2026 (Updated for 65-column schema)
 # ====================================================================
 
 """
 Load Gold Layer to PostgreSQL
 Loads Databricks Gold layer exports to PostgreSQL database.
-Updated to handle disease names with commas/quotes.
+UPDATED: Handles new 65-column schema with functional flags and derived columns.
 """
 
 import pandas as pd
@@ -51,7 +51,13 @@ def load_gold_tables():
     """Load all Gold tables to PostgreSQL."""
     
     print("\n" + "="*70)
-    print("LOADING GOLD LAYER TO POSTGRESQL")
+    print("LOADING GOLD LAYER TO POSTGRESQL (UPDATED SCHEMA)")
+    print("="*70)
+    print("\nNEW SCHEMA FEATURES:")
+    print("  - 65 columns in gene_features (was 51)")
+    print("  - 10 functional protein flags")
+    print("  - 4 derived classification columns")
+    print("  - All boolean columns properly handled")
     print("="*70)
     
     if not EXPORTS_DIR.exists():
@@ -97,8 +103,8 @@ def load_gold_tables():
                     csv_path,
                     escapechar='\\',
                     quotechar='"',
-                    on_bad_lines='warn',  # Warn but continue
-                    engine='python',  # More robust parser
+                    on_bad_lines='warn',
+                    engine='python',
                     encoding='utf-8'
                 )
             else:
@@ -106,59 +112,82 @@ def load_gold_tables():
             
             logger.info(f"  Read {len(df):,} rows, {len(df.columns)} columns")
             
-            # Convert boolean columns (ultra-enriched features)
+            # NEW: Convert boolean columns for functional flags
             boolean_columns = [
-                'is_kinase', 'is_phosphatase', 'is_receptor', 'is_gpcr',
-                'is_transcription_factor', 'is_enzyme', 'is_transporter',
-                'is_channel', 'is_membrane_protein', 'is_growth_factor',
-                'is_structural', 'is_regulatory', 'is_metabolic',
-                'is_dna_binding', 'is_rna_binding', 'is_ubiquitin_related',
-                'is_protease', 'cancer_related', 'immune_related',
-                'neurological_related', 'cardiovascular_related',
-                'metabolic_related', 'developmental_related',
+                # Functional protein flags (NEW in this release)
+                'is_kinase', 'is_phosphatase', 'is_receptor', 'is_enzyme', 'is_transporter',
+                'has_glycoprotein', 'has_receptor_keyword', 'has_enzyme_keyword', 
+                'has_kinase_keyword', 'has_binding_keyword',
+                
+                # Legacy columns (keep for backwards compatibility)
+                'is_gpcr', 'is_transcription_factor', 'is_channel', 
+                'is_membrane_protein', 'is_growth_factor', 'is_structural', 
+                'is_regulatory', 'is_metabolic', 'is_dna_binding', 'is_rna_binding', 
+                'is_ubiquitin_related', 'is_protease',
+                
+                # Disease-related flags
+                'cancer_related', 'immune_related', 'neurological_related', 
+                'cardiovascular_related', 'metabolic_related', 'developmental_related',
                 'alzheimer_related', 'diabetes_related', 'breast_cancer_related',
+                
+                # Location flags
                 'nuclear', 'mitochondrial', 'cytoplasmic', 'membrane',
                 'extracellular', 'endoplasmic_reticulum', 'golgi',
-                'lysosomal', 'peroxisomal', 'is_telomeric', 'is_centromeric',
-                'is_well_characterized'
+                'lysosomal', 'peroxisomal',
+                
+                # Quality flags
+                'is_telomeric', 'is_centromeric', 'is_well_characterized'
             ]
             
+            converted_count = 0
             for col in boolean_columns:
                 if col in df.columns:
+                    # Handle various boolean representations
                     df[col] = df[col].map({
-                        'true': True, 'True': True, 'TRUE': True,
-                        'false': False, 'False': False, 'FALSE': False,
-                        True: True, False: False
+                        'true': True, 'True': True, 'TRUE': True, True: True,
+                        'false': False, 'False': False, 'FALSE': False, False: False,
+                        1: True, 0: False, '1': True, '0': False
                     })
-                    logger.info(f"    Converted {col} to boolean")
+                    converted_count += 1
+            
+            if converted_count > 0:
+                logger.info(f"  Converted {converted_count} boolean columns")
+            
+            # NEW: Verify new columns are present in gene_features
+            if csv_name == "gene_features":
+                expected_new_cols = [
+                    'is_kinase', 'is_phosphatase', 'is_receptor', 'is_enzyme', 'is_transporter',
+                    'has_glycoprotein', 'has_receptor_keyword', 'has_enzyme_keyword',
+                    'has_kinase_keyword', 'has_binding_keyword',
+                    'primary_function', 'biological_process', 'cellular_location', 'druggability_score'
+                ]
+                
+                present_cols = [col for col in expected_new_cols if col in df.columns]
+                missing_cols = [col for col in expected_new_cols if col not in df.columns]
+                
+                logger.info(f"  NEW COLUMNS CHECK:")
+                logger.info(f"    Present: {len(present_cols)}/14")
+                if present_cols:
+                    logger.info(f"    Found: {', '.join(present_cols[:5])}{'...' if len(present_cols) > 5 else ''}")
+                
+                if missing_cols:
+                    logger.warning(f"    MISSING: {len(missing_cols)}/14")
+                    logger.warning(f"    Missing: {', '.join(missing_cols)}")
+                    logger.warning(f"    WARNING: Gene features may not have new schema!")
+                    logger.warning(f"    Please run: 05_feature_engineering_COMPLETE.py")
+                else:
+                    logger.info(f"    SUCCESS: All new columns present!")
             
             logger.info(f"  Processed {len(df):,} rows, {len(df.columns)} columns")
             
-            # Convert boolean columns (stored as strings 'true'/'false' in CSV)
-            boolean_columns = [
-                'is_kinase', 'is_phosphatase', 'is_receptor', 'is_gpcr',
-                'is_transcription_factor', 'is_enzyme', 'is_transporter',
-                'is_channel', 'is_membrane_protein', 'is_growth_factor',
-                'is_structural', 'is_regulatory', 'is_metabolic',
-                'is_dna_binding', 'is_rna_binding', 'is_ubiquitin_related',
-                'is_protease', 'cancer_related', 'immune_related',
-                'neurological_related', 'cardiovascular_related',
-                'metabolic_related', 'developmental_related',
-                'alzheimer_related', 'diabetes_related', 'breast_cancer_related',
-                'nuclear', 'mitochondrial', 'cytoplasmic', 'membrane',
-                'extracellular', 'endoplasmic_reticulum', 'golgi',
-                'lysosomal', 'peroxisomal', 'is_telomeric', 'is_centromeric',
-                'is_well_characterized'
-            ]
-            
-            for col in boolean_columns:
-                if col in df.columns:
-                    df[col] = df[col].map({
-                        'true': True, 'false': False, 
-                        True: True, False: False,
-                        'True': True, 'False': False
-                    })
-                    logger.info(f"    Converted {col} to boolean")
+            # Drop table with CASCADE to remove dependent views
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text(f"DROP TABLE IF EXISTS {schema}.{table_name} CASCADE"))
+                    conn.commit()
+                    logger.info(f"  Dropped existing table {schema}.{table_name}")
+            except Exception as e:
+                logger.warning(f"  Could not drop table with CASCADE: {e}")
             
             # Load in chunks for large tables
             chunk_size = 10000
@@ -167,24 +196,6 @@ def load_gold_tables():
                 for i in range(0, len(df), chunk_size):
                     chunk = df.iloc[i:i+chunk_size]
                     if i == 0:
-                        # First chunk: replace table and CASCADE to drop dependent views
-                        chunk.to_sql(
-                            name=table_name,
-                            schema=schema,
-                            con=engine,
-                            if_exists='replace',
-                            index=False,
-                            method='multi'
-                        )
-                        # Manually drop views if they exist
-                        try:
-                            with engine.connect() as conn:
-                                conn.execute(text(f"DROP TABLE IF EXISTS {schema}.{table_name} CASCADE"))
-                                conn.commit()
-                        except Exception as e:
-                            logger.warning(f"  Could not drop table with CASCADE: {e}")
-                        
-                        # Now create fresh table
                         chunk.to_sql(
                             name=table_name,
                             schema=schema,
@@ -205,14 +216,6 @@ def load_gold_tables():
                     if (i + chunk_size) % 50000 == 0:
                         logger.info(f"    Progress: {i+chunk_size:,} rows loaded...")
             else:
-                # Small table: drop with CASCADE then reload
-                try:
-                    with engine.connect() as conn:
-                        conn.execute(text(f"DROP TABLE IF EXISTS {schema}.{table_name} CASCADE"))
-                        conn.commit()
-                except Exception as e:
-                    logger.warning(f"  Could not drop table with CASCADE: {e}")
-                
                 df.to_sql(
                     name=table_name,
                     schema=schema,
@@ -238,9 +241,18 @@ def load_gold_tables():
     print("  SELECT COUNT(*) FROM gold.gene_disease_association;")
     print("  SELECT COUNT(*) FROM gold.ml_features;")
     print("\n" + "="*70)
-    print("Check column counts:")
-    print("  SELECT COUNT(*) FROM information_schema.columns")
-    print("  WHERE table_schema = 'gold';")
+    print("Check NEW columns in gene_features:")
+    print("  SELECT column_name FROM information_schema.columns")
+    print("  WHERE table_schema = 'gold' AND table_name = 'gene_features'")
+    print("  AND column_name LIKE 'is_%' OR column_name LIKE 'has_%'")
+    print("  OR column_name IN ('primary_function', 'biological_process',")
+    print("                     'cellular_location', 'druggability_score')")
+    print("  ORDER BY column_name;")
+    print("\n" + "="*70)
+    print("Expected column count:")
+    print("  gene_features: 65 columns (was 51)")
+    print("  - 10 functional flags (is_kinase, is_receptor, etc.)")
+    print("  - 4 derived columns (primary_function, cellular_location, etc.)")
     print("="*70)
 
 
