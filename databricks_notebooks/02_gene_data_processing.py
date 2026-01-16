@@ -446,18 +446,30 @@ df_with_functions = (
     .withColumn("is_ubiquitin_related", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("ubiquitin"))
     .withColumn("is_protease", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(protease|peptidase)"))
     
-    # Derive primary function from existing flags
+    # Derive primary function from ALL protein flags (ENHANCED - uses all 17 types)
     .withColumn("primary_function",
         when(col("is_kinase"), "Kinase")
         .when(col("is_phosphatase"), "Phosphatase")
+        .when(col("is_gpcr"), "GPCR")  # NEW
+        .when(col("is_transcription_factor"), "Transcription Factor")  # NEW
         .when(col("is_receptor"), "Receptor")
-        .when(col("is_enzyme") & ~col("is_kinase") & ~col("is_phosphatase"), "Enzyme")
+        .when(col("is_channel"), "Channel")  # NEW
+        .when(col("is_protease"), "Protease")  # NEW
+        .when(col("is_growth_factor"), "Growth Factor")  # NEW
+        .when(col("is_enzyme") & ~col("is_kinase") & ~col("is_phosphatase") & ~col("is_protease"), "Enzyme")
         .when(col("is_transporter"), "Transporter")
+        .when(col("is_membrane_protein") & ~col("is_receptor") & ~col("is_channel"), "Membrane Protein")  # NEW
+        .when(col("is_structural"), "Structural")  # NEW
+        .when(col("is_regulatory"), "Regulatory")  # NEW
+        .when(col("is_metabolic"), "Metabolic")  # NEW
+        .when(col("is_dna_binding"), "DNA Binding")  # NEW
+        .when(col("is_rna_binding"), "RNA Binding")  # NEW
+        .when(col("is_ubiquitin_related"), "Ubiquitin Related")  # NEW
         .when(col("has_receptor_keyword"), "Receptor-related")
         .when(col("has_enzyme_keyword"), "Enzyme-related")
         .otherwise("Other"))
     
-    # Extract biological process from description (NEW)
+    # Extract biological process from description
     .withColumn("biological_process",
         when(lower(col("description")).rlike("signal transduction|signaling"), "Cell Signaling")
         .when(lower(col("description")).rlike("metabol"), "Metabolism")
@@ -470,17 +482,55 @@ df_with_functions = (
         .when(lower(col("description")).rlike("growth|proliferation"), "Cell Growth")
         .otherwise("Other"))
     
-    # Extract cellular location from description
+    # Extract cellular location from MULTIPLE fields (IMPROVED)
     .withColumn("cellular_location",
-        when(lower(col("description")).rlike("membrane|transmembrane"), "Membrane")
-        .when(lower(col("description")).rlike("nuclear|nucleus"), "Nuclear")
-        .when(lower(col("description")).rlike("mitochondri"), "Mitochondrial")
-        .when(lower(col("description")).rlike("cytoplasm|cytosol"), "Cytoplasmic")
-        .when(lower(col("description")).rlike("extracellular|secreted"), "Extracellular")
-        .when(lower(col("description")).rlike("endoplasmic reticulum|er "), "Endoplasmic Reticulum")
-        .when(lower(col("description")).rlike("golgi"), "Golgi Apparatus")
-        .when(lower(col("description")).rlike("lysosom"), "Lysosomal")
-        .when(lower(col("description")).rlike("peroxisom"), "Peroxisomal")
+        # Check description and full_name together
+        when(
+            lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("membrane|transmembrane") |
+            lower(coalesce(col("designation_1"), col("designation_2"), lit(""))).rlike("membrane|transmembrane"),
+            "Membrane"
+        )
+        .when(
+            lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("nuclear|nucleus") |
+            lower(coalesce(col("designation_1"), col("designation_2"), lit(""))).rlike("nuclear|nucleus"),
+            "Nuclear"
+        )
+        .when(
+            lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("mitochondri") |
+            lower(coalesce(col("designation_1"), col("designation_2"), lit(""))).rlike("mitochondri"),
+            "Mitochondrial"
+        )
+        .when(
+            lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("cytoplasm|cytosol|cytoplasmic") |
+            lower(coalesce(col("designation_1"), col("designation_2"), lit(""))).rlike("cytoplasm|cytosol|cytoplasmic"),
+            "Cytoplasmic"
+        )
+        .when(
+            lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("extracellular|secreted|plasma") |
+            lower(coalesce(col("designation_1"), col("designation_2"), lit(""))).rlike("extracellular|secreted"),
+            "Extracellular"
+        )
+        .when(
+            lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("endoplasmic|reticulum|\\ber\\b") |
+            lower(coalesce(col("designation_1"), col("designation_2"), lit(""))).rlike("endoplasmic|reticulum") |
+            (lower(col("description")).contains("glycoprotein") & ~lower(col("description")).rlike("membrane|nuclear|mitochondrial")),  # Glycoproteins often in ER
+            "Endoplasmic Reticulum"
+        )
+        .when(
+            lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("golgi") |
+            lower(coalesce(col("designation_1"), col("designation_2"), lit(""))).rlike("golgi"),
+            "Golgi Apparatus"
+        )
+        .when(
+            lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("lysosom") |
+            lower(coalesce(col("designation_1"), col("designation_2"), lit(""))).rlike("lysosom"),
+            "Lysosomal"
+        )
+        .when(
+            lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("peroxisom") |
+            lower(coalesce(col("designation_1"), col("designation_2"), lit(""))).rlike("peroxisom"),
+            "Peroxisomal"
+        )
         .otherwise("Unknown"))
     
     # Add cellular location boolean flags (9 - ENHANCED)
@@ -510,7 +560,7 @@ df_with_functions = (
         .when(col("is_growth_factor"), 3.0)
         .when(col("cellular_location") == "Membrane", 2.0)
         .when(col("cellular_location") == "Extracellular", 2.5)
-        .when(col("cellular_location") == "Nuclear", 1.0)
+        .when(col("cellular_location") == "Nuclear"), 1.0)
         .when(col("cellular_location") == "Cytoplasmic", 1.5)
         .otherwise(0.5))  # Default for unknown
 )
@@ -521,7 +571,6 @@ print("  Additional protein types: 12")
 print("  Total protein types: 17")
 print("  Cellular location categories: 9")
 print("  Druggability scale: 0.5-4.0")
-
 
 # COMMAND ----------
 
