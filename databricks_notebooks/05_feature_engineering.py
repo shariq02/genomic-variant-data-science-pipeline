@@ -100,6 +100,85 @@ else:
 
 # COMMAND ----------
 
+
+# DBTITLE 1,Resolve Gene Name Aliases
+print("RESOLVING GENE NAME ALIASES")
+print("="*80)
+
+
+# Preprocess gene names to handle complex cases
+df_variants = (
+    df_variants
+    # Handle semicolon-separated gene lists (take first gene)
+    .withColumn("gene_name_clean",
+        when(col("gene_name").contains(";"), 
+             split(col("gene_name"), ";")[0])
+        .otherwise(col("gene_name")))
+    # Handle dash-separated gene fusions (try both parts)
+    .withColumn("gene_name_parts",
+        when(col("gene_name_clean").contains("-"),
+             split(col("gene_name_clean"), "-"))
+        .otherwise(array(col("gene_name_clean"))))
+    # Use cleaned name for lookup
+    .withColumn("gene_name", col("gene_name_clean"))
+    .drop("gene_name_clean", "gene_name_parts")
+)
+
+print("Preprocessed complex gene names (semicolons, dashes)")
+
+# Join variants with gene lookup to resolve aliases
+df_variants_resolved = (
+    df_variants
+    .join(
+        df_gene_search.select(
+            col("search_term").alias("variant_gene_key"),
+            col("mapped_gene_name").alias("resolved_gene_name"),
+            col("mapped_gene_id").alias("resolved_gene_id")
+        ),
+        upper(trim(col("gene_name"))) == col("variant_gene_key"),
+        "left"
+    )
+    .withColumn("gene_name_original", col("gene_name"))
+    .withColumn("gene_name", coalesce(col("resolved_gene_name"), col("gene_name")))
+    .withColumn("gene_id", coalesce(col("resolved_gene_id"), col("gene_id")))
+    .drop("variant_gene_key", "resolved_gene_name", "resolved_gene_id")
+)
+
+# Check resolution stats
+total_variants = df_variants.count()
+resolved_count = df_variants_resolved.filter(col("gene_name") != col("gene_name_original")).count()
+resolution_rate = resolved_count / total_variants * 100
+
+print("Total variants: {:,}".format(total_variants))
+print("Resolved aliases: {:,}".format(resolved_count))
+print("Resolution rate: {:.2f}%".format(resolution_rate))
+
+# Check how many genes now match
+variant_genes_before = df_variants.select("gene_name").distinct().count()
+variant_genes_after = df_variants_resolved.select("gene_name").distinct().count()
+print("Distinct genes before: {:,}".format(variant_genes_before))
+print("Distinct genes after: {:,}".format(variant_genes_after))
+
+# Verify join coverage
+missing_before = (
+    df_variants.select("gene_name").distinct()
+    .join(df_genes.select("gene_name"), "gene_name", "left_anti")
+    .count()
+)
+missing_after = (
+    df_variants_resolved.select("gene_name").distinct()
+    .join(df_genes.select("gene_name"), "gene_name", "left_anti")
+    .count()
+)
+print("Missing genes before: {:,}".format(missing_before))
+print("Missing genes after: {:,}".format(missing_after))
+print("Improvement: {:,} genes now resolved".format(missing_before - missing_after))
+
+# Use resolved variants for all subsequent processing
+df_variants = df_variants_resolved
+
+# COMMAND ----------
+
 # DBTITLE 1,Create Enhanced Gene Features
 print("Adding disease category flags...")
 
