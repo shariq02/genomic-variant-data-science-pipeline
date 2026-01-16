@@ -425,13 +425,28 @@ print("="*70)
 # Basic functional classification (expand with your full logic)
 df_with_functions = (
     df_positions
+    # Core protein types (5)
     .withColumn("is_kinase", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("kinase"))
     .withColumn("is_receptor", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("receptor"))
     .withColumn("is_enzyme", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(enzyme|ase\\b)"))
     .withColumn("is_phosphatase", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("phosphatase"))
     .withColumn("is_transporter", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("transport"))
     
-    # Derive primary function from existing flags (NEW)
+    # Additional protein types (12 - ENHANCED)
+    .withColumn("is_gpcr", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(g protein.coupled receptor|gpcr)"))
+    .withColumn("is_transcription_factor", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(transcription factor|dna.binding protein)"))
+    .withColumn("is_channel", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(channel|pore)"))
+    .withColumn("is_membrane_protein", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(membrane|transmembrane)"))
+    .withColumn("is_growth_factor", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("growth factor"))
+    .withColumn("is_structural", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(structural|cytoskeleton|collagen|tubulin|actin)"))
+    .withColumn("is_regulatory", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(regulat|modulat)"))
+    .withColumn("is_metabolic", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(metabol)"))
+    .withColumn("is_dna_binding", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("dna binding"))
+    .withColumn("is_rna_binding", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("rna binding"))
+    .withColumn("is_ubiquitin_related", lower(coalesce(col("description"), col("full_name"), lit(""))).contains("ubiquitin"))
+    .withColumn("is_protease", lower(coalesce(col("description"), col("full_name"), lit(""))).rlike("(?i)(protease|peptidase)"))
+    
+    # Derive primary function from existing flags
     .withColumn("primary_function",
         when(col("is_kinase"), "Kinase")
         .when(col("is_phosphatase"), "Phosphatase")
@@ -455,7 +470,7 @@ df_with_functions = (
         .when(lower(col("description")).rlike("growth|proliferation"), "Cell Growth")
         .otherwise("Other"))
     
-    # Extract cellular location from description (NEW)
+    # Extract cellular location from description
     .withColumn("cellular_location",
         when(lower(col("description")).rlike("membrane|transmembrane"), "Membrane")
         .when(lower(col("description")).rlike("nuclear|nucleus"), "Nuclear")
@@ -468,24 +483,44 @@ df_with_functions = (
         .when(lower(col("description")).rlike("peroxisom"), "Peroxisomal")
         .otherwise("Unknown"))
     
-    # Calculate druggability score (NEW)
+    # Add cellular location boolean flags (9 - ENHANCED)
+    .withColumn("nuclear", col("cellular_location") == "Nuclear")
+    .withColumn("mitochondrial", col("cellular_location") == "Mitochondrial")
+    .withColumn("cytoplasmic", col("cellular_location") == "Cytoplasmic")
+    .withColumn("membrane", col("cellular_location") == "Membrane")
+    .withColumn("extracellular", col("cellular_location") == "Extracellular")
+    .withColumn("endoplasmic_reticulum", col("cellular_location") == "Endoplasmic Reticulum")
+    .withColumn("golgi", col("cellular_location") == "Golgi Apparatus")
+    .withColumn("lysosomal", col("cellular_location") == "Lysosomal")
+    .withColumn("peroxisomal", col("cellular_location") == "Peroxisomal")
+    
+    # Calculate druggability score (0-4 scale - ENHANCED)
     .withColumn("druggability_score",
-        when(col("is_kinase"), 0.85)
-        .when(col("is_receptor") & lower(col("description")).contains("gpcr"), 0.90)
-        .when(col("is_receptor"), 0.75)
-        .when(col("is_enzyme") & lower(col("description")).contains("protease"), 0.80)
-        .when(col("is_enzyme"), 0.70)
-        .when(col("is_phosphatase"), 0.65)
-        .when(col("is_transporter"), 0.60)
-        .when(lower(col("description")).rlike("ion channel|channel protein"), 0.75)
-        .when(col("cellular_location") == "Membrane", 0.55)
-        .when(col("cellular_location") == "Extracellular", 0.70)
-        .when(col("cellular_location") == "Nuclear", 0.40)
-        .otherwise(0.30))
-    # ... add all other classifications from your original script ...
+        when(col("is_kinase"), 4.0)  # Kinases highly druggable
+        .when(col("is_gpcr"), 4.0)  # GPCRs highly druggable
+        .when(col("is_receptor") & lower(col("description")).contains("growth factor"), 3.5)
+        .when(col("is_receptor"), 3.0)
+        .when(col("is_enzyme") & lower(col("description")).contains("protease"), 3.5)
+        .when(col("is_enzyme"), 3.0)
+        .when(col("is_phosphatase"), 2.5)
+        .when(col("is_transporter"), 2.5)
+        .when(col("is_channel"), 3.0)  # Ion channels druggable
+        .when(lower(col("description")).rlike("ion channel"), 3.0)
+        .when(col("is_protease"), 3.5)
+        .when(col("is_growth_factor"), 3.0)
+        .when(col("cellular_location") == "Membrane", 2.0)
+        .when(col("cellular_location") == "Extracellular", 2.5)
+        .when(col("cellular_location") == "Nuclear"), 1.0)
+        .when(col("cellular_location") == "Cytoplasmic", 1.5)
+        .otherwise(0.5))  # Default for unknown
 )
 
-print("\n Functional classification applied (use full logic from original script)")
+print("\nFunctional classification applied - ENHANCED")
+print("  Core protein types: 5")
+print("  Additional protein types: 12")
+print("  Total protein types: 17")
+print("  Cellular location categories: 9")
+print("  Druggability scale: 0.5-4.0")
 
 # COMMAND ----------
 
@@ -550,25 +585,50 @@ df_genes_ultra_enriched = df_with_functions.select(
     col("gene_length_calculated").alias("gene_length"),
     "needs_position_lookup",
     
-    # Functional classifications (from existing)
+    # Core protein types (5)
     "is_kinase",
     "is_receptor",
     "is_enzyme",
     "is_phosphatase",
     "is_transporter",
     
-    # Designation keywords (NEW!)
+    # Additional protein types (12 - ENHANCED)
+    "is_gpcr",
+    "is_transcription_factor",
+    "is_channel",
+    "is_membrane_protein",
+    "is_growth_factor",
+    "is_structural",
+    "is_regulatory",
+    "is_metabolic",
+    "is_dna_binding",
+    "is_rna_binding",
+    "is_ubiquitin_related",
+    "is_protease",
+    
+    # Designation keywords
     "has_glycoprotein",
     "has_receptor_keyword",
     "has_enzyme_keyword",
     "has_kinase_keyword",
     "has_binding_keyword",
     
-    # Derived functional classifications (NEW!)
+    # Derived functional classifications
     "primary_function",
     "biological_process",
     "cellular_location",
     "druggability_score",
+    
+    # Cellular location boolean flags (9 - ENHANCED)
+    "nuclear",
+    "mitochondrial",
+    "cytoplasmic",
+    "membrane",
+    "extracellular",
+    "endoplasmic_reticulum",
+    "golgi",
+    "lysosomal",
+    "peroxisomal",
     
     
     # Metadata
