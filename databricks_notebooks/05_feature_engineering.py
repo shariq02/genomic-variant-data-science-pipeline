@@ -34,8 +34,9 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, count, sum as spark_sum, avg, 
     when, round as spark_round, countDistinct, explode, size,
-    lit, concat, expr, coalesce, upper, lower, trim
+    lit, concat, expr, coalesce, upper, lower, trim, split, array
 )
+from pyspark.sql.functions import max as spark_max
 
 # COMMAND ----------
 
@@ -104,8 +105,8 @@ else:
 
 # COMMAND ----------
 
-
 # DBTITLE 1,Resolve Gene Name Aliases
+
 print("RESOLVING GENE NAME ALIASES")
 print("="*80)
 
@@ -209,17 +210,54 @@ df_disease_categories = (
     df_variants
     .groupBy("gene_name")
     .agg(
-        max(when(col("has_cancer_disease"), True).otherwise(False)).alias("has_cancer_variants"),
-        max(when(lower(col("disease_enriched")).rlike("immun|autoimmun|lymphocyte|antibody"), True).otherwise(False)).alias("has_immune_disease"),
-        max(when(lower(col("disease_enriched")).rlike("neuro|brain|alzheimer|parkinson|epilep|seizure|ataxia|cognit"), True).otherwise(False)).alias("has_neuro_disease"),
-        max(when(lower(col("disease_enriched")).rlike("cardiac|heart|vascular|arrhyth|cardiomyop|coronary"), True).otherwise(False)).alias("has_cardio_disease"),
-        max(when(lower(col("disease_enriched")).rlike("metabol|diabetes|obesity|lipid|glycogen|glucose"), True).otherwise(False)).alias("has_metabolic_disease"),
-        max(when(lower(col("disease_enriched")).rlike("development|congenital|embryo|fetal|birth"), True).otherwise(False)).alias("has_developmental_disease"),
-        max(when(lower(col("disease_enriched")).contains("alzheimer"), True).otherwise(False)).alias("has_alzheimer"),
-        max(when(lower(col("disease_enriched")).contains("diabetes"), True).otherwise(False)).alias("has_diabetes"),
-        max(when(lower(col("disease_enriched")).rlike("breast cancer|breast carcinoma|breast neoplasm|familial cancer of breast"), True).otherwise(False)).alias("has_breast_cancer")
+        spark_max(when(col("has_cancer_disease"), True).otherwise(False)).alias("has_cancer_variants"),
+
+        spark_max(
+            when(lower(col("disease_enriched")).rlike("immun|autoimmun|lymphocyte|antibody"), True)
+            .otherwise(False)
+        ).alias("has_immune_disease"),
+
+        spark_max(
+            when(lower(col("disease_enriched")).rlike("neuro|brain|alzheimer|parkinson|epilep|seizure|ataxia|cognit"), True)
+            .otherwise(False)
+        ).alias("has_neuro_disease"),
+
+        spark_max(
+            when(lower(col("disease_enriched")).rlike("cardiac|heart|vascular|arrhyth|cardiomyop|coronary"), True)
+            .otherwise(False)
+        ).alias("has_cardio_disease"),
+
+        spark_max(
+            when(lower(col("disease_enriched")).rlike("metabol|diabetes|obesity|lipid|glycogen|glucose"), True)
+            .otherwise(False)
+        ).alias("has_metabolic_disease"),
+
+        spark_max(
+            when(lower(col("disease_enriched")).rlike("development|congenital|embryo|fetal|birth"), True)
+            .otherwise(False)
+        ).alias("has_developmental_disease"),
+
+        spark_max(
+            when(lower(col("disease_enriched")).contains("alzheimer"), True)
+            .otherwise(False)
+        ).alias("has_alzheimer"),
+
+        spark_max(
+            when(lower(col("disease_enriched")).contains("diabetes"), True)
+            .otherwise(False)
+        ).alias("has_diabetes"),
+
+        spark_max(
+            when(
+                lower(col("disease_enriched")).rlike(
+                    "breast cancer|breast carcinoma|breast neoplasm|familial cancer of breast"
+                ),
+                True
+            ).otherwise(False)
+        ).alias("has_breast_cancer")
     )
 )
+
 print(f"Aggregated disease categories for variants")
 
 
