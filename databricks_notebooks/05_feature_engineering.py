@@ -30,7 +30,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, count, sum as spark_sum, avg, 
     when, round as spark_round, countDistinct, explode, size,
-    lit, concat, expr, coalesce, upper, lower, trim
+    lit, concat, expr, coalesce, upper, lower, trim, array, split,
 )
 
 # COMMAND ----------
@@ -100,8 +100,8 @@ else:
 
 # COMMAND ----------
 
-
 # DBTITLE 1,Resolve Gene Name Aliases
+
 print("RESOLVING GENE NAME ALIASES")
 print("="*80)
 
