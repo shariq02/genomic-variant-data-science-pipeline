@@ -1,17 +1,17 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### EXPORT GOLD LAYER TABLES - ENHANCED 95-COLUMN SCHEMA
-# MAGIC ##### Export After Running ENHANCED Pipeline
+# MAGIC #### EXPORT GOLD LAYER TABLES - UPDATED FOR 65-COLUMN SCHEMA
+# MAGIC ##### Export After Running COMPLETE Pipeline
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**
 # MAGIC
 # MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** January 17, 2026 (ENHANCED)
+# MAGIC **Date:** January 17, 2026 (Updated)
 # MAGIC
 # MAGIC **IMPORTANT:** Run this AFTER:
-# MAGIC - 02_gene_data_processing_ENHANCED.py (creates 102-column silver)
+# MAGIC - 02_gene_data_processing_COMPLETE.py
 # MAGIC - 04_create_gene_alias_mapper.py
-# MAGIC - 05_feature_engineering_ENHANCED.py (creates 95-column gold)
+# MAGIC - 05_feature_engineering_COMPLETE.py
 
 # COMMAND ----------
 
@@ -31,7 +31,7 @@ print("="*70)
 # COMMAND ----------
 
 # DBTITLE 1,Verify Schema Before Export
-print("\nVERIFYING ENHANCED SCHEMA")
+print("\nVERIFYING UPDATED SCHEMA")
 print("="*70)
 
 # Check gene_features schema
@@ -40,52 +40,35 @@ gene_cols = len(df_gene_features_check.columns)
 
 print(f"\ngene_features columns: {gene_cols}")
 
-if gene_cols == 95:
-    print("  Status: CORRECT - Enhanced 95-column schema")
-elif gene_cols == 65:
-    print("  Status: WARNING - Still COMPLETE 65-column schema!")
-    print("  Action: Run 02_gene_data_processing_ENHANCED.py and 05_feature_engineering_ENHANCED.py first")
+if gene_cols == 65:
+    print("  Status: CORRECT - New 65-column schema")
 elif gene_cols == 51:
-    print("  Status: ERROR - Old 51-column schema!")
-    print("  Action: Run ENHANCED scripts first")
-    raise Exception("Schema not updated - please run ENHANCED scripts first")
+    print("  Status: ERROR - Still old 51-column schema!")
+    print("  Action: Run 05_feature_engineering_COMPLETE.py first")
+    raise Exception("Schema not updated - please run COMPLETE scripts first")
 else:
-    print(f"  Status: UNKNOWN - Expected 95, got {gene_cols}")
+    print(f"  Status: UNKNOWN - Expected 65, got {gene_cols}")
 
-# Check for enhanced columns
-expected_enhanced_cols = [
-    # Core protein types
+# Check for new columns
+expected_new_cols = [
     'is_kinase', 'is_phosphatase', 'is_receptor', 'is_enzyme', 'is_transporter',
-    # Additional protein types (12 new)
-    'is_gpcr', 'is_transcription_factor', 'is_channel', 'is_membrane_protein',
-    'is_growth_factor', 'is_structural', 'is_regulatory', 'is_metabolic',
-    'is_dna_binding', 'is_rna_binding', 'is_ubiquitin_related', 'is_protease',
-    # Disease categories (9 new)
-    'cancer_related', 'immune_related', 'neurological_related', 'cardiovascular_related',
-    'metabolic_related', 'developmental_related', 'alzheimer_related', 'diabetes_related',
-    'breast_cancer_related',
-    # Cellular locations (9 new)
-    'nuclear', 'mitochondrial', 'cytoplasmic', 'membrane', 'extracellular',
-    'endoplasmic_reticulum', 'golgi', 'lysosomal', 'peroxisomal',
-    # Derived
+    'has_glycoprotein', 'has_receptor_keyword', 'has_enzyme_keyword',
+    'has_kinase_keyword', 'has_binding_keyword',
     'primary_function', 'biological_process', 'cellular_location', 'druggability_score'
 ]
 
-present_cols = [c for c in expected_enhanced_cols if c in df_gene_features_check.columns]
-missing_cols = [c for c in expected_enhanced_cols if c not in df_gene_features_check.columns]
+present_cols = [c for c in expected_new_cols if c in df_gene_features_check.columns]
+missing_cols = [c for c in expected_new_cols if c not in df_gene_features_check.columns]
 
-print(f"\nEnhanced columns check:")
-print(f"  Present: {len(present_cols)}/{len(expected_enhanced_cols)}")
+print(f"\nNew columns check:")
+print(f"  Present: {len(present_cols)}/14")
 
 if missing_cols:
-    print(f"  MISSING: {len(missing_cols)} columns")
-    print(f"  Missing columns: {', '.join(missing_cols[:10])}")
-    if len(missing_cols) > 10:
-        print(f"  ... and {len(missing_cols) - 10} more")
-    print(f"\n  STOP: Run ENHANCED scripts first!")
+    print(f"  MISSING: {', '.join(missing_cols)}")
+    print(f"\n  STOP: Run 05_feature_engineering_COMPLETE.py first!")
     raise Exception("Schema not updated - export aborted")
 else:
-    print(f"  All enhanced columns present")
+    print(f"  All new columns present")
     print(f"  Ready to export!")
 
 # COMMAND ----------

@@ -1,18 +1,20 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### ENHANCED GENE DATA PROCESSING - 17 PROTEIN TYPES + 9 CELLULAR LOCATIONS
-# MAGIC ##### Maximum Feature Extraction with 102 Total Columns
+# MAGIC #### MAXIMUM DATA EXTRACTION - GENE DATA PROCESSING
+# MAGIC ##### Extract EVERY piece of data from text fields into separate columns
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**   
 # MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** January 17, 2026 (ENHANCED)
-# MAGIC **Purpose:** Extract ALL features including 17 protein types and cellular location flags
+# MAGIC **Date:** January 14, 2026  
+# MAGIC **Purpose:** Extract ALL hidden data from gene metadata fields
 # MAGIC
-# MAGIC **ENHANCEMENTS OVER COMPLETE VERSION:**
-# MAGIC 1. **17 Protein Types** (was 5): Added GPCR, transcription factor, channel, membrane protein, growth factor, structural, regulatory, metabolic, DNA binding, RNA binding, ubiquitin, protease
-# MAGIC 2. **9 Cellular Location Booleans** (was 1 text): Added nuclear, mitochondrial, cytoplasmic, membrane, extracellular, ER, golgi, lysosomal, peroxisomal flags
-# MAGIC 3. **Druggability 0-4 Scale** (was 0.3-0.85): Better distribution with 10x range
-# MAGIC 4. **Output:** 102 columns in silver.genes_ultra_enriched (was 81)
+# MAGIC **ENHANCEMENTS:**
+# MAGIC 1. Split `other_aliases` into multiple alias columns (alias_1, alias_2, etc.)
+# MAGIC 2. Split `other_designations` into multiple designation columns
+# MAGIC 3. Extract detailed protein information from descriptions
+# MAGIC 4. Parse `db_xrefs` into separate columns for EACH database
+# MAGIC 5. Fetch missing genomic positions from Ensembl API
+# MAGIC 6. Create gene→OMIM disease mapping table
 
 # COMMAND ----------
 

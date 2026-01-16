@@ -1,31 +1,27 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC ## ENHANCED FEATURE ENGINEERING - 95 GOLD COLUMNS
-# MAGIC ### 17 Protein Types + 9 Disease Categories + 9 Cellular Locations
+# MAGIC ## ENHANCED FEATURE ENGINEERING
+# MAGIC ### Using Disease-Enriched Data and Universal Gene Search
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**
 # MAGIC
 # MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** January 17, 2026 (ENHANCED)
+# MAGIC **Date:** January 14, 2026  
 # MAGIC
-# MAGIC **Purpose:** Create comprehensive analytical features with maximum enrichment
+# MAGIC **Purpose:** Create comprehensive analytical features using disease-enriched data
 # MAGIC
 # MAGIC **Input Tables:**  
-# MAGIC - workspace.silver.genes_ultra_enriched (102 columns - 17 protein types, 9 location flags)
+# MAGIC - workspace.silver.genes_ultra_enriched (193K genes, 110 columns)  
 # MAGIC - workspace.silver.variants_ultra_enriched (4M+ variants, 120 columns)
-# MAGIC - workspace.reference.gene_universal_search (100K+ search terms)
+# MAGIC - workspace.reference.gene_universal_search (100K+ search terms) NEW
 # MAGIC
 # MAGIC **Output Tables:**  
-# MAGIC - workspace.gold.gene_features (95 columns - includes all 17 protein types, 9 disease categories, 9 location flags)
-# MAGIC - workspace.gold.chromosome_features (16 columns)
-# MAGIC - workspace.gold.gene_disease_association (25 columns)
-# MAGIC - workspace.gold.ml_features (49 columns)
+# MAGIC - workspace.gold.gene_features (105 columns with real disease names)
+# MAGIC - workspace.gold.chromosome_features (20 columns)
+# MAGIC - workspace.gold.gene_disease_association (25 columns with database IDs)
+# MAGIC - workspace.gold.ml_features (100 columns)
 # MAGIC
-# MAGIC **Key Enhancements Over COMPLETE:**
-# MAGIC - 17 protein types (was 5)
-# MAGIC - 9 disease category flags (was 0)
-# MAGIC - 9 cellular location booleans (was 1 text field)
-# MAGIC - Better druggability scoring (0-4 scale)
+# MAGIC **Key Enhancement:** Uses disease_enriched field (real names, not "not specified")
 
 # COMMAND ----------
 
@@ -34,7 +30,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, count, sum as spark_sum, avg, 
     when, round as spark_round, countDistinct, explode, size,
-    lit, concat, expr, coalesce, upper, lower, trim
+    lit, concat, expr, coalesce, upper, lower, trim, array, split,
 )
 
 # COMMAND ----------
@@ -104,8 +100,8 @@ else:
 
 # COMMAND ----------
 
-
 # DBTITLE 1,Resolve Gene Name Aliases
+
 print("RESOLVING GENE NAME ALIASES")
 print("="*80)
 
@@ -202,25 +198,6 @@ df_variants = df_variants \
                 lower(coalesce(col("clinical_significance_simple"), lit(""))).contains("Risk Factor"))
 
 print("Disease category flags added")
-
-# Aggregate disease categories from variants BEFORE creating gene features
-print("Aggregating disease categories from variants...")
-df_disease_categories = (
-    df_variants
-    .groupBy("gene_name")
-    .agg(
-        max(when(col("has_cancer_disease"), True).otherwise(False)).alias("has_cancer_variants"),
-        max(when(lower(col("disease_enriched")).rlike("immun|autoimmun|lymphocyte|antibody"), True).otherwise(False)).alias("has_immune_disease"),
-        max(when(lower(col("disease_enriched")).rlike("neuro|brain|alzheimer|parkinson|epilep|seizure|ataxia|cognit"), True).otherwise(False)).alias("has_neuro_disease"),
-        max(when(lower(col("disease_enriched")).rlike("cardiac|heart|vascular|arrhyth|cardiomyop|coronary"), True).otherwise(False)).alias("has_cardio_disease"),
-        max(when(lower(col("disease_enriched")).rlike("metabol|diabetes|obesity|lipid|glycogen|glucose"), True).otherwise(False)).alias("has_metabolic_disease"),
-        max(when(lower(col("disease_enriched")).rlike("development|congenital|embryo|fetal|birth"), True).otherwise(False)).alias("has_developmental_disease"),
-        max(when(lower(col("disease_enriched")).contains("alzheimer"), True).otherwise(False)).alias("has_alzheimer"),
-        max(when(lower(col("disease_enriched")).contains("diabetes"), True).otherwise(False)).alias("has_diabetes"),
-        max(when(lower(col("disease_enriched")).rlike("breast cancer|breast carcinoma|breast neoplasm|familial cancer of breast"), True).otherwise(False)).alias("has_breast_cancer")
-    )
-)
-print(f"Aggregated disease categories for variants")
 
 
 print("CREATING ENHANCED GENE FEATURES")
@@ -338,50 +315,25 @@ df_gene_features_full = (
             "hgnc_id",
             "ensembl_id",
             
-            # Core functional protein flags (5)
+            # Functional protein flags (CRITICAL - for statistical analysis)
             "is_kinase",
             "is_phosphatase",
             "is_receptor",
             "is_enzyme",
             "is_transporter",
             
-            # Additional protein types (12 from old version)
-            "is_gpcr",
-            "is_transcription_factor",
-            "is_channel",
-            "is_membrane_protein",
-            "is_growth_factor",
-            "is_structural",
-            "is_regulatory",
-            "is_metabolic",
-            "is_dna_binding",
-            "is_rna_binding",
-            "is_ubiquitin_related",
-            "is_protease",
-            
-            # Designation keywords
+            # Designation keywords (for enrichment analysis)
             "has_glycoprotein",
             "has_receptor_keyword",
             "has_enzyme_keyword",
             "has_kinase_keyword",
             "has_binding_keyword",
             
-            # Derived classifications
+            # Derived functional classifications (NEW)
             "primary_function",
             "biological_process",
             "cellular_location",
             "druggability_score",
-            
-            # Cellular location boolean flags (9)
-            "nuclear",
-            "mitochondrial",
-            "cytoplasmic",
-            "membrane",
-            "extracellular",
-            "endoplasmic_reticulum",
-            "golgi",
-            "lysosomal",
-            "peroxisomal",
             
         ),
         "gene_name",
@@ -392,29 +344,6 @@ df_gene_features_full = (
 gene_features_count = df_gene_features_full.count()
 print("Created gene features for {:,} genes".format(gene_features_count))
 print("Using disease_enriched field for accurate disease associations")
-
-# Join disease categories
-df_gene_features_full = (
-    df_gene_features_full
-    .join(df_disease_categories, "gene_name", "left")
-    # Create disease category boolean flags
-    .withColumn("cancer_related", coalesce(col("has_cancer_variants"), lit(False)))
-    .withColumn("immune_related", coalesce(col("has_immune_disease"), lit(False)))
-    .withColumn("neurological_related", coalesce(col("has_neuro_disease"), lit(False)))
-    .withColumn("cardiovascular_related", coalesce(col("has_cardio_disease"), lit(False)))
-    .withColumn("metabolic_related", coalesce(col("has_metabolic_disease"), lit(False)))
-    .withColumn("developmental_related", coalesce(col("has_developmental_disease"), lit(False)))
-    .withColumn("alzheimer_related", coalesce(col("has_alzheimer"), lit(False)))
-    .withColumn("diabetes_related", coalesce(col("has_diabetes"), lit(False)))
-    .withColumn("breast_cancer_related", coalesce(col("has_breast_cancer"), lit(False)))
-    # Drop temporary columns
-    .drop("has_cancer_variants", "has_immune_disease", "has_neuro_disease", 
-          "has_cardio_disease", "has_metabolic_disease", "has_developmental_disease",
-          "has_alzheimer", "has_diabetes", "has_breast_cancer")
-)
-
-print("Added 9 disease category flags")
-
 
 # COMMAND ----------
 
