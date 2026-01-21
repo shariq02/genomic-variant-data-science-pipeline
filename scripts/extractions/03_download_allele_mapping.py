@@ -116,7 +116,6 @@ def main():
         print("\nSample data:")
         df_sample = pd.read_csv(output_file, nrows=10)
         print(df_sample)
-        print("\nNext: Upload to Databricks as 'allele_id_mapping' table")
     else:
         print("\nFAILED - no mappings created")
 
