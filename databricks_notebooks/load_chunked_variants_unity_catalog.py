@@ -61,7 +61,7 @@ schema = StructType([
     StructField("assembly", StringType(), True)
 ])
 
-print("✓ Schema defined: ALL STRING types for compatibility")
+print(" Schema defined: ALL STRING types for compatibility")
 print("  (Will convert to proper types in processing step)")
 
 # COMMAND ----------
@@ -130,7 +130,7 @@ df_first.write \
     .option("overwriteSchema", "true") \
     .saveAsTable(TABLE_NAME)
 
-print(f"✓ Table created: {TABLE_NAME}")
+print(f" Table created: {TABLE_NAME}")
 total_rows = row_count
 successful_chunks = 1
 
@@ -169,7 +169,7 @@ for i, chunk_file in enumerate(csv_files_sorted[1:], start=2):
         successful_chunks += 1
         successful_loads.append(chunk_name)
         
-        print(f"  ✓ {row_count:,} rows | Total: {total_rows:,}")
+        print(f"   {row_count:,} rows | Total: {total_rows:,}")
         
     except Exception as e:
         error_msg = str(e)[:200]
@@ -178,7 +178,7 @@ for i, chunk_file in enumerate(csv_files_sorted[1:], start=2):
             "number": i,
             "error": error_msg
         })
-        print(f"  ✗ FAILED: {error_msg}")
+        print(f"  FAILED: {error_msg}")
         continue
 
 print(f"\n" + "="*70)
@@ -202,7 +202,7 @@ if errors:
     
     print("\n" + "="*70)
 else:
-    print("\n✓ ALL CHUNKS LOADED SUCCESSFULLY!")
+    print("\n ALL CHUNKS LOADED SUCCESSFULLY!")
 
 # COMMAND ----------
 

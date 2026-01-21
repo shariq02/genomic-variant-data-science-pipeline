@@ -6,15 +6,11 @@
 # ====================================================================
 
 """
-dbVar Structural Variant Extraction (GRCh38)
+dbVar Structural Variant Extraction (GRCh38) - FIXED
 Data Source: https://ftp.ncbi.nlm.nih.gov/pub/dbVar/data/Homo_sapiens/by_study/vcf/
 
-Extracted Columns:
-- variant_id, variant_name, variant_type, variant_sub_type
-- assembly, clinical_significance
-- chromosome, start_position, end_position
-- method, platform, study_id
-- data_source, download_date
+CRITICAL FIX: Use correct VCF column order (CHROM, POS, ID, REF, ALT, ...)
+Previous error: Had "chromosome, start, end, id, ref..." which is WRONG
 """
 
 import gzip
@@ -23,7 +19,6 @@ import pandas as pd
 from pathlib import Path
 import logging
 from datetime import datetime
-import re
 
 # --------------------------------------------------------------------
 # Logging
@@ -96,7 +91,10 @@ def parse_info_field(info_str):
         dict: A dictionary of key-value pairs parsed from the INFO field
     """
     info_dict = {}
-    for item in info_str.split(";"):
+    if pd.isna(info_str) or info_str == ".":
+        return info_dict
+        
+    for item in str(info_str).split(";"):
         if "=" in item:
             key, val = item.split("=", 1)
             info_dict[key] = val
@@ -105,14 +103,16 @@ def parse_info_field(info_str):
     return info_dict
 
 # --------------------------------------------------------------------
-# Parse VCF file and extract all relevant columns
+# Parse VCF file and extract all relevant columns - FIXED
 # --------------------------------------------------------------------
 def parse_vcf_file(file_path: Path):
     """
-    Extract:
-    - variant_id, variant_name, type, sub_type, assembly, clinical_significance
-    - chromosome, start, end
-    - method, platform, study_id
+    Extract structural variants with CORRECT VCF column parsing
+    
+    CRITICAL FIX: VCF standard column order is:
+    CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO
+    
+    NOT: chromosome, start, end, id, ref...
     """
     logger.info(f"Parsing {file_path.name}")
     output_file = OUTPUT_DIR / f"{file_path.stem}_parsed_full.csv"
@@ -127,27 +127,38 @@ def parse_vcf_file(file_path: Path):
             f,
             sep="\t",
             comment="#",
-            names=["chromosome","start","end","id","ref","alt","qual","filter","info"],
+            # FIXED: Correct VCF column order!
+            names=["CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO"],
             chunksize=CHUNK_SIZE
         ):
             chunk_num += 1
             df_list = []
 
             for _, row in chunk.iterrows():
-                info = parse_info_field(str(row["info"]))
+                info = parse_info_field(row["INFO"])
+                
+                # ID column contains the dbVar variant name (esv/nssv/nsv)
+                variant_name = row["ID"] if row["ID"] != "." else "Unknown"
+                
+                # Extract END position from INFO field
+                end_pos = info.get("END", row["POS"])
+                
+                # Extract SVTYPE for variant type
+                variant_type = info.get("SVTYPE", "Unknown")
+                
                 df_list.append({
-                    "variant_id": row["id"] if row["id"] != "." else info.get("variant_id","Unknown"),
-                    "variant_name": info.get("variant_name","Unknown"),
-                    "variant_type": info.get("type","Unknown"),
-                    "variant_sub_type": info.get("sub_type","Unknown"),
-                    "assembly": info.get("reference_assembly","GRCh38"),
-                    "clinical_significance": info.get("clinical_significance","Unknown"),
-                    "chromosome": row["chromosome"],
-                    "start_position": row["start"],
-                    "end_position": row["end"],
-                    "method": info.get("method","Unknown"),
-                    "platform": info.get("platform","Unknown"),
-                    "study_id": info.get("study_id","Unknown"),
+                    "variant_id": variant_name,
+                    "variant_name": variant_name,
+                    "variant_type": variant_type,
+                    "variant_sub_type": info.get("variant_subtype","Unknown"),
+                    "assembly": "GRCh38",
+                    "clinical_significance": info.get("CLNSIG","Unknown"),
+                    "chromosome": row["CHROM"],
+                    "start_position": row["POS"],
+                    "end_position": end_pos,
+                    "method": info.get("METHOD","Unknown"),
+                    "platform": info.get("PLATFORM","Unknown"),
+                    "study_id": file_path.stem.split(".")[0],
                     "data_source": "NCBI dbVar",
                     "download_date": datetime.now().strftime("%Y-%m-%d")
                 })
@@ -171,24 +182,26 @@ def parse_vcf_file(file_path: Path):
 # --------------------------------------------------------------------
 def main():
     """
-    Main entry point for optimized dbVar structural variant extraction.
-
-    Prints banner with metadata and chunk size.
-    Downloads each study file and parses the VCF file using `parse_vcf_file`.
-    Prints summary of the number of variants saved and the output file path.
-    Prints success banner upon completion.
+    Main entry point for FIXED dbVar structural variant extraction.
+    
+    FIXES:
+    - Correct VCF column order (CHROM, POS, ID, not chromosome, start, end)
+    - Proper variant_id extraction from ID column
+    - Extract END from INFO field, not as separate column
+    - Extract SVTYPE for variant type
     """
     print("\n" + "=" * 80)
-    print("OPTIMIZED dbVar STRUCTURAL VARIANT EXTRACTION - FULL METADATA")
+    print("dbVar STRUCTURAL VARIANT EXTRACTION")
     print("=" * 80)
     print(f"Chunk size: {CHUNK_SIZE:,}")
     print("Assembly: GRCh38 (Human)")
+    print("FIX: Using correct VCF column order!")
     print("=" * 80)
 
     for file_name in study_files:
         local_file = download_file(file_name)
         parsed_file, total = parse_vcf_file(local_file)
-        print(f"Saved {total:,} variants -> {parsed_file}")
+        print(f"Saved {total:,} variants -> {parsed_file.name}")
 
     print("\n" + "=" * 80)
     print("SUCCESS - dbVar EXTRACTION COMPLETED")
