@@ -49,6 +49,16 @@ HUMAN_TAXID = "9606"
 # Download with progress
 # --------------------------------------------------------------------
 def download_with_progress(url: str, dest: Path):
+    """
+    Downloads a file from a URL with progress updates.
+
+    Args:
+        url (str): URL of the file to download.
+        dest (Path): Path to save the downloaded file.
+
+    Returns:
+        None
+    """
     if dest.exists():
         logger.info(f"{dest.name} already exists, skipping download")
         return
@@ -88,6 +98,18 @@ def download_with_progress(url: str, dest: Path):
 # Parse UniProt DAT (streaming, human only)
 # --------------------------------------------------------------------
 def extract_human_uniprot():
+    """
+    Extracts human Swiss-Prot records from UniProt DAT file.
+
+    Reads the UniProt DAT file line by line, parses the records, and writes
+    human Swiss-Prot records to a CSV file.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     logger.info("Extracting Homo sapiens (Swiss-Prot)")
 
     if CSV_PATH.exists():
@@ -163,6 +185,15 @@ def extract_human_uniprot():
 # Main
 # --------------------------------------------------------------------
 def main():
+    """
+    Main entry point for UniProt human Swiss-Prot extraction.
+
+    Downloads UniProt DAT file, extracts human Swiss-Prot records, and writes
+    the output to a CSV file.
+
+    :return: None
+    :rtype: NoneType
+    """
     print("\n" + "=" * 80)
     print("UNIPROT SWISS-PROT HUMAN → CSV")
     print("=" * 80)
