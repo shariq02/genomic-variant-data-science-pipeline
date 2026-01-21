@@ -560,7 +560,7 @@ df_with_functions = (
         .when(col("is_growth_factor"), 3.0)
         .when(col("cellular_location") == "Membrane", 2.0)
         .when(col("cellular_location") == "Extracellular", 2.5)
-        .when(col("cellular_location") == "Nuclear"), 1.0)
+        .when(col("cellular_location") == "Nuclear", 1.0)
         .when(col("cellular_location") == "Cytoplasmic", 1.5)
         .otherwise(0.5))  # Default for unknown
 )
