@@ -64,54 +64,6 @@ df_variants_raw.select("gene_name", "disease", "phenotype_ids", "accession").sho
 
 # COMMAND ----------
 
-# DBTITLE 1,Save to Bronze Layer  
-print("SAVING TO BRONZE LAYER")
-print("="*80)
-
-df_variants_raw.write \
-    .mode("overwrite") \
-    .option("overwriteSchema", "true") \
-    .saveAsTable("{}.bronze.variants_raw".format(catalog_name))
-
-bronze_count = spark.table("{}.bronze.variants_raw".format(catalog_name)).count()
-print("Saved to: {}.bronze.variants_raw".format(catalog_name))
-print("Verified: {:,} variants in bronze layer".format(bronze_count))
-
-# COMMAND ----------
-
-# DBTITLE 1,Read and Save Allele ID Mapping to Bronze
-print("\nReading allele ID mapping...")
-
-df_allele_raw = spark.table(f"{catalog_name}.default.allele_id_mapping")
-
-# Cast to String immediately to prevent type issues
-df_allele_raw = (
-    df_allele_raw
-    .withColumn("variation_id", trim(col("variation_id").cast("string")))
-    .withColumn("allele_id", trim(col("allele_id").cast("string")))
-)
-
-allele_count = df_allele_raw.count()
-print(f"Loaded {allele_count:,} allele ID mappings")
-
-print("\nSample allele mappings:")
-df_allele_raw.show(3, truncate=False)
-
-# Save to Bronze Layer
-print("\nSAVING ALLELE MAPPING TO BRONZE LAYER")
-print("="*80)
-
-df_allele_raw.write \
-    .mode("overwrite") \
-    .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.bronze.allele_id_mapping")
-
-bronze_allele_count = spark.table(f"{catalog_name}.bronze.allele_id_mapping").count()
-print(f"Saved to: {catalog_name}.bronze.allele_id_mapping")
-print(f"Verified: {bronze_allele_count:,} mappings in bronze layer")
-
-# COMMAND ----------
-
 # DBTITLE 1,STEP 1: ULTRA-PARSE PHENOTYPE IDs
 print("STEP 1: EXTRACT ALL DISEASE DATABASE IDs")
 print("="*70)
@@ -202,26 +154,46 @@ df_phenotype_parsed.groupBy("phenotype_db_count").count().orderBy("phenotype_db_
 
 # DBTITLE 1,STEP 1.5: Join Allele ID Mapping
 print("\nSTEP 1.5: INTEGRATE ALLELE ID MAPPING")
-print("="*70)
+print("=" * 70)
 
-# Load allele mapping from bronze (already String type)
-df_allele_mapping = spark.table(f"{catalog_name}.bronze.allele_id_mapping")
-
-# Ensure variant_id in phenotype_parsed is also String and trimmed
-df_phenotype_parsed = df_phenotype_parsed.withColumn(
-    "variant_id", 
-    trim(col("variant_id").cast("string"))
+# ------------------------------------------------------------------
+# 1. Normalize ClinVar variant + allele IDs (CRITICAL FIX)
+# ------------------------------------------------------------------
+df_phenotype_parsed = (
+    df_phenotype_parsed
+    .withColumn("variant_id", trim(col("variant_id").cast("string")))
+    .withColumn("allele_id", trim(col("allele_id").cast("string")))
 )
 
-# Count before join
+# ------------------------------------------------------------------
+# 2. Load allele mapping and normalize types
+# ------------------------------------------------------------------
+df_allele_mapping = (
+    spark.table(f"{catalog_name}.default.allele_id_mapping")
+    .withColumn("variation_id", trim(col("variation_id").cast("string")))
+    .withColumn("allele_id", trim(col("allele_id").cast("string")))
+)
+
+allele_map_count = df_allele_mapping.count()
+print(f"Loaded {allele_map_count:,} allele ID mappings")
+
+# ------------------------------------------------------------------
+# 3. Count BEFORE enrichment
+# ------------------------------------------------------------------
 total_variants = df_phenotype_parsed.count()
+
 before_unknown = df_phenotype_parsed.filter(
-    (col("allele_id") == "Unknown") | col("allele_id").isNull()
+    col("allele_id").isNull() | (col("allele_id") == "Unknown")
 ).count()
 
-print(f"Before enrichment: {before_unknown:,} Unknown/Null allele_id ({before_unknown/total_variants*100:.1f}%)")
+print(
+    f"Before enrichment: {before_unknown:,} Unknown/Null allele_id "
+    f"({before_unknown / total_variants * 100:.1f}%)"
+)
 
-# Join to get real allele IDs
+# ------------------------------------------------------------------
+# 4. Join to enrich allele_id
+# ------------------------------------------------------------------
 df_phenotype_parsed = (
     df_phenotype_parsed
     .join(
@@ -236,16 +208,23 @@ df_phenotype_parsed = (
         "allele_id",
         coalesce(col("allele_id_new"), col("allele_id"), lit("Unknown"))
     )
-    .drop("allele_id_new")
+    .drop("allele_id_new", "variation_id")
 )
 
-# Count after join
+# ------------------------------------------------------------------
+# 5. Count AFTER enrichment
+# ------------------------------------------------------------------
 after_unknown = df_phenotype_parsed.filter(
-    (col("allele_id") == "Unknown") | col("allele_id").isNull()
+    col("allele_id").isNull() | (col("allele_id") == "Unknown")
 ).count()
 
-print(f"After enrichment: {after_unknown:,} Unknown/Null allele_id ({after_unknown/total_variants*100:.1f}%)")
+print(
+    f"After enrichment: {after_unknown:,} Unknown/Null allele_id "
+    f"({after_unknown / total_variants * 100:.1f}%)"
+)
+
 print(f"Successfully enriched: {before_unknown - after_unknown:,} variants")
+
 
 # COMMAND ----------
 
