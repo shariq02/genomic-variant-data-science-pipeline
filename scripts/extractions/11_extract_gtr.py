@@ -115,12 +115,12 @@ def extract_gtr():
             total += 1
 
             writer.writerow([
-                row.get("test_id"),
-                row.get("test_name"),
+                row.get("#accession_version"),
+                row.get("object_name"),
                 row.get("gene_symbol"),
-                row.get("gene_id"),
-                row.get("condition_name"),
-                row.get("condition_id"),
+                row.get("gene_or_SNOMED_CT_ID"),
+                row.get("object_name"),
+                row.get("MIM_number"),
                 "NCBI GTR",
                 DOWNLOAD_DATE
             ])
