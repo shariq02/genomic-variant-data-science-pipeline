@@ -112,32 +112,6 @@ print(f" Gold tables skipped: {len(skipped_gold)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,STEP 3: Drop Old Bronze Layer Tables
-print("\nSTEP 3: DROPPING OLD BRONZE LAYER TABLES")
-print("="*50)
-
-bronze_tables = [
-    "variants_raw",
-    "genes_raw"
-]
-
-dropped_bronze = []
-skipped_bronze = []
-
-for table in bronze_tables:
-    try:
-        spark.sql(f"DROP TABLE IF EXISTS {catalog_name}.bronze.{table}")
-        dropped_bronze.append(table)
-        print(f" Dropped bronze.{table}")
-    except Exception as e:
-        skipped_bronze.append(table)
-        print(f"  Skipped bronze.{table} (may not exist)")
-
-print(f"\n Bronze tables dropped: {len(dropped_bronze)}")
-print(f" Bronze tables skipped: {len(skipped_bronze)}")
-
-# COMMAND ----------
-
 # DBTITLE 1,STEP 4: Drop Old Reference/Lookup Tables
 print("\nSTEP 4: DROPPING OLD REFERENCE/LOOKUP TABLES")
 print("="*50)
@@ -213,7 +187,7 @@ print("\nSTEP 6: VERIFYING CLEANUP")
 print("="*50)
 
 # Check remaining tables in each schema
-schemas = ['bronze', 'silver', 'gold', 'reference']
+schemas = ['silver', 'gold', 'reference']
 
 for schema in schemas:
     try:
@@ -271,11 +245,10 @@ else:
 print("\nSTEP 8: CLEANUP SUMMARY")
 print("="*50)
 
-total_dropped = len(dropped_bronze) + len(dropped_silver) + len(dropped_gold) + len(dropped_reference) + len(dropped_views)
-total_skipped = len(skipped_bronze) + len(skipped_silver) + len(skipped_gold) + len(skipped_reference) + len(skipped_views)
+total_dropped = len(dropped_silver) + len(dropped_gold) + len(dropped_reference) + len(dropped_views)
+total_skipped = len(skipped_silver) + len(skipped_gold) + len(skipped_reference) + len(skipped_views)
 
 print("\n CLEANUP STATISTICS:")
-print(f"   Bronze tables dropped:    {len(dropped_bronze)}")
 print(f"   Silver tables dropped:    {len(dropped_silver)}")
 print(f"   Gold tables dropped:      {len(dropped_gold)}")
 print(f"   Reference tables dropped: {len(dropped_reference)}")

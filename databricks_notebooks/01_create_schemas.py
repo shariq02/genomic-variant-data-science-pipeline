@@ -30,7 +30,6 @@ from pyspark.sql import SparkSession
 spark = SparkSession.builder.getOrCreate()
 
 print("CREATE DATABRICKS SCHEMAS")
-print("="*50)
 
 # COMMAND ----------
 
@@ -38,14 +37,7 @@ print("="*50)
 catalog_name = "workspace"
 
 print("Catalog: {}".format(catalog_name))
-print("Creating schemas: bronze, silver, gold, reference")
-
-# COMMAND ----------
-
-# DBTITLE 1,Create Bronze Schema
-print("Creating bronze schema...")
-spark.sql("CREATE SCHEMA IF NOT EXISTS {}.bronze".format(catalog_name))
-print("SUCCESS: bronze schema created")
+print("Creating schemas: silver, gold, reference")
 
 # COMMAND ----------
 
@@ -88,7 +80,7 @@ for schema in schemas:
 print("SCHEMA DETAILS")
 print("="*50)
 
-for schema_name in ["bronze", "silver", "gold", "reference"]:
+for schema_name in ["silver", "gold", "reference"]:
     full_schema = "{}.{}".format(catalog_name, schema_name)
     
     try:
@@ -115,10 +107,6 @@ print("SUCCESS: ALL SCHEMAS READY")
 print("="*50)
 
 print("Created/verified schemas:")
-print("  1. {}.bronze   - Raw data layer".format(catalog_name))
-print("  2. {}.silver   - Cleaned and enriched data".format(catalog_name))
-print("  3. {}.gold     - Analytical features".format(catalog_name))
-print("  4. {}.reference - Lookup tables".format(catalog_name))
-
-print("NEXT: Run gene and variant processing scripts")
-print("="*50)
+print("  1. {}.silver   - Cleaned and enriched data".format(catalog_name))
+print("  2. {}.gold     - Analytical features".format(catalog_name))
+print("  3. {}.reference - Lookup tables".format(catalog_name))
