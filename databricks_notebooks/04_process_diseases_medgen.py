@@ -106,8 +106,6 @@ df_diseases.show(5, truncate=60)
 # COMMAND ----------
 
 # DBTITLE 1,Silver.Diseases
-# DBTITLE 1, Save Diseases to Silver Layer
-
 df_diseases.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
@@ -149,12 +147,18 @@ print(f"Saved table: {catalog_name}.silver.disease_hierarchy")
 
 # DBTITLE 1,Final Validation
 print("VALIDATION SUMMARY")
-print("=" * 60)
+print("=" * 70)
 
-print("Diseases table:")
+diseases_count = spark.table(f"{catalog_name}.silver.diseases").count()
+hierarchy_count = spark.table(f"{catalog_name}.silver.disease_hierarchy").count()
+
+print(f"\nsilver.diseases: {diseases_count:,} rows")
 spark.table(f"{catalog_name}.silver.diseases").select(
     "medgen_id", "disease_name", "source_db"
-).show(10, truncate=60)
+).show(5, truncate=60)
 
-print("\nDisease hierarchy table:")
+print(f"\nsilver.disease_hierarchy: {hierarchy_count:,} rows")
 spark.table(f"{catalog_name}.silver.disease_hierarchy").show(5, truncate=60)
+
+print("\n" + "=" * 70)
+print("PROCESSING COMPLETE")
