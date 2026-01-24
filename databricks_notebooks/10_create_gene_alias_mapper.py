@@ -66,6 +66,26 @@ print(f" Loaded {gene_count:,} genes")
 
 # COMMAND ----------
 
+# DBTITLE 1,Load Additional Gene Sources
+print("\nLoading additional gene sources...")
+
+df_refseq_genes = spark.table(f"{catalog_name}.silver.genes_refseq")
+df_refseq_proteins = spark.table(f"{catalog_name}.silver.proteins_refseq")
+df_uniprot_proteins = spark.table(f"{catalog_name}.silver.proteins_uniprot")
+df_gene_disease = spark.table(f"{catalog_name}.silver.gene_disease_links")
+
+refseq_genes_count = df_refseq_genes.count()
+refseq_proteins_count = df_refseq_proteins.count()
+uniprot_count = df_uniprot_proteins.count()
+gene_disease_count = df_gene_disease.count()
+
+print(f" RefSeq genes: {refseq_genes_count:,}")
+print(f" RefSeq proteins: {refseq_proteins_count:,}")
+print(f" UniProt proteins: {uniprot_count:,}")
+print(f" Gene-disease links: {gene_disease_count:,}")
+
+# COMMAND ----------
+
 # DBTITLE 1,Create Designation Lookup
 print("CREATING DESIGNATION→GENE LOOKUP")
 print("="*80)
@@ -223,10 +243,114 @@ df_alias_search = (
 alias_count = df_alias_search.count()
 print(f" Created {alias_count:,} alias mappings")
 
+# COMMAND ----------
+
+# DBTITLE 1,Create Additional Source Mappings
+print("\nCREATING ADDITIONAL SOURCE MAPPINGS")
+print("="*80)
+
+# RefSeq genes
+df_refseq_search = (
+    df_refseq_genes
+    .filter(col("gene_symbol").isNotNull())
+    .withColumn("search_term", upper(trim(col("gene_symbol"))))
+    .dropDuplicates(["search_term"])
+    .select(
+        "search_term",
+        lit(None).cast("string").alias("mapped_gene_id"),
+        col("gene_symbol").alias("mapped_gene_name"),
+        col("gene_symbol").alias("mapped_official_symbol"),
+        col("gene_name").alias("search_text"),
+        lit("refseq_gene").alias("match_type"),
+        "chromosome",
+        lit(None).cast("string").alias("mim_id"),
+        lit(None).cast("string").alias("ensembl_id"),
+        col("gene_name").alias("description")
+    )
+)
+refseq_search_count = df_refseq_search.count()
+print(f" RefSeq genes: {refseq_search_count:,}")
+
+# RefSeq proteins
+df_refseq_protein_search = (
+    df_refseq_proteins
+    .filter(col("gene_symbol").isNotNull())
+    .withColumn("search_term", upper(trim(col("gene_symbol"))))
+    .dropDuplicates(["search_term"])
+    .select(
+        "search_term",
+        lit(None).cast("string").alias("mapped_gene_id"),
+        col("gene_symbol").alias("mapped_gene_name"),
+        col("gene_symbol").alias("mapped_official_symbol"),
+        col("protein_accession").alias("search_text"),
+        lit("refseq_protein").alias("match_type"),
+        lit(None).cast("string").alias("chromosome"),
+        lit(None).cast("string").alias("mim_id"),
+        lit(None).cast("string").alias("ensembl_id"),
+        col("protein_accession").alias("description")
+    )
+)
+refseq_protein_search_count = df_refseq_protein_search.count()
+print(f" RefSeq proteins: {refseq_protein_search_count:,}")
+
+# UniProt proteins
+df_uniprot_search = (
+    df_uniprot_proteins
+    .filter(col("gene_symbol").isNotNull())
+    .withColumn("search_term", upper(trim(col("gene_symbol"))))
+    .dropDuplicates(["search_term"])
+    .select(
+        "search_term",
+        lit(None).cast("string").alias("mapped_gene_id"),
+        col("gene_symbol").alias("mapped_gene_name"),
+        col("gene_symbol").alias("mapped_official_symbol"),
+        col("protein_name").alias("search_text"),
+        lit("uniprot_protein").alias("match_type"),
+        lit(None).cast("string").alias("chromosome"),
+        lit(None).cast("string").alias("mim_id"),
+        lit(None).cast("string").alias("ensembl_id"),
+        col("protein_name").alias("description")
+    )
+)
+uniprot_search_count = df_uniprot_search.count()
+print(f" UniProt proteins: {uniprot_search_count:,}")
+
+# Gene-disease links
+df_gene_disease_search = (
+    df_gene_disease
+    .filter(col("gene_symbol").isNotNull())
+    .withColumn("search_term", upper(trim(col("gene_symbol"))))
+    .dropDuplicates(["search_term"])
+    .select(
+        "search_term",
+        lit(None).cast("string").alias("mapped_gene_id"),
+        col("gene_symbol").alias("mapped_gene_name"),
+        col("gene_symbol").alias("mapped_official_symbol"),
+        col("disease_name").alias("search_text"),
+        lit("gene_disease").alias("match_type"),
+        lit(None).cast("string").alias("chromosome"),
+        lit(None).cast("string").alias("mim_id"),
+        lit(None).cast("string").alias("ensembl_id"),
+        col("disease_name").alias("description")
+    )
+)
+gene_disease_search_count = df_gene_disease_search.count()
+print(f" Gene-disease links: {gene_disease_search_count:,}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Combine All Sources
+print("\nCOMBINING ALL SOURCES")
+print("="*80)
+
 # Combine aliases and designations
 df_universal_search = (
     df_alias_search
     .union(df_designation_lookup)
+    .union(df_refseq_search)
+    .union(df_refseq_protein_search)
+    .union(df_uniprot_search)
+    .union(df_gene_disease_search)
     .dropDuplicates(["search_term"])
     .orderBy("search_term")
 )
@@ -268,40 +392,92 @@ print(f" Created: {catalog_name}.reference.gene_search_view")
 
 # COMMAND ----------
 
+# DBTITLE 1,Fill NULLs Across All Tables Using Mapper
+print("\nFILLING NULL VALUES USING GENE MAPPER")
+print("="*80)
+
+# Fill proteins_refseq NULLs
+try:
+    df_proteins_refseq_filled = (
+        spark.table(f"{catalog_name}.silver.proteins_refseq")
+        .join(df_universal_search.select("search_term", "mapped_gene_name"),
+              upper(col("gene_symbol")) == col("search_term"), "left")
+        .withColumn("gene_symbol", coalesce(col("gene_symbol"), col("mapped_gene_name")))
+        .select("protein_accession", "gene_id", "gene_symbol", "rna_accession")
+    )
+    
+    df_proteins_refseq_filled.write \
+        .mode("overwrite") \
+        .option("overwriteSchema", "true") \
+        .saveAsTable(f"{catalog_name}.silver.proteins_refseq")
+    print("Filled: proteins_refseq")
+except Exception as e:
+    print(f"Skipped: proteins_refseq ({str(e)[:50]})")
+
+# Fill transcripts NULLs
+try:
+    df_transcripts_filled = (
+        spark.table(f"{catalog_name}.silver.transcripts")
+        .join(df_universal_search.select("search_term", "mapped_gene_name"),
+              upper(col("gene_symbol")) == col("search_term"), "left")
+        .withColumn("gene_symbol", coalesce(col("gene_symbol"), col("mapped_gene_name")))
+        .select("transcript_id", "gene_symbol", "gene_name", "chromosome", "start", "stop", "strand")
+    )
+    
+    df_transcripts_filled.write \
+        .mode("overwrite") \
+        .option("overwriteSchema", "true") \
+        .saveAsTable(f"{catalog_name}.silver.transcripts")
+    print("Filled: transcripts")
+except Exception as e:
+    print(f"Skipped: transcripts ({str(e)[:50]})")
+
+# Fill genetic_tests NULLs (if exists)
+try:
+    df_tests_filled = (
+        spark.table(f"{catalog_name}.silver.genetic_tests")
+        .join(df_universal_search.select("search_term", "mapped_gene_name"),
+              upper(col("gene_symbol")) == col("search_term"), "left")
+        .withColumn("gene_symbol", coalesce(col("gene_symbol"), col("mapped_gene_name")))
+        .select("gtr_test_id", "gene_symbol", "test_name", "disease_name")
+    )
+    
+    df_tests_filled.write \
+        .mode("overwrite") \
+        .option("overwriteSchema", "true") \
+        .saveAsTable(f"{catalog_name}.silver.genetic_tests")
+    print("Filled: genetic_tests")
+except Exception as e:
+    print(f"Skipped: genetic_tests (table not found)")
+
+print("\nNULL filling complete for available tables")
+
+# COMMAND ----------
+
 # DBTITLE 1,Summary & Usage for Feature Engineering
 print(" GENE ALIAS MAPPING COMPLETE")
 print("="*80)
 
-print(f"\n STATISTICS:")
-print(f"   Genes: {gene_count:,}")
+print(f"\n SOURCE STATISTICS:")
+print(f"   genes_ultra_enriched: {gene_count:,}")
+print(f"   genes_refseq: {refseq_genes_count:,}")
+print(f"   proteins_refseq: {refseq_proteins_count:,}")
+print(f"   proteins_uniprot: {uniprot_count:,}")
+print(f"   gene_disease_links: {gene_disease_count:,}")
+
+print(f"\n MAPPING STATISTICS:")
 print(f"   Aliases: {alias_count:,}")
 print(f"   Designations: {designation_count:,}")
+print(f"   RefSeq genes: {refseq_search_count:,}")
+print(f"   RefSeq proteins: {refseq_protein_search_count:,}")
+print(f"   UniProt proteins: {uniprot_search_count:,}")
+print(f"   Gene-disease: {gene_disease_search_count:,}")
 print(f"   Total search terms: {universal_count:,}")
-print(f"   Avg terms per gene: {universal_count / gene_count:.1f}x")
 
 print(f"\n TABLES CREATED:")
 print(f"   1. {catalog_name}.reference.gene_designation_lookup")
 print(f"   2. {catalog_name}.reference.gene_universal_search --- USE THIS")
 print(f"   3. {catalog_name}.reference.gene_search_view")
-
-print(f"\n USAGE IN FEATURE ENGINEERING (PySpark):")
-print(f"")
-print(f"# Load the universal search lookup")
-print(f"gene_lookup = spark.table('{catalog_name}.reference.gene_universal_search')")
-print(f"")
-print(f"# Join with variants to resolve gene names")
-print(f"df_resolved = variants_df.join(")
-print(f"    gene_lookup.select(")
-print(f"        col('search_term').alias('gene_key'),")
-print(f"        col('mapped_gene_name').alias('resolved_gene'),")
-print(f"        col('mapped_gene_id').alias('resolved_gene_id')")
-print(f"    ),")
-print(f"    upper(variants_df.gene_name) == col('gene_key'),")
-print(f"    'left'")
-print(f").withColumn(")
-print(f"    'final_gene_name',")
-print(f"    coalesce(col('resolved_gene'), col('gene_name'))")
-print(f")")
 
 print(f"\n BENEFITS:")
 print(f"    Resolves ALL gene aliases automatically")
@@ -309,9 +485,6 @@ print(f"    Handles NULL values in alias columns")
 print(f"    Case-insensitive matching")
 print(f"    {universal_count:,} searchable terms")
 print(f"    Ready for feature engineering")
-
-print("\n" + "="*80)
-print("  NEXT: Run 05_feature_engineering.py")
 
 # COMMAND ----------
 
