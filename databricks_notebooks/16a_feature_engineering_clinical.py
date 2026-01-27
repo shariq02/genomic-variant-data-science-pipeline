@@ -137,9 +137,6 @@ print("Clinical pathogenicity features created")
 print("USE CASE 2: INHERITANCE PATTERN ANALYSIS")
 print("="*80)
 
-# Note: Inheritance pattern columns not available in genes_ultra_enriched
-# Deriving basic patterns from chromosome location instead
-
 df_clinical = (
     df_clinical
     
@@ -152,9 +149,9 @@ df_clinical = (
     
     # X-linked risk considerations (affects males more)
     .withColumn("x_linked_risk_modifier",
-                when((col("chromosome") == "X") & col("is_pathogenic"),
+                when((col("chromosome") == "X") & col("target_is_pathogenic"),
                      lit("Male_High_Risk"))
-                .when((col("chromosome") == "X") & col("is_vus"),
+                .when((col("chromosome") == "X") & col("target_is_vus"),
                      lit("Male_Moderate_Risk"))
                 .otherwise(lit("Standard_Risk")))
     
