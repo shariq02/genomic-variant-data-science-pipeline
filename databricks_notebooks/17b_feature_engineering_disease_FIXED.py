@@ -160,7 +160,7 @@ print("="*80)
 # Calculate gene-disease association statistics (CONDITIONAL based on Module 17)
 if has_comprehensive_diseases:
     print("Using comprehensive disease data from genes_ultra_enriched (Module 17)")
-    # Genes already have disease data - just prepare for join
+    # Genes already have disease data - add derived columns
     gene_disease_stats = (
         df_genes
         .select(
@@ -168,6 +168,28 @@ if has_comprehensive_diseases:
             col("total_disease_count").alias("disease_count"),
             "omim_disease_count"  # Already exists from Module 17
         )
+        .withColumn("disease_count_category",
+                    when(col("disease_count") >= 10, lit("Highly_Associated"))
+                    .when(col("disease_count") >= 5, lit("Moderately_Associated"))
+                    .when(col("disease_count") >= 2, lit("Associated"))
+                    .when(col("disease_count") == 1, lit("Single_Disease"))
+                    .otherwise(lit("Not_Associated")))
+        
+        .withColumn("is_disease_associated",
+                    col("disease_count") >= 1)
+        
+        .withColumn("is_multi_disease_gene",
+                    col("disease_count") >= 3)
+        
+        .withColumn("disease_association_strength",
+                    when(col("disease_count") >= 10, 5)
+                    .when(col("disease_count") >= 5, 4)
+                    .when(col("disease_count") >= 2, 3)
+                    .when(col("disease_count") == 1, 2)
+                    .otherwise(1))
+        
+        .withColumn("is_omim_gene",
+                    col("omim_disease_count") >= 1)
     )
 else:
     print("Computing disease statistics from gene_disease_links (OMIM only)")
@@ -178,29 +200,29 @@ else:
             countDistinct("medgen_id").alias("disease_count"),
             countDistinct(when(col("omim_id").isNotNull(), col("omim_id"))).alias("omim_disease_count")
         )
+        .withColumn("disease_count_category",
+                    when(col("disease_count") >= 10, lit("Highly_Associated"))
+                    .when(col("disease_count") >= 5, lit("Moderately_Associated"))
+                    .when(col("disease_count") >= 2, lit("Associated"))
+                    .when(col("disease_count") == 1, lit("Single_Disease"))
+                    .otherwise(lit("Not_Associated")))
+        
+        .withColumn("is_disease_associated",
+                    col("disease_count") >= 1)
+        
+        .withColumn("is_multi_disease_gene",
+                    col("disease_count") >= 3)
+        
+        .withColumn("disease_association_strength",
+                    when(col("disease_count") >= 10, 5)
+                    .when(col("disease_count") >= 5, 4)
+                    .when(col("disease_count") >= 2, 3)
+                    .when(col("disease_count") == 1, 2)
+                    .otherwise(1))
+        
+        .withColumn("is_omim_gene",
+                    col("omim_disease_count") >= 1)
     )
-    .withColumn("disease_count_category",
-                when(col("disease_count") >= 10, lit("Highly_Associated"))
-                .when(col("disease_count") >= 5, lit("Moderately_Associated"))
-                .when(col("disease_count") >= 2, lit("Associated"))
-                .when(col("disease_count") == 1, lit("Single_Disease"))
-                .otherwise(lit("Not_Associated")))
-    
-    .withColumn("is_disease_associated",
-                col("disease_count") >= 1)
-    
-    .withColumn("is_multi_disease_gene",
-                col("disease_count") >= 3)
-    
-    .withColumn("disease_association_strength",
-                when(col("disease_count") >= 10, 5)
-                .when(col("disease_count") >= 5, 4)
-                .when(col("disease_count") >= 2, 3)
-                .when(col("disease_count") == 1, 2)
-                .otherwise(1))
-    
-    .withColumn("is_omim_gene",
-                col("omim_disease_count") >= 1)
 )
 
 # Join gene-disease stats to gene table
