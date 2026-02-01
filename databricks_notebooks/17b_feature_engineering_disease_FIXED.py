@@ -226,19 +226,47 @@ else:
 )
 
 # Join gene-disease stats to gene table
-df_genes_with_disease = (
-    df_genes
-    .join(gene_disease_stats, "gene_name", "left")
-    .fillna({
-        "disease_count": 0,
-        "omim_disease_count": 0,
-        "disease_association_strength": 1,
-        "is_disease_associated": False,
-        "is_multi_disease_gene": False,
-        "is_omim_gene": False
-    })
-    .fillna("Not_Associated", ["disease_count_category"])
-)
+if has_comprehensive_diseases:
+    # df_genes ALREADY has omim_disease_count, total_disease_count
+    # gene_disease_stats was also built FROM df_genes
+    # So joining would create DUPLICATE omim_disease_count --> ambiguous error
+    # Instead: derive all needed columns directly on df_genes (no join needed)
+    df_genes_with_disease = (
+        df_genes
+        .withColumn("disease_count", col("total_disease_count"))
+        .withColumn("disease_count_category",
+                    when(col("total_disease_count") >= 10, lit("Highly_Associated"))
+                    .when(col("total_disease_count") >= 5, lit("Moderately_Associated"))
+                    .when(col("total_disease_count") >= 2, lit("Associated"))
+                    .when(col("total_disease_count") == 1, lit("Single_Disease"))
+                    .otherwise(lit("Not_Associated")))
+        .withColumn("is_disease_associated", col("total_disease_count") >= 1)
+        .withColumn("is_multi_disease_gene", col("total_disease_count") >= 3)
+        .withColumn("disease_association_strength",
+                    when(col("total_disease_count") >= 10, 5)
+                    .when(col("total_disease_count") >= 5, 4)
+                    .when(col("total_disease_count") >= 2, 3)
+                    .when(col("total_disease_count") == 1, 2)
+                    .otherwise(1))
+        .withColumn("is_omim_gene", col("omim_disease_count") >= 1)
+    )
+    print("df_genes_with_disease created directly (no join needed)")
+else:
+    # OMIM only path: gene_disease_stats is from gene_disease_links, safe to join
+    df_genes_with_disease = (
+        df_genes
+        .join(gene_disease_stats, "gene_name", "left")
+        .fillna({
+            "disease_count": 0,
+            "omim_disease_count": 0,
+            "disease_association_strength": 1,
+            "is_disease_associated": False,
+            "is_multi_disease_gene": False,
+            "is_omim_gene": False
+        })
+        .fillna("Not_Associated", ["disease_count_category"])
+    )
+    print("df_genes_with_disease created via join from gene_disease_links")
 
 # Join variant data with enriched gene info
 df_disease = (
