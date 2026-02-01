@@ -223,7 +223,6 @@ else:
         .withColumn("is_omim_gene",
                     col("omim_disease_count") >= 1)
     )
-)
 
 # Join gene-disease stats to gene table
 if has_comprehensive_diseases:
