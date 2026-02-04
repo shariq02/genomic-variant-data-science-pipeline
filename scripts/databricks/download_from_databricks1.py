@@ -92,6 +92,46 @@ def download_file_from_volume(volume_path, local_path):
         print(f"  Error downloading: {response.status_code} - {response.text[:200]}")
         return False
 
+def delete_file_from_volume(volume_path):
+    """Delete a single file from Unity Catalog Volume using Files API"""
+    url = f"{DATABRICKS_HOST}/api/2.0/fs/files{volume_path}"
+    headers = {
+        "Authorization": f"Bearer {DATABRICKS_TOKEN}"
+    }
+    response = requests.delete(url, headers=headers)
+    return response.status_code in (200, 204)
+
+
+def delete_folder_from_volume(folder_path):
+    """Delete all files inside a folder, then the folder itself.
+    Returns (success: bool, details: str)"""
+    # List everything in the folder
+    files = list_directory_contents(folder_path)
+    if files is None:
+        return False, "Could not list folder contents"
+
+    deleted_count = 0
+    failed_files = []
+
+    for f in files:
+        fpath = f.get('path', '')
+        if not fpath:
+            continue
+        if delete_file_from_volume(fpath):
+            deleted_count += 1
+        else:
+            failed_files.append(fpath)
+
+    if failed_files:
+        return False, f"Deleted {deleted_count} files, but {len(failed_files)} failed: {failed_files}"
+
+    # Folder itself disappears once empty in Unity Catalog Volumes,
+    # but attempt explicit delete in case the API requires it
+    delete_file_from_volume(folder_path.rstrip('/'))
+
+    return True, f"Deleted {deleted_count} file(s) from {folder_path}"
+
+
 # ====================================================================
 # MAIN DOWNLOAD FUNCTION
 # ====================================================================
@@ -114,8 +154,11 @@ def download_gold_tables():
         return
 
     total_downloaded = 0
+    download_status = {}  # table -> {downloaded, verified, deleted, details}
 
     for table_name, volume_path in FILES_TO_DOWNLOAD.items():
+        download_status[table_name] = {"downloaded": False, "verified": False, "deleted": False, "details": ""}
+
         print(f"\n{'='*70}")
         print(f"Downloading: {table_name}")
         print(f"{'='*70}")
@@ -128,6 +171,7 @@ def download_gold_tables():
             if not files:
                 print(f"  No files found in {volume_path}")
                 print(f"  Make sure you ran 18_export_to_csv.py in Databricks first!")
+                download_status[table_name]["details"] = "No files on Databricks"
                 continue
 
             # Find CSV part file (Spark creates part-00000-xxx.csv)
@@ -136,6 +180,7 @@ def download_gold_tables():
             if not csv_files:
                 print(f"  No CSV files found")
                 print(f"  Available files: {[f.get('name') for f in files]}")
+                download_status[table_name]["details"] = "No CSV part file found"
                 continue
 
             # Download the CSV file
@@ -154,78 +199,81 @@ def download_gold_tables():
             print(f"  Saving to: {local_file}")
             start_time = time.time()
 
-            if download_file_from_volume(remote_path, local_file):
-                elapsed = time.time() - start_time
-                speed = file_size_mb / elapsed if elapsed > 0 else 0
-
-                print(f"  Downloaded successfully!")
-                print(f"  Time: {elapsed:.1f}s ({speed:.2f} MB/s)")
-
-                # Verify file
-                if local_file.exists():
-                    local_size_mb = local_file.stat().st_size / (1024 * 1024)
-                    print(f"  Verified: {local_size_mb:.2f} MB")
-                    total_downloaded += 1
-            else:
+            if not download_file_from_volume(remote_path, local_file):
                 print(f"  Download failed")
+                download_status[table_name]["details"] = "Download failed"
+                continue
+
+            elapsed = time.time() - start_time
+            speed = file_size_mb / elapsed if elapsed > 0 else 0
+            print(f"  Downloaded successfully!")
+            print(f"  Time: {elapsed:.1f}s ({speed:.2f} MB/s)")
+            download_status[table_name]["downloaded"] = True
+
+            # --- Verify: size + row count ---
+            if not local_file.exists():
+                print(f"  ERROR: Local file missing after download")
+                download_status[table_name]["details"] = "File missing after download"
+                continue
+
+            local_size_mb = local_file.stat().st_size / (1024 * 1024)
+            print(f"  Local size: {local_size_mb:.2f} MB")
+
+            print(f"  Counting rows (this may take a moment for large files)...")
+            with open(local_file, 'r', encoding='utf-8') as f:
+                local_row_count = sum(1 for _ in f) - 1  # -1 for header
+            print(f"  Rows: {local_row_count:,}")
+
+            if local_row_count == 0:
+                print(f"  ERROR: Downloaded file has 0 data rows")
+                download_status[table_name]["details"] = "0 rows after download"
+                continue
+
+            download_status[table_name]["verified"] = True
+            download_status[table_name]["details"] = f"{local_row_count:,} rows, {local_size_mb:.2f} MB"
+            total_downloaded += 1
+            print(f"  Verification: PASSED")
+
+            # --- Delete from Databricks after successful verification ---
+            print(f"  Deleting from Databricks: {volume_path}")
+            delete_ok, delete_msg = delete_folder_from_volume(volume_path)
+            if delete_ok:
+                download_status[table_name]["deleted"] = True
+                print(f"  Databricks cleanup: OK — {delete_msg}")
+            else:
+                print(f"  Databricks cleanup: FAILED — {delete_msg}")
+                print(f"  (Data is safe locally; you can delete manually later)")
+                download_status[table_name]["details"] += " | DELETE FAILED"
 
         except Exception as e:
             print(f"  Error: {e}")
             import traceback
             traceback.print_exc()
+            download_status[table_name]["details"] = str(e)
             continue
 
-    # Summary
+    # ================================================================
+    # SUMMARY
+    # ================================================================
     print("\n" + "="*70)
     print("DOWNLOAD SUMMARY")
     print("="*70)
-    print(f"Successfully downloaded: {total_downloaded}/{len(FILES_TO_DOWNLOAD)} files")
+    print(f"Successfully downloaded & verified: {total_downloaded}/{len(FILES_TO_DOWNLOAD)} files")
     print(f"Location: {PROCESSED_DIR}")
 
-    # Detailed verification
-    print("\n" + "="*70)
-    print("DETAILED VERIFICATION")
-    print("="*70)
-
-    all_verified = True
-
-    for table_name in FILES_TO_DOWNLOAD.keys():
-        local_file = PROCESSED_DIR / f"{table_name}.csv"
-
-        if local_file.exists():
-            size_mb = local_file.stat().st_size / (1024 * 1024)
-
-            try:
-                with open(local_file, 'r', encoding='utf-8') as f:
-                    row_count = sum(1 for _ in f) - 1  # -1 for header
-                print(f"\n{table_name}.csv:")
-                print(f"  Size: {size_mb:.2f} MB")
-                print(f"  Rows: {row_count:,}")
-                print(f"  Status: [OK] Downloaded and verified")
-            except Exception as e:
-                print(f"\n{table_name}.csv:")
-                print(f"  Size: {size_mb:.2f} MB")
-                print(f"  Status: [WARNING] Could not count rows: {e}")
-                all_verified = False
-        else:
-            print(f"\n{table_name}.csv:")
-            print(f"  Status: [MISSING] File not found")
-            all_verified = False
+    print(f"\n{'Table':<42} {'Download':<10} {'Verify':<10} {'Delete':<10} Details")
+    print("-"*100)
+    for table_name, status in download_status.items():
+        dl  = "OK"    if status["downloaded"] else "---"
+        ver = "OK"    if status["verified"]   else "---"
+        dele = "OK"   if status["deleted"]    else ("---" if not status["downloaded"] else "PENDING")
+        print(f"  {table_name:<40} {dl:<10} {ver:<10} {dele:<10} {status['details']}")
 
     if total_downloaded == len(FILES_TO_DOWNLOAD):
         print("\n" + "="*70)
-        print("SUCCESS! All files downloaded")
+        print("SUCCESS! All files downloaded, verified, and cleaned up")
         print("="*70)
-
-        if all_verified:
-            print("\nVERIFICATION PASSED:")
-            print("  - All files downloaded successfully")
-            print("  - File sizes verified")
-            print("  - Row counts calculated")
-
-        print("\n" + "="*70)
-        print("NEXT STEP: Load to PostgreSQL")
-        print("="*70)
+        print("\nNEXT STEP: Load to PostgreSQL")
         print("Run: python scripts/transformation/load_gold_to_postgres.py")
         print("="*70)
     else:
