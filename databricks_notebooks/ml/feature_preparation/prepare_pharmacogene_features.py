@@ -13,6 +13,7 @@
 
 # COMMAND ----------
 
+# DBTITLE 1,Import
 from pyspark.sql import functions as F
 from pyspark.sql.types import *
 
@@ -20,6 +21,7 @@ catalog_name = "workspace"
 
 # COMMAND ----------
 
+# DBTITLE 1,Load table data
 print("Loading pharmacogene_ml_features table...")
 df_pharmacogene = spark.table(f"{catalog_name}.gold.pharmacogene_ml_features")
 
@@ -28,54 +30,68 @@ df_pharmacogene.printSchema()
 
 # COMMAND ----------
 
+# DBTITLE 1,Selecting and preparing pharmacogene features
 print("Selecting and preparing pharmacogene features...")
 
 df_ml_pharmacogene = df_pharmacogene.select(
     "variant_id",
-    "gene_symbol",
-    "drug_name",
-    "drug_class",
+    "gene_name",
+    "official_symbol",
+    "validated_gene_symbol",
+    "chromosome",
+    "position",
+    "is_pathogenic",
+    "is_benign",
+    "is_vus",
+    "clinical_significance_simple",
+    "variant_type",
+    "is_pharmacogene",
+    "pharmacogene_category",
+    "pharmacogene_evidence_level",
     "is_cyp_gene",
     "is_drug_target",
     "is_kinase",
     "is_receptor",
     "is_transporter",
-    "is_metabolic_enzyme",
-    "affects_drug_metabolism",
-    "affects_drug_response",
-    "affects_drug_toxicity",
-    "domain_affecting",
-    "domain_type",
-    "interaction_score",
-    "evidence_level",
-    "clinical_annotation_exists",
-    "fda_label_exists",
-    "guideline_exists"
+    "is_metabolizing_enzyme",
+    "is_enzyme",
+    "drug_metabolism_role",
+    "drug_target_category",
+    "druggability_score",
+    "enhanced_druggability_score",
+    "has_drug_interaction_potential",
+    "drug_response_impact",
+    "has_pharmgkb_annotation",
+    "is_clinical_pharmacogene"
 )
 
 # COMMAND ----------
 
+# DBTITLE 1,Handling missing values
 print("Handling missing values...")
 
 df_ml_pharmacogene = df_ml_pharmacogene.fillna({
+    "is_pathogenic": False,
+    "is_benign": False,
+    "is_vus": False,
+    "is_pharmacogene": False,
     "is_cyp_gene": False,
     "is_drug_target": False,
     "is_kinase": False,
     "is_receptor": False,
     "is_transporter": False,
-    "is_metabolic_enzyme": False,
-    "affects_drug_metabolism": False,
-    "affects_drug_response": False,
-    "affects_drug_toxicity": False,
-    "domain_affecting": False,
-    "clinical_annotation_exists": False,
-    "fda_label_exists": False,
-    "guideline_exists": False,
-    "interaction_score": 0.0
+    "is_metabolizing_enzyme": False,
+    "is_enzyme": False,
+    "has_drug_interaction_potential": False,
+    "has_pharmgkb_annotation": False,
+    "is_clinical_pharmacogene": False,
+    "druggability_score": 0.0,
+    "enhanced_druggability_score": 0.0
 })
 
 # COMMAND ----------
 
+# DBTITLE 1,Creating derived features
 print("Creating derived features...")
 
 df_ml_pharmacogene = df_ml_pharmacogene.withColumn(
@@ -85,28 +101,29 @@ df_ml_pharmacogene = df_ml_pharmacogene.withColumn(
      F.col("is_kinase").cast("int") +
      F.col("is_receptor").cast("int") +
      F.col("is_transporter").cast("int") +
-     F.col("is_metabolic_enzyme").cast("int"))
+     F.col("is_metabolizing_enzyme").cast("int"))
 )
 
 df_ml_pharmacogene = df_ml_pharmacogene.withColumn(
-    "drug_impact_count",
-    (F.col("affects_drug_metabolism").cast("int") +
-     F.col("affects_drug_response").cast("int") +
-     F.col("affects_drug_toxicity").cast("int"))
+    "pharmacogene_evidence_score",
+    F.when(F.col("pharmacogene_evidence_level") == "high", 3)
+     .when(F.col("pharmacogene_evidence_level") == "medium", 2)
+     .when(F.col("pharmacogene_evidence_level") == "low", 1)
+     .otherwise(0)
 )
 
 df_ml_pharmacogene = df_ml_pharmacogene.withColumn(
     "clinical_evidence_score",
-    (F.col("clinical_annotation_exists").cast("int") * 3 +
-     F.col("fda_label_exists").cast("int") * 2 +
-     F.col("guideline_exists").cast("int") * 1)
+    (F.col("is_clinical_pharmacogene").cast("int") * 3 +
+     F.col("has_pharmgkb_annotation").cast("int") * 2 +
+     F.col("pharmacogene_evidence_score"))
 )
 
 df_ml_pharmacogene = df_ml_pharmacogene.withColumn(
     "pharmacogene_priority",
     F.when(
         (F.col("is_cyp_gene") == True) & 
-        (F.col("clinical_evidence_score") >= 3), 
+        (F.col("clinical_evidence_score") >= 4), 
         "high"
     ).when(
         (F.col("is_drug_target") == True) | 
@@ -116,27 +133,21 @@ df_ml_pharmacogene = df_ml_pharmacogene.withColumn(
 )
 
 df_ml_pharmacogene = df_ml_pharmacogene.withColumn(
-    "druggability_score",
-    (F.col("protein_function_count") * 0.3 +
-     F.col("drug_impact_count") * 0.4 +
-     F.col("clinical_evidence_score") * 0.3)
-)
-
-df_ml_pharmacogene = df_ml_pharmacogene.withColumn(
     "high_impact_pharmacogene",
     F.when(
         (F.col("is_cyp_gene") == True) & 
-        (F.col("affects_drug_metabolism") == True), 
+        (F.col("has_drug_interaction_potential") == True), 
         True
     ).when(
         (F.col("is_drug_target") == True) & 
-        (F.col("fda_label_exists") == True), 
+        (F.col("is_clinical_pharmacogene") == True), 
         True
     ).otherwise(False)
 )
 
 # COMMAND ----------
 
+# DBTITLE 1,Final pharmacogene ML features schema
 print("Final pharmacogene ML features schema:")
 df_ml_pharmacogene.printSchema()
 
@@ -147,6 +158,7 @@ df_ml_pharmacogene.show(5, truncate=False)
 
 # COMMAND ----------
 
+# DBTITLE 1,Writing to ML table
 print(f"Writing ml_pharmacogene_features to {catalog_name}.gold.ml_pharmacogene_features...")
 
 df_ml_pharmacogene.write.mode("overwrite").saveAsTable(f"{catalog_name}.gold.ml_pharmacogene_features")
@@ -155,6 +167,7 @@ print("Pharmacogene features preparation complete!")
 
 # COMMAND ----------
 
+# DBTITLE 1,Verification
 print("Verification:")
 df_verify = spark.table(f"{catalog_name}.gold.ml_pharmacogene_features")
 print(f"Records written: {df_verify.count():,}")
