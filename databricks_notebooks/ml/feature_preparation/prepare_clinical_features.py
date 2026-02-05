@@ -13,6 +13,7 @@
 
 # COMMAND ----------
 
+# DBTITLE 1,Import
 from pyspark.sql import functions as F
 from pyspark.sql.types import *
 
@@ -20,6 +21,7 @@ catalog_name = "workspace"
 
 # COMMAND ----------
 
+# DBTITLE 1,Load Table Data
 print("Loading clinical_ml_features table...")
 df_clinical = spark.table(f"{catalog_name}.gold.clinical_ml_features")
 
@@ -28,85 +30,96 @@ df_clinical.printSchema()
 
 # COMMAND ----------
 
+# DBTITLE 1,Preparing clinical features
 print("Selecting and preparing clinical features...")
 
 df_ml_clinical = df_clinical.select(
     "variant_id",
-    "gene_symbol",
-    "clinical_significance",
-    "pathogenic_flag",
-    "benign_flag",
-    "vus_flag",
-    "conflicting_flag",
-    "risk_factor_flag",
-    "drug_response_flag",
-    "review_status",
-    "stars",
-    "has_assertion_criteria",
-    "no_assertion_provided",
-    "expert_panel_review",
-    "practice_guideline_review",
-    "submission_count",
-    "submitter_count",
-    "first_in_clinvar_date",
-    "last_updated_clinvar_date",
-    "conservation_phylop",
-    "conservation_cadd",
-    "has_multiple_genes",
-    "gene_count"
+    "gene_name",
+    "official_gene_symbol",
+    "chromosome",
+    "position",
+    "clinical_significance_simple",
+    "clinvar_pathogenicity_class",
+    "target_is_pathogenic",
+    "target_is_benign",
+    "target_is_vus",
+    "clinical_sig_is_uncertain",
+    "review_quality_score",
+    "has_strong_evidence",
+    "mutation_severity_score",
+    "pathogenicity_score",
+    "combined_pathogenicity_risk",
+    "phylop_score",
+    "cadd_phred",
+    "conservation_level",
+    "is_highly_conserved",
+    "is_constrained",
+    "gene_total_variants",
+    "gene_pathogenic_count",
+    "gene_benign_count",
+    "gene_vus_count",
+    "gene_pathogenic_ratio",
+    "gene_benign_ratio",
+    "gene_vus_ratio"
 )
 
 # COMMAND ----------
 
+# DBTITLE 1,Handling missing values
 print("Handling missing values...")
 
 df_ml_clinical = df_ml_clinical.fillna({
-    "pathogenic_flag": False,
-    "benign_flag": False,
-    "vus_flag": False,
-    "conflicting_flag": False,
-    "risk_factor_flag": False,
-    "drug_response_flag": False,
-    "has_assertion_criteria": False,
-    "no_assertion_provided": False,
-    "expert_panel_review": False,
-    "practice_guideline_review": False,
-    "has_multiple_genes": False,
-    "stars": 0,
-    "submission_count": 0,
-    "submitter_count": 0,
-    "conservation_phylop": 0.0,
-    "conservation_cadd": 0.0,
-    "gene_count": 1
+    "target_is_pathogenic": False,
+    "target_is_benign": False,
+    "target_is_vus": False,
+    "clinical_sig_is_uncertain": False,
+    "has_strong_evidence": False,
+    "is_highly_conserved": False,
+    "is_constrained": False,
+    "review_quality_score": 0,
+    "mutation_severity_score": 0,
+    "pathogenicity_score": 0,
+    "combined_pathogenicity_risk": 0,
+    "conservation_level": 0,
+    "phylop_score": 0.0,
+    "cadd_phred": 0.0,
+    "gene_total_variants": 0,
+    "gene_pathogenic_count": 0,
+    "gene_benign_count": 0,
+    "gene_vus_count": 0,
+    "gene_pathogenic_ratio": 0.0,
+    "gene_benign_ratio": 0.0,
+    "gene_vus_ratio": 0.0
 })
 
 # COMMAND ----------
 
+# DBTITLE 1,Creating derived features
 print("Creating derived features...")
 
 df_ml_clinical = df_ml_clinical.withColumn(
     "clinical_confidence_score",
-    F.when(F.col("expert_panel_review") == True, 4)
-     .when(F.col("practice_guideline_review") == True, 3)
-     .when(F.col("stars") >= 2, 2)
-     .when(F.col("has_assertion_criteria") == True, 1)
+    F.when(F.col("has_strong_evidence") == True, 3)
+     .when(F.col("review_quality_score") >= 2, 2)
+     .when(F.col("review_quality_score") >= 1, 1)
      .otherwise(0)
 )
 
 df_ml_clinical = df_ml_clinical.withColumn(
     "evidence_strength",
-    (F.col("submission_count") * 0.3 + F.col("submitter_count") * 0.7).cast("int")
+    F.col("review_quality_score")
 )
 
 df_ml_clinical = df_ml_clinical.withColumn(
     "conservation_composite",
-    (F.col("conservation_phylop") + F.col("conservation_cadd")) / 2
+    (F.col("phylop_score") + F.col("cadd_phred")) / 2
 )
 
 df_ml_clinical = df_ml_clinical.withColumn(
     "clinical_actionability",
     F.when(
-        (F.col("pathogenic_flag") == True) & 
+        (F.col("target_is_pathogenic") == True) & 
         (F.col("clinical_confidence_score") >= 2), 
         1
     ).otherwise(0)
@@ -114,6 +127,7 @@ df_ml_clinical = df_ml_clinical.withColumn(
 
 # COMMAND ----------
 
+# DBTITLE 1,Final clinical ML features schema
 print("Final clinical ML features schema:")
 df_ml_clinical.printSchema()
 
@@ -124,6 +138,7 @@ df_ml_clinical.show(5, truncate=False)
 
 # COMMAND ----------
 
+# DBTITLE 1,Writing to ML table
 print(f"Writing ml_clinical_features to {catalog_name}.gold.ml_clinical_features...")
 
 df_ml_clinical.write.mode("overwrite").saveAsTable(f"{catalog_name}.gold.ml_clinical_features")
@@ -132,6 +147,7 @@ print("Clinical features preparation complete!")
 
 # COMMAND ----------
 
+# DBTITLE 1,Verification
 print("Verification:")
 df_verify = spark.table(f"{catalog_name}.gold.ml_clinical_features")
 print(f"Records written: {df_verify.count():,}")
