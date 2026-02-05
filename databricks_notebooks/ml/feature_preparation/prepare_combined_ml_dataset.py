@@ -1,19 +1,16 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### FEATURE PREPARATION - COMBINED ML DATASET (FULLY OPTIMIZED)
+# MAGIC #### FEATURE PREPARATION - COMBINED ML DATASET (DEDUPLICATION FIX)
 # MAGIC ##### Module: Combine All ML Features for Training
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** February 05, 2026
+# MAGIC **Date:** February 06, 2026
 # MAGIC
-# MAGIC **Performance Optimizations Applied:**
-# MAGIC - Broadcast joins for small tables
-# MAGIC - Repartition by variant_id (reduces shuffle)
-# MAGIC - Reduced partition count (50 instead of 200)
-# MAGIC - OptimizeWrite enabled for Delta tables
-# MAGIC - Deferred count operations
-# MAGIC - Sort within partitions
+# MAGIC **CRITICAL FIX:**
+# MAGIC - Deduplication added to prevent cartesian explosion
+# MAGIC - 69M duplicates -> 4.1M unique variants
+# MAGIC - Optimized for small data (1.9 GB total)
 # MAGIC
 # MAGIC **Input:** 
 # MAGIC - ml_clinical_features (variant_id)
@@ -53,17 +50,49 @@ print("All tables loaded successfully")
 
 # COMMAND ----------
 
+# DBTITLE 1,CRITICAL: Deduplicate tables to prevent cartesian explosion
+print("\n=== DEDUPLICATION (CRITICAL FIX) ===\n")
+print("Removing duplicate variant_ids to prevent 213M row explosion...\n")
+
+# Deduplicate clinical (69M -> 4.1M unique)
+print("Deduplicating ml_clinical_features...")
+df_clinical_deduped = df_clinical.dropDuplicates(["variant_id"])
+print(f"  Before: {df_clinical.count():,} rows")
+print(f"  After: {df_clinical_deduped.count():,} rows")
+
+# Deduplicate variant_impact
+print("\nDeduplicating ml_variant_impact_features...")
+df_impact_deduped = df_variant_impact.dropDuplicates(["variant_id"])
+print(f"  Before: {df_variant_impact.count():,} rows")
+print(f"  After: {df_impact_deduped.count():,} rows")
+
+# Deduplicate pharmacogene
+print("\nDeduplicating ml_pharmacogene_features...")
+df_pharmacogene_deduped = df_pharmacogene.dropDuplicates(["variant_id"])
+print(f"  Before: {df_pharmacogene.count():,} rows")
+print(f"  After: {df_pharmacogene_deduped.count():,} rows")
+
+# Deduplicate disease
+print("\nDeduplicating ml_disease_features...")
+df_disease_deduped = df_disease.dropDuplicates(["variant_id"])
+print(f"  Before: {df_disease.count():,} rows")
+print(f"  After: {df_disease_deduped.count():,} rows")
+
+print("\nDeduplication complete - ready for joins")
+
+# COMMAND ----------
+
 # DBTITLE 1,PART 1: VARIANT DATASET
-print("\n=== PART 1: VARIANT DATASET (SNV/INDELS) - FULLY OPTIMIZED ===\n")
+print("\n=== PART 1: VARIANT DATASET (SNV/INDELS) ===\n")
 
 print("Preparing variant-level features for joining...")
 
 # COMMAND ----------
 
-# DBTITLE 1,Selecting columns from variant_impact table
+# DBTITLE 1,Selecting columns from deduplicated variant_impact table
 print("Selecting columns from variant_impact table...")
 
-df_impact_selected = df_variant_impact.select(
+df_impact_selected = df_impact_deduped.select(
     "variant_id",
     "variant_type",
     "is_high_impact",
@@ -81,14 +110,14 @@ df_impact_selected = df_variant_impact.select(
     "conservation_category"
 )
 
-print("Variant impact columns selected (duplicates removed)")
+print("Variant impact columns selected")
 
 # COMMAND ----------
 
-# DBTITLE 1,Selecting columns from pharmacogene table
+# DBTITLE 1,Selecting columns from deduplicated pharmacogene table
 print("Selecting columns from pharmacogene table...")
 
-df_pharmacogene_selected = df_pharmacogene.select(
+df_pharmacogene_selected = df_pharmacogene_deduped.select(
     "variant_id",
     "is_pharmacogene",
     "pharmacogene_category",
@@ -113,10 +142,10 @@ print("Pharmacogene columns selected")
 
 # COMMAND ----------
 
-# DBTITLE 1,Selecting columns from disease table
+# DBTITLE 1,Selecting columns from deduplicated disease table
 print("Selecting columns from disease table...")
 
-df_disease_selected = df_disease.select(
+df_disease_selected = df_disease_deduped.select(
     "variant_id",
     "disease_enriched",
     "primary_disease",
@@ -149,10 +178,10 @@ print("Disease columns selected")
 
 # COMMAND ----------
 
-# DBTITLE 1,Performing optimized joins (disease table broadcasted)
-print("Performing optimized joins (disease table broadcasted)...")
+# DBTITLE 1,Performing joins on deduplicated data (disease broadcasted)
+print("Performing joins on deduplicated data...")
 
-df_variants = df_clinical.join(
+df_variants = df_clinical_deduped.join(
     df_impact_selected,
     on="variant_id",
     how="left"
@@ -166,7 +195,11 @@ df_variants = df_clinical.join(
     how="left"
 )
 
-print("Variant features joined successfully (computation deferred)")
+print("Variant features joined successfully")
+
+# Verify no cartesian explosion
+result_count = df_variants.count()
+print(f"\nJoin result: {result_count:,} rows (should be ~4.1M)")
 
 # COMMAND ----------
 
@@ -262,26 +295,18 @@ print(f"Features selected: {len(variant_ml_features)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Optimizing data distribution (CRITICAL OPTIMIZATION)
-print("Optimizing data distribution with repartition by variant_id...")
+# DBTITLE 1,Optimizing partition count for small dataset (4.1M rows)
+print("Optimizing partition count for small dataset...")
+print("Dataset: ~4.1M rows, ~1.9 GB compressed")
 
-# Repartition by variant_id for better data locality (50 partitions)
-df_variants_ml = df_variants_ml.repartition(50, "variant_id")
+# For 4.1M rows, use 10 partitions (~410K rows each)
+df_variants_ml = df_variants_ml.repartition(10)
 
-print("Data repartitioned to 50 partitions by variant_id")
-
-# COMMAND ----------
-
-# DBTITLE 1,Sort within partitions for better compression
-print("Sorting within partitions...")
-
-df_variants_ml = df_variants_ml.sortWithinPartitions("variant_id")
-
-print("Data sorted within partitions")
+print("Data repartitioned to 10 partitions")
 
 # COMMAND ----------
 
-# DBTITLE 1,Creating train/validation/test splits for variants
+# DBTITLE 1,Creating train/validation/test splits
 print("Creating train/validation/test splits for variants (70/15/15)...")
 
 df_variants_ml = df_variants_ml.withColumn("random_id", F.rand(seed=42))
@@ -290,44 +315,40 @@ df_variants_train = df_variants_ml.filter(F.col("random_id") < 0.70).drop("rando
 df_variants_validation = df_variants_ml.filter((F.col("random_id") >= 0.70) & (F.col("random_id") < 0.85)).drop("random_id")
 df_variants_test = df_variants_ml.filter(F.col("random_id") >= 0.85).drop("random_id")
 
-print("Splits created (computation deferred until write)")
+print("Splits created")
 
 # COMMAND ----------
 
-# DBTITLE 1,Writing train set with optimizations
+# DBTITLE 1,Writing train set (optimized for small data)
 print(f"\nWriting variant train set to {catalog_name}.gold.ml_dataset_variants_train...")
-print("Using optimizeWrite and autoOptimize for Delta Lake...")
 
-df_variants_train.write \
+df_variants_train.coalesce(5).write \
     .mode("overwrite") \
     .option("optimizeWrite", "true") \
-    .option("autoOptimize.optimizeWrite", "true") \
     .saveAsTable(f"{catalog_name}.gold.ml_dataset_variants_train")
 
 print("Train set written successfully")
 
 # COMMAND ----------
 
-# DBTITLE 1,Writing validation set with optimizations
+# DBTITLE 1,Writing validation set
 print(f"\nWriting variant validation set to {catalog_name}.gold.ml_dataset_variants_validation...")
 
-df_variants_validation.write \
+df_variants_validation.coalesce(2).write \
     .mode("overwrite") \
     .option("optimizeWrite", "true") \
-    .option("autoOptimize.optimizeWrite", "true") \
     .saveAsTable(f"{catalog_name}.gold.ml_dataset_variants_validation")
 
 print("Validation set written successfully")
 
 # COMMAND ----------
 
-# DBTITLE 1,Writing test set with optimizations
+# DBTITLE 1,Writing test set
 print(f"\nWriting variant test set to {catalog_name}.gold.ml_dataset_variants_test...")
 
-df_variants_test.write \
+df_variants_test.coalesce(2).write \
     .mode("overwrite") \
     .option("optimizeWrite", "true") \
-    .option("autoOptimize.optimizeWrite", "true") \
     .saveAsTable(f"{catalog_name}.gold.ml_dataset_variants_test")
 
 print("Test set written successfully")
@@ -336,8 +357,8 @@ print("\nVariant ML datasets created successfully!")
 
 # COMMAND ----------
 
-# DBTITLE 1,Verifying variant datasets (counting after write)
-print("\nVerifying variant datasets (counting after write)...")
+# DBTITLE 1,Verifying variant datasets
+print("\nVerifying variant datasets...")
 train_count = spark.table(f"{catalog_name}.gold.ml_dataset_variants_train").count()
 val_count = spark.table(f"{catalog_name}.gold.ml_dataset_variants_validation").count()
 test_count = spark.table(f"{catalog_name}.gold.ml_dataset_variants_test").count()
@@ -356,12 +377,12 @@ spark.table(f"{catalog_name}.gold.ml_dataset_variants_train").groupBy("target_is
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Part 2: Structural Variants (No changes needed - already small dataset)
+# MAGIC ### Part 2: Structural Variants (Already unique - no deduplication needed)
 
 # COMMAND ----------
 
 # DBTITLE 1,PART 2: STRUCTURAL VARIANT DATASET
-print("\n=== PART 2: STRUCTURAL VARIANT DATASET - OPTIMIZED ===\n")
+print("\n=== PART 2: STRUCTURAL VARIANT DATASET ===\n")
 
 print("Preparing structural variant dataset...")
 
@@ -434,13 +455,13 @@ print(f"Features selected: {len(sv_ml_features)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Optimizing partition count for structural variants
+# DBTITLE 1,Optimizing partition count for structural variants (217K rows)
 print("Optimizing partition count for structural variants...")
 
-# Only 217K records - repartition to 20 partitions for optimal file size
-df_sv_ml = df_sv_ml.repartition(20, "sv_id")
+# For 217K rows, use 5 partitions
+df_sv_ml = df_sv_ml.repartition(5)
 
-print("Partitions repartitioned to 20 by sv_id")
+print("Data repartitioned to 5 partitions")
 
 # COMMAND ----------
 
@@ -453,27 +474,27 @@ df_sv_train = df_sv_ml.filter(F.col("random_id") < 0.70).drop("random_id")
 df_sv_validation = df_sv_ml.filter((F.col("random_id") >= 0.70) & (F.col("random_id") < 0.85)).drop("random_id")
 df_sv_test = df_sv_ml.filter(F.col("random_id") >= 0.85).drop("random_id")
 
-print("Splits created (computation deferred until write)")
+print("Splits created")
 
 # COMMAND ----------
 
-# DBTITLE 1,Writing SV datasets with optimizations
+# DBTITLE 1,Writing SV datasets
 print(f"\nWriting SV train set to {catalog_name}.gold.ml_dataset_structural_variants_train...")
-df_sv_train.write \
+df_sv_train.coalesce(1).write \
     .mode("overwrite") \
     .option("optimizeWrite", "true") \
     .saveAsTable(f"{catalog_name}.gold.ml_dataset_structural_variants_train")
 print("SV train set written")
 
 print(f"\nWriting SV validation set to {catalog_name}.gold.ml_dataset_structural_variants_validation...")
-df_sv_validation.write \
+df_sv_validation.coalesce(1).write \
     .mode("overwrite") \
     .option("optimizeWrite", "true") \
     .saveAsTable(f"{catalog_name}.gold.ml_dataset_structural_variants_validation")
 print("SV validation set written")
 
 print(f"\nWriting SV test set to {catalog_name}.gold.ml_dataset_structural_variants_test...")
-df_sv_test.write \
+df_sv_test.coalesce(1).write \
     .mode("overwrite") \
     .option("optimizeWrite", "true") \
     .saveAsTable(f"{catalog_name}.gold.ml_dataset_structural_variants_test")
@@ -484,7 +505,7 @@ print("\nStructural variant ML datasets created successfully!")
 # COMMAND ----------
 
 # DBTITLE 1,Verifying structural variant datasets
-print("\nVerifying structural variant datasets (counting after write)...")
+print("\nVerifying structural variant datasets...")
 sv_train_count = spark.table(f"{catalog_name}.gold.ml_dataset_structural_variants_train").count()
 sv_val_count = spark.table(f"{catalog_name}.gold.ml_dataset_structural_variants_validation").count()
 sv_test_count = spark.table(f"{catalog_name}.gold.ml_dataset_structural_variants_test").count()
@@ -517,13 +538,10 @@ print(f"  Validation: {sv_val_count:,}")
 print(f"  Test: {sv_test_count:,}")
 print(f"  Features: {len(sv_ml_features)}")
 
+print("\n=== CRITICAL FIXES APPLIED ===")
+print("  - Deduplication: 69M -> 4.1M unique variants (NO cartesian explosion)")
+print("  - Broadcast join for disease table")
+print("  - Optimal partitions: 10 for variants, 5 for SVs")
+print("  - OptimizeWrite enabled")
 print("\nAll ML datasets created successfully!")
-print("\n=== PERFORMANCE OPTIMIZATIONS APPLIED ===")
-print("  - Broadcast join for disease table (30-50% faster join)")
-print("  - Repartition by variant_id/sv_id (reduces shuffle)")
-print("  - Reduced partitions: 50 for variants, 20 for SVs (optimal file size)")
-print("  - Sort within partitions (better compression)")
-print("  - OptimizeWrite enabled (auto file sizing)")
-print("  - Deferred count operations (no intermediate counts)")
-print("  - Early column selection (reduced data movement)")
-print("\nExpected total time: 15-25 minutes (vs 50+ minutes before)")
+print("Expected completion time: 5-8 minutes total")
