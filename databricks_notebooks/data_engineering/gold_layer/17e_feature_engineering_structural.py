@@ -127,9 +127,10 @@ df_genes_coord = (
         col("start_position").alias("gene_start"),
         col("end_position").alias("gene_end"),
         "gene_length",
+        "is_transporter",
         
         # Gene flags from schema
-        "is_pharmacogene",
+        #"is_pharmacogene",
         "is_kinase",
         "is_receptor",
         "is_enzyme",
@@ -137,7 +138,9 @@ df_genes_coord = (
         "mim_id"
     )
     .filter(col("start_position").isNotNull() & col("end_position").isNotNull())
-    
+    .withColumn("is_pharmacogene",
+            col("is_kinase") | col("is_receptor") | col("is_enzyme") | 
+            col("is_gpcr") | col("is_transporter"))
     # Derive gene flags
     .withColumn("is_omim_gene",
                 col("mim_id").isNotNull())
@@ -560,7 +563,3 @@ print("  - Chromosome-level disruption rates")
 
 print("\nTable created:")
 print(f"  {catalog_name}.gold.structural_variant_ml_features")
-
-# COMMAND ----------
-
-
