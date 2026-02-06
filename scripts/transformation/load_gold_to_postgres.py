@@ -1,260 +1,248 @@
 # ====================================================================
-# Load Gold Layer to PostgreSQL - UPDATED FOR NEW SCHEMA
+# LOAD GOLD TABLES TO POSTGRESQL WITH UPSERT
 # DNA Gene Mapping Project
 # Author: Sharique Mohammad
-# Date: 17 January 2026 (Updated for 95-column schema)
+# Date: February 2026
+# ====================================================================
+# Features:
+# - Loads 11 gold tables from CSV to PostgreSQL
+# - Upsert logic: Skip existing records (idempotent)
+# - Batch processing for large files (100K rows per batch)
+# - Progress tracking and verification
 # ====================================================================
 
-"""
-Load Gold Layer to PostgreSQL
-Loads Databricks Gold layer exports to PostgreSQL database.
-UPDATED: Handles new 95-column schema with functional flags and derived columns.
-"""
-
+import os
 import pandas as pd
 from sqlalchemy import create_engine, text
 from pathlib import Path
-import logging
 from dotenv import load_dotenv
-import os
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+import time
 
 load_dotenv()
 
+# ====================================================================
+# CONFIGURATION
+# ====================================================================
+
+POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')
+POSTGRES_PORT = os.getenv('POSTGRES_PORT', '5432')
+POSTGRES_DB = os.getenv('POSTGRES_DB', 'genomics_ml')
+POSTGRES_USER = os.getenv('POSTGRES_USER', 'postgres')
+POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD')
+
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-EXPORTS_DIR = PROJECT_ROOT / "data" / "processed"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
-print(f"Project Root: {PROJECT_ROOT}")
-print(f"Looking for CSVs in: {EXPORTS_DIR}")
+BATCH_SIZE = 100000
 
-DB_CONFIG = {
-    'host': os.getenv('POSTGRES_HOST', 'localhost'),
-    'port': int(os.getenv('POSTGRES_PORT', 5432)),
-    'database': os.getenv('POSTGRES_DATABASE', 'genome_db'),
-    'user': os.getenv('POSTGRES_USER', 'postgres'),
-    'password': os.getenv('POSTGRES_PASSWORD')
+TABLES_CONFIG = {
+    # 5 Gold Feature Tables
+    "clinical_ml_features": {"primary_key": "variant_id"},
+    "disease_ml_features": {"primary_key": "variant_id"},
+    "pharmacogene_ml_features": {"primary_key": "variant_id"},
+    "structural_variant_ml_features": {"primary_key": "sv_id"},
+    "variant_impact_ml_features": {"primary_key": "variant_id"},
+    
+    # 6 ML Dataset Tables
+    "ml_dataset_variants_train": {"primary_key": "variant_id"},
+    "ml_dataset_variants_validation": {"primary_key": "variant_id"},
+    "ml_dataset_variants_test": {"primary_key": "variant_id"},
+    "ml_dataset_structural_variants_train": {"primary_key": "sv_id"},
+    "ml_dataset_structural_variants_validation": {"primary_key": "sv_id"},
+    "ml_dataset_structural_variants_test": {"primary_key": "sv_id"}
 }
 
+# ====================================================================
+# UPSERT FUNCTIONS
+# ====================================================================
 
-def get_engine():
-    """Create database engine."""
-    connection_string = (
-        f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}"
-        f"@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
-    )
-    return create_engine(connection_string)
-
-
-def load_gold_tables():
-    """Load all Gold tables to PostgreSQL."""
+def load_table_with_upsert(df, table_name, engine, primary_key):
+    """Load data with upsert - skip existing records"""
     
-    print("\n" + "="*70)
-    print("LOADING GOLD LAYER TO POSTGRESQL (UPDATED SCHEMA)")
-    print("="*70)
-    print("\nNEW SCHEMA FEATURES:")
-    print("  - 95 columns in gene_features (was 51)")
-    print("  - 10 functional protein flags")
-    print("  - 4 derived classification columns")
-    print("  - All boolean columns properly handled")
-    print("="*70)
+    if len(df) == 0:
+        print(f"    Empty dataframe - skipping")
+        return 0
     
-    if not EXPORTS_DIR.exists():
-        logger.error(f"Directory does not exist: {EXPORTS_DIR}")
-        logger.error("Please create the directory and place CSV files there")
-        return
-    
-    files_in_dir = list(EXPORTS_DIR.glob("*.csv"))
-    if files_in_dir:
-        print(f"\nFound {len(files_in_dir)} CSV files in {EXPORTS_DIR}:")
-        for f in files_in_dir:
-            file_size_mb = f.stat().st_size / (1024 * 1024)
-            print(f"  - {f.name} ({file_size_mb:.2f} MB)")
-    else:
-        print(f"\nNo CSV files found in {EXPORTS_DIR}")
-        return
-    
-    engine = get_engine()
-    
-    tables = [
-        ("gene_features", "gold", "gene_features"),
-        ("chromosome_features", "gold", "chromosome_features"),
-        ("gene_disease_association", "gold", "gene_disease_association"),
-        ("ml_features", "gold", "ml_features")
-    ]
-    
-    for csv_name, schema, table_name in tables:
-        csv_path = EXPORTS_DIR / f"{csv_name}.csv"
+    with engine.connect() as conn:
+        table_exists = conn.execute(text(
+            f"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{table_name}')"
+        )).scalar()
         
-        if not csv_path.exists():
-            logger.warning(f"WARNING: File not found: {csv_path}")
-            logger.warning(f"  Please download {csv_name}.csv from Databricks")
-            logger.warning(f"  and place it in: {EXPORTS_DIR}")
+        if not table_exists:
+            print(f"    Creating table (first load)...")
+            df.to_sql(table_name, engine, if_exists='replace', index=False, method='multi', chunksize=10000)
+            print(f"    Created table with {len(df):,} rows")
+            return len(df)
+        
+        existing_ids = pd.read_sql(f"SELECT {primary_key} FROM {table_name}", engine)
+        existing_set = set(existing_ids[primary_key])
+        
+        new_df = df[~df[primary_key].isin(existing_set)]
+        
+        if len(new_df) == 0:
+            print(f"    All {len(df):,} records already exist - skipped")
+            return 0
+        
+        new_df.to_sql(table_name, engine, if_exists='append', index=False, method='multi', chunksize=10000)
+        print(f"    Added {len(new_df):,} new rows (skipped {len(df) - len(new_df):,} existing)")
+        return len(new_df)
+
+def load_in_batches(csv_file, table_name, engine, primary_key, batch_size):
+    """Load large CSV in batches with upsert"""
+    
+    print(f"  Loading in batches of {batch_size:,} rows...")
+    
+    total_rows = 0
+    total_added = 0
+    batch_num = 0
+    
+    for chunk in pd.read_csv(csv_file, chunksize=batch_size, low_memory=False):
+        batch_num += 1
+        print(f"  Batch {batch_num}: {len(chunk):,} rows")
+        
+        added = load_table_with_upsert(chunk, table_name, engine, primary_key)
+        total_rows += len(chunk)
+        total_added += added
+    
+    return total_rows, total_added
+
+# ====================================================================
+# MAIN LOAD FUNCTION
+# ====================================================================
+
+def load_gold_to_postgres():
+    """Load all 11 gold tables to PostgreSQL"""
+    
+    print("="*80)
+    print("LOADING 11 GOLD TABLES TO POSTGRESQL")
+    print("="*80)
+    print(f"PostgreSQL: {POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}")
+    print(f"Data Directory: {PROCESSED_DIR}")
+    print(f"Batch Size: {BATCH_SIZE:,} rows")
+    print("="*80)
+    
+    if not POSTGRES_PASSWORD:
+        print("\nERROR: PostgreSQL password not found!")
+        print("Please add to your .env file:")
+        print("  POSTGRES_PASSWORD=your-password")
+        return
+    
+    connection_string = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+    
+    try:
+        engine = create_engine(connection_string)
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT 1"))
+            print(f"PostgreSQL connection: OK\n")
+    except Exception as e:
+        print(f"\nERROR: Cannot connect to PostgreSQL")
+        print(f"Error: {e}")
+        return
+    
+    load_summary = {}
+    total_start_time = time.time()
+    
+    for table_name, config in TABLES_CONFIG.items():
+        primary_key = config["primary_key"]
+        csv_file = PROCESSED_DIR / f"{table_name}.csv"
+        
+        load_summary[table_name] = {
+            "status": "NOT_FOUND",
+            "rows_processed": 0,
+            "rows_added": 0,
+            "time_seconds": 0
+        }
+        
+        print(f"\n{'='*80}")
+        print(f"Table {list(TABLES_CONFIG.keys()).index(table_name) + 1}/{len(TABLES_CONFIG)}: {table_name}")
+        print(f"{'='*80}")
+        
+        if not csv_file.exists():
+            print(f"  CSV file not found: {csv_file}")
+            load_summary[table_name]["status"] = "NOT_FOUND"
             continue
         
-        logger.info(f"Loading {csv_name} to {schema}.{table_name}")
+        file_size_mb = csv_file.stat().st_size / (1024 * 1024)
+        print(f"  CSV file: {csv_file.name}")
+        print(f"  File size: {file_size_mb:.2f} MB")
+        print(f"  Primary key: {primary_key}")
         
         try:
-            # Special handling for gene_disease_association (has disease names with commas)
-            if csv_name == "gene_disease_association":
-                logger.info(f"  Using robust CSV parser for disease names...")
-                df = pd.read_csv(
-                    csv_path,
-                    escapechar='\\',
-                    quotechar='"',
-                    on_bad_lines='warn',
-                    engine='python',
-                    encoding='utf-8'
-                )
-            else:
-                df = pd.read_csv(csv_path)
+            start_time = time.time()
             
-            logger.info(f"  Read {len(df):,} rows, {len(df.columns)} columns")
+            total_rows, total_added = load_in_batches(
+                csv_file, 
+                table_name, 
+                engine, 
+                primary_key, 
+                BATCH_SIZE
+            )
             
-            # NEW: Convert boolean columns for functional flags
-            boolean_columns = [
-                # Functional protein flags (NEW in this release)
-                'is_kinase', 'is_phosphatase', 'is_receptor', 'is_enzyme', 'is_transporter',
-                'has_glycoprotein', 'has_receptor_keyword', 'has_enzyme_keyword', 
-                'has_kinase_keyword', 'has_binding_keyword',
-                
-                # Legacy columns (keep for backwards compatibility)
-                'is_gpcr', 'is_transcription_factor', 'is_channel', 
-                'is_membrane_protein', 'is_growth_factor', 'is_structural', 
-                'is_regulatory', 'is_metabolic', 'is_dna_binding', 'is_rna_binding', 
-                'is_ubiquitin_related', 'is_protease',
-                
-                # Disease-related flags
-                'cancer_related', 'immune_related', 'neurological_related', 
-                'cardiovascular_related', 'metabolic_related', 'developmental_related',
-                'alzheimer_related', 'diabetes_related', 'breast_cancer_related',
-                
-                # Location flags
-                'nuclear', 'mitochondrial', 'cytoplasmic', 'membrane',
-                'extracellular', 'endoplasmic_reticulum', 'golgi',
-                'lysosomal', 'peroxisomal',
-                
-                # Quality flags
-                'is_telomeric', 'is_centromeric', 'is_well_characterized'
-            ]
+            elapsed = time.time() - start_time
             
-            converted_count = 0
-            for col in boolean_columns:
-                if col in df.columns:
-                    # Handle various boolean representations
-                    df[col] = df[col].map({
-                        'true': True, 'True': True, 'TRUE': True, True: True,
-                        'false': False, 'False': False, 'FALSE': False, False: False,
-                        1: True, 0: False, '1': True, '0': False
-                    })
-                    converted_count += 1
+            load_summary[table_name]["status"] = "LOADED"
+            load_summary[table_name]["rows_processed"] = total_rows
+            load_summary[table_name]["rows_added"] = total_added
+            load_summary[table_name]["time_seconds"] = elapsed
             
-            if converted_count > 0:
-                logger.info(f"  Converted {converted_count} boolean columns")
+            print(f"  Completed in {elapsed:.1f}s ({total_rows/elapsed:.0f} rows/sec)")
             
-            # NEW: Verify new columns are present in gene_features
-            if csv_name == "gene_features":
-                expected_new_cols = [
-                    'is_kinase', 'is_phosphatase', 'is_receptor', 'is_enzyme', 'is_transporter',
-                    'has_glycoprotein', 'has_receptor_keyword', 'has_enzyme_keyword',
-                    'has_kinase_keyword', 'has_binding_keyword',
-                    'primary_function', 'biological_process', 'cellular_location', 'druggability_score'
-                ]
-                
-                present_cols = [col for col in expected_new_cols if col in df.columns]
-                missing_cols = [col for col in expected_new_cols if col not in df.columns]
-                
-                logger.info(f"  NEW COLUMNS CHECK:")
-                logger.info(f"    Present: {len(present_cols)}/14")
-                if present_cols:
-                    logger.info(f"    Found: {', '.join(present_cols[:5])}{'...' if len(present_cols) > 5 else ''}")
-                
-                if missing_cols:
-                    logger.warning(f"    MISSING: {len(missing_cols)}/14")
-                    logger.warning(f"    Missing: {', '.join(missing_cols)}")
-                    logger.warning(f"    WARNING: Gene features may not have new schema!")
-                    logger.warning(f"    Please run: 05_feature_engineering_COMPLETE.py")
-                else:
-                    logger.info(f"    SUCCESS: All new columns present!")
-            
-            logger.info(f"  Processed {len(df):,} rows, {len(df.columns)} columns")
-            
-            # Drop table with CASCADE to remove dependent views
-            try:
-                with engine.connect() as conn:
-                    conn.execute(text(f"DROP TABLE IF EXISTS {schema}.{table_name} CASCADE"))
-                    conn.commit()
-                    logger.info(f"  Dropped existing table {schema}.{table_name}")
-            except Exception as e:
-                logger.warning(f"  Could not drop table with CASCADE: {e}")
-            
-            # Load in chunks for large tables
-            chunk_size = 10000
-            if len(df) > chunk_size:
-                logger.info(f"  Loading in chunks of {chunk_size:,}...")
-                for i in range(0, len(df), chunk_size):
-                    chunk = df.iloc[i:i+chunk_size]
-                    if i == 0:
-                        chunk.to_sql(
-                            name=table_name,
-                            schema=schema,
-                            con=engine,
-                            if_exists='replace',
-                            index=False,
-                            method='multi'
-                        )
-                    else:
-                        chunk.to_sql(
-                            name=table_name,
-                            schema=schema,
-                            con=engine,
-                            if_exists='append',
-                            index=False,
-                            method='multi'
-                        )
-                    if (i + chunk_size) % 50000 == 0:
-                        logger.info(f"    Progress: {i+chunk_size:,} rows loaded...")
-            else:
-                df.to_sql(
-                    name=table_name,
-                    schema=schema,
-                    con=engine,
-                    if_exists='replace',
-                    index=False,
-                    method='multi'
-                )
-            
-            logger.info(f"  SUCCESS: Loaded {len(df):,} rows to {schema}.{table_name}")
-            
+            with engine.connect() as conn:
+                db_count = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}")).scalar()
+                print(f"  PostgreSQL table now has: {db_count:,} rows")
+        
         except Exception as e:
-            logger.error(f"  ERROR loading {csv_name}: {e}")
-            logger.error(f"  File path: {csv_path}")
-            logger.error(f"  Try checking the CSV file for malformed data")
+            print(f"  ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            load_summary[table_name]["status"] = "FAILED"
+            continue
     
-    print("\n" + "="*70)
-    print("LOADING COMPLETE")
-    print("="*70)
-    print("\nVerify in PostgreSQL:")
-    print("  SELECT COUNT(*) FROM gold.gene_features;")
-    print("  SELECT COUNT(*) FROM gold.chromosome_features;")
-    print("  SELECT COUNT(*) FROM gold.gene_disease_association;")
-    print("  SELECT COUNT(*) FROM gold.ml_features;")
-    print("\n" + "="*70)
-    print("Check NEW columns in gene_features:")
-    print("  SELECT column_name FROM information_schema.columns")
-    print("  WHERE table_schema = 'gold' AND table_name = 'gene_features'")
-    print("  AND column_name LIKE 'is_%' OR column_name LIKE 'has_%'")
-    print("  OR column_name IN ('primary_function', 'biological_process',")
-    print("                     'cellular_location', 'druggability_score')")
-    print("  ORDER BY column_name;")
-    print("\n" + "="*70)
-    print("Expected column count:")
-    print("  gene_features: 95 columns (was 51)")
-    print("  - 10 functional flags (is_kinase, is_receptor, etc.)")
-    print("  - 4 derived columns (primary_function, cellular_location, etc.)")
-    print("="*70)
-
+    total_elapsed = time.time() - total_start_time
+    
+    print("\n" + "="*80)
+    print("LOAD SUMMARY")
+    print("="*80)
+    print(f"Total time: {total_elapsed:.1f}s ({total_elapsed/60:.1f} minutes)")
+    
+    print(f"\n{'Table':<50} {'Status':<10} {'Processed':<12} {'Added':<12} {'Time (s)':<10}")
+    print("-"*110)
+    
+    total_processed = 0
+    total_added = 0
+    success_count = 0
+    
+    for table_name, summary in load_summary.items():
+        status = summary["status"]
+        processed = summary["rows_processed"]
+        added = summary["rows_added"]
+        seconds = summary["time_seconds"]
+        
+        print(f"  {table_name:<48} {status:<10} {processed:>10,}  {added:>10,}  {seconds:>8.1f}")
+        
+        if status == "LOADED":
+            total_processed += processed
+            total_added += added
+            success_count += 1
+    
+    print("-"*110)
+    print(f"  {'TOTAL':<48} {success_count}/{len(TABLES_CONFIG):<10} {total_processed:>10,}  {total_added:>10,}  {total_elapsed:>8.1f}")
+    
+    if success_count == len(TABLES_CONFIG):
+        print("\n" + "="*80)
+        print("SUCCESS! All 11 tables loaded to PostgreSQL")
+        print("="*80)
+        print(f"Database: {POSTGRES_DB}")
+        print(f"Total rows: {total_added:,} new rows added")
+        print("\nNEXT STEP: Start Phase 6 ML Training")
+        print("Create Jupyter notebooks in local/notebooks/")
+        print("="*80)
+    else:
+        print("\n" + "="*80)
+        print("INCOMPLETE LOAD")
+        print("="*80)
+        print("Re-run this script - it will skip already loaded data")
+        print("="*80)
 
 if __name__ == "__main__":
-    load_gold_tables()
+    load_gold_to_postgres()

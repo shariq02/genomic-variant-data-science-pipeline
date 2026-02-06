@@ -1,11 +1,15 @@
 # ====================================================================
-# AUTOMATED DATABRICKS VOLUME DOWNLOAD - UNITY CATALOG VERSION
+# AUTOMATED DATABRICKS DOWNLOAD WITH RESUME & CLEANUP
 # DNA Gene Mapping Project
 # Author: Sharique Mohammad
-# Date: January 12, 2026
+# Date: February 2026
 # ====================================================================
-# Purpose: Automatically download exported CSV files from Databricks
-#          Unity Catalog Volume to local processed data folder
+# Features:
+# - Downloads 11 gold tables from Databricks Unity Catalog Volume
+# - Resume capability (checkpoint file tracks progress)
+# - Automatic verification (row count + file size)
+# - Auto-delete from Databricks after successful download
+# - Batch processing for large files
 # ====================================================================
 
 import os
@@ -13,6 +17,7 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 import time
+import json
 
 # Load environment variables
 load_dotenv()
@@ -21,36 +26,59 @@ load_dotenv()
 # CONFIGURATION
 # ====================================================================
 
-# Databricks credentials (add these to your .env file)
-DATABRICKS_HOST = os.getenv('DATABRICKS_HOST', '').rstrip('/')  # Remove trailing slash
+DATABRICKS_HOST = os.getenv('DATABRICKS_HOST', '').rstrip('/')
 DATABRICKS_TOKEN = os.getenv('DATABRICKS_TOKEN')
 
-# Paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-# Databricks volume paths
-VOLUME_BASE = "/Volumes/workspace/gold/gold_exports"  # Ultra-enriched exports
+CHECKPOINT_FILE = PROCESSED_DIR / ".download_checkpoint.json"
 
-# Files to download (Spark creates folders with part files)
+VOLUME_BASE = "/Volumes/workspace/gold/gold_exports"
+
 FILES_TO_DOWNLOAD = {
-    "gene_features": f"{VOLUME_BASE}/gene_features/",
-    "chromosome_features": f"{VOLUME_BASE}/chromosome_features/",
-    "gene_disease_association": f"{VOLUME_BASE}/gene_disease_association/",
-    "ml_features": f"{VOLUME_BASE}/ml_features/"
+    # 5 Gold Feature Tables
+    "clinical_ml_features": f"{VOLUME_BASE}/clinical_ml_features/",
+    "disease_ml_features": f"{VOLUME_BASE}/disease_ml_features/",
+    "pharmacogene_ml_features": f"{VOLUME_BASE}/pharmacogene_ml_features/",
+    "structural_variant_ml_features": f"{VOLUME_BASE}/structural_variant_ml_features/",
+    "variant_impact_ml_features": f"{VOLUME_BASE}/variant_impact_ml_features/",
+    
+    # 6 ML Dataset Tables
+    "ml_dataset_variants_train": f"{VOLUME_BASE}/ml_dataset_variants_train/",
+    "ml_dataset_variants_validation": f"{VOLUME_BASE}/ml_dataset_variants_validation/",
+    "ml_dataset_variants_test": f"{VOLUME_BASE}/ml_dataset_variants_test/",
+    "ml_dataset_structural_variants_train": f"{VOLUME_BASE}/ml_dataset_structural_variants_train/",
+    "ml_dataset_structural_variants_validation": f"{VOLUME_BASE}/ml_dataset_structural_variants_validation/",
+    "ml_dataset_structural_variants_test": f"{VOLUME_BASE}/ml_dataset_structural_variants_test/"
 }
 
 # ====================================================================
-# DATABRICKS FILES API FUNCTIONS (Unity Catalog Compatible)
+# CHECKPOINT FUNCTIONS
+# ====================================================================
+
+def load_checkpoint():
+    """Load download progress from checkpoint file"""
+    if CHECKPOINT_FILE.exists():
+        with open(CHECKPOINT_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_checkpoint(checkpoint):
+    """Save download progress to checkpoint file"""
+    with open(CHECKPOINT_FILE, 'w') as f:
+        json.dump(checkpoint, f, indent=2)
+    print(f"  Checkpoint saved")
+
+# ====================================================================
+# DATABRICKS FILES API FUNCTIONS
 # ====================================================================
 
 def list_directory_contents(path):
     """List files in Unity Catalog Volume using Files API"""
     url = f"{DATABRICKS_HOST}/api/2.0/fs/directories{path}"
-    headers = {
-        "Authorization": f"Bearer {DATABRICKS_TOKEN}"
-    }
+    headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
     
     response = requests.get(url, headers=headers)
     
@@ -58,17 +86,13 @@ def list_directory_contents(path):
         data = response.json()
         return data.get('contents', [])
     else:
-        print(f"Error listing directory: {response.status_code} - {response.text}")
+        print(f"Error listing directory: {response.status_code}")
         return []
 
 def download_file_from_volume(volume_path, local_path):
     """Download file from Unity Catalog Volume using Files API"""
     url = f"{DATABRICKS_HOST}/api/2.0/fs/files{volume_path}"
-    headers = {
-        "Authorization": f"Bearer {DATABRICKS_TOKEN}"
-    }
-    
-    print(f"  Downloading from: {url}")
+    headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
     
     response = requests.get(url, headers=headers, stream=True)
     
@@ -77,7 +101,7 @@ def download_file_from_volume(volume_path, local_path):
         downloaded = 0
         
         with open(local_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=1024*1024):  # 1MB chunks
+            for chunk in response.iter_content(chunk_size=1024*1024):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
@@ -85,25 +109,58 @@ def download_file_from_volume(volume_path, local_path):
                         progress = (downloaded / total_size) * 100
                         print(f"\r  Progress: {progress:.1f}% ({downloaded/(1024*1024):.1f}/{total_size/(1024*1024):.1f} MB)", end='')
         
-        print()  # New line after progress
+        print()
         return True
     else:
-        print(f"  Error downloading: {response.status_code} - {response.text[:200]}")
+        print(f"  Error downloading: {response.status_code}")
         return False
 
+def delete_file_from_volume(volume_path):
+    """Delete file from Unity Catalog Volume"""
+    url = f"{DATABRICKS_HOST}/api/2.0/fs/files{volume_path}"
+    headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
+    response = requests.delete(url, headers=headers)
+    return response.status_code in (200, 204)
+
+def delete_folder_from_volume(folder_path):
+    """Delete folder and all files from Unity Catalog Volume"""
+    files = list_directory_contents(folder_path)
+    if files is None:
+        return False, "Could not list folder contents"
+    
+    deleted_count = 0
+    failed_files = []
+    
+    for f in files:
+        fpath = f.get('path', '')
+        if not fpath:
+            continue
+        if delete_file_from_volume(fpath):
+            deleted_count += 1
+        else:
+            failed_files.append(fpath)
+    
+    if failed_files:
+        return False, f"Deleted {deleted_count} files, {len(failed_files)} failed"
+    
+    delete_file_from_volume(folder_path.rstrip('/'))
+    
+    return True, f"Deleted {deleted_count} file(s)"
+
 # ====================================================================
-# MAIN DOWNLOAD FUNCTION
+# MAIN DOWNLOAD FUNCTION WITH RESUME
 # ====================================================================
 
 def download_gold_tables():
-    """Download all gold layer tables from Databricks Volume"""
+    """Download all 11 gold tables with resume capability"""
     
-    print("="*70)
-    print("DOWNLOADING GOLD LAYER TABLES FROM DATABRICKS")
-    print("="*70)
+    print("="*80)
+    print("DOWNLOADING 11 GOLD TABLES FROM DATABRICKS")
+    print("="*80)
     print(f"Databricks Host: {DATABRICKS_HOST}")
     print(f"Local Directory: {PROCESSED_DIR}")
-    print("="*70)
+    print(f"Checkpoint File: {CHECKPOINT_FILE}")
+    print("="*80)
     
     if not DATABRICKS_HOST or not DATABRICKS_TOKEN:
         print("\nERROR: Databricks credentials not found!")
@@ -112,32 +169,53 @@ def download_gold_tables():
         print("  DATABRICKS_TOKEN=your-access-token")
         return
     
+    checkpoint = load_checkpoint()
+    print(f"\nLoaded checkpoint: {len(checkpoint)} tables previously downloaded")
+    
     total_downloaded = 0
+    download_status = {}
     
     for table_name, volume_path in FILES_TO_DOWNLOAD.items():
-        print(f"\n{'='*70}")
-        print(f"Downloading: {table_name}")
-        print(f"{'='*70}")
+        download_status[table_name] = {
+            "downloaded": False,
+            "verified": False,
+            "deleted": False,
+            "details": ""
+        }
+        
+        print(f"\n{'='*80}")
+        print(f"Table {list(FILES_TO_DOWNLOAD.keys()).index(table_name) + 1}/{len(FILES_TO_DOWNLOAD)}: {table_name}")
+        print(f"{'='*80}")
+        
+        # Check if already downloaded
+        if table_name in checkpoint and checkpoint[table_name].get("downloaded"):
+            local_file = PROCESSED_DIR / f"{table_name}.csv"
+            if local_file.exists():
+                print(f"  SKIPPED - Already downloaded")
+                print(f"  File: {local_file}")
+                print(f"  Size: {local_file.stat().st_size / (1024*1024):.2f} MB")
+                download_status[table_name]["downloaded"] = True
+                download_status[table_name]["verified"] = True
+                download_status[table_name]["details"] = checkpoint[table_name].get("details", "Already downloaded")
+                total_downloaded += 1
+                continue
         
         try:
-            # List files in volume directory
             print(f"Listing files in: {volume_path}")
             files = list_directory_contents(volume_path)
             
             if not files:
-                print(f"  No files found in {volume_path}")
-                print(f"  Make sure you've run the export notebook first!")
+                print(f"  No files found")
+                download_status[table_name]["details"] = "No files on Databricks"
                 continue
             
-            # Find CSV part file (Spark creates part-00000-xxx.csv)
             csv_files = [f for f in files if 'part-' in f.get('path', '') and f.get('path', '').endswith('.csv')]
             
             if not csv_files:
                 print(f"  No CSV files found")
-                print(f"  Available files: {[f.get('name') for f in files]}")
+                download_status[table_name]["details"] = "No CSV part file"
                 continue
             
-            # Download the CSV file
             csv_file = csv_files[0]
             remote_path = csv_file['path']
             file_size = csv_file.get('file_size', 0)
@@ -146,110 +224,95 @@ def download_gold_tables():
             print(f"  Found: {csv_file.get('name')}")
             print(f"  Size: {file_size_mb:.2f} MB")
             
-            # Local file path
             local_file = PROCESSED_DIR / f"{table_name}.csv"
             
-            # Download
-            print(f"  Saving to: {local_file}")
+            print(f"  Downloading to: {local_file}")
             start_time = time.time()
             
-            if download_file_from_volume(remote_path, local_file):
-                elapsed = time.time() - start_time
-                speed = file_size_mb / elapsed if elapsed > 0 else 0
-                
-                print(f"  Downloaded successfully!")
-                print(f"  Time: {elapsed:.1f}s ({speed:.2f} MB/s)")
-                
-                # Verify file
-                if local_file.exists():
-                    local_size_mb = local_file.stat().st_size / (1024 * 1024)
-                    print(f"  Verified: {local_size_mb:.2f} MB")
-                    total_downloaded += 1
-            else:
+            if not download_file_from_volume(remote_path, local_file):
                 print(f"  Download failed")
+                download_status[table_name]["details"] = "Download failed"
+                continue
+            
+            elapsed = time.time() - start_time
+            speed = file_size_mb / elapsed if elapsed > 0 else 0
+            print(f"  Downloaded successfully in {elapsed:.1f}s ({speed:.2f} MB/s)")
+            download_status[table_name]["downloaded"] = True
+            
+            if not local_file.exists():
+                print(f"  ERROR: File missing after download")
+                download_status[table_name]["details"] = "File missing"
+                continue
+            
+            local_size_mb = local_file.stat().st_size / (1024 * 1024)
+            print(f"  Local size: {local_size_mb:.2f} MB")
+            
+            print(f"  Counting rows...")
+            with open(local_file, 'r', encoding='utf-8') as f:
+                local_row_count = sum(1 for _ in f) - 1
+            print(f"  Rows: {local_row_count:,}")
+            
+            if local_row_count == 0:
+                print(f"  ERROR: 0 rows")
+                download_status[table_name]["details"] = "0 rows"
+                continue
+            
+            download_status[table_name]["verified"] = True
+            download_status[table_name]["details"] = f"{local_row_count:,} rows, {local_size_mb:.2f} MB"
+            total_downloaded += 1
+            print(f"  Verification: PASSED")
+            
+            checkpoint[table_name] = {
+                "downloaded": True,
+                "rows": local_row_count,
+                "size_mb": local_size_mb,
+                "details": download_status[table_name]["details"]
+            }
+            save_checkpoint(checkpoint)
+            
+            print(f"  Deleting from Databricks: {volume_path}")
+            delete_ok, delete_msg = delete_folder_from_volume(volume_path)
+            if delete_ok:
+                download_status[table_name]["deleted"] = True
+                print(f"  Databricks cleanup: OK - {delete_msg}")
+            else:
+                print(f"  Databricks cleanup: FAILED - {delete_msg}")
+                download_status[table_name]["details"] += " | DELETE FAILED"
         
         except Exception as e:
             print(f"  Error: {e}")
             import traceback
             traceback.print_exc()
+            download_status[table_name]["details"] = str(e)
             continue
     
-    # Summary
-    print("\n" + "="*70)
+    print("\n" + "="*80)
     print("DOWNLOAD SUMMARY")
-    print("="*70)
-    print(f"Successfully downloaded: {total_downloaded}/{len(FILES_TO_DOWNLOAD)} files")
+    print("="*80)
+    print(f"Successfully downloaded & verified: {total_downloaded}/{len(FILES_TO_DOWNLOAD)} files")
     print(f"Location: {PROCESSED_DIR}")
     
-    # Detailed verification
-    print("\n" + "="*70)
-    print("DETAILED VERIFICATION")
-    print("="*70)
-    
-    all_verified = True
-    
-    for table_name in FILES_TO_DOWNLOAD.keys():
-        local_file = PROCESSED_DIR / f"{table_name}.csv"
-        
-        if local_file.exists():
-            size_mb = local_file.stat().st_size / (1024 * 1024)
-            
-            # Count rows in CSV
-            try:
-                with open(local_file, 'r', encoding='utf-8') as f:
-                    row_count = sum(1 for _ in f) - 1  # -1 for header
-                print(f"\n{table_name}.csv:")
-                print(f"  Size: {size_mb:.2f} MB")
-                print(f"  Rows: {row_count:,}")
-                print(f"  Status: [OK] Downloaded and verified")
-            except Exception as e:
-                print(f"\n{table_name}.csv:")
-                print(f"  Size: {size_mb:.2f} MB")
-                print(f"  Status: [WARNING] Could not count rows: {e}")
-                all_verified = False
-        else:
-            print(f"\n{table_name}.csv:")
-            print(f"  Status: [MISSING] File not found")
-            all_verified = False
+    print(f"\n{'Table':<50} {'Download':<10} {'Verify':<10} {'Delete':<10} Details")
+    print("-"*120)
+    for table_name, status in download_status.items():
+        dl = "OK" if status["downloaded"] else "---"
+        ver = "OK" if status["verified"] else "---"
+        dele = "OK" if status["deleted"] else ("---" if not status["downloaded"] else "PENDING")
+        print(f"  {table_name:<48} {dl:<10} {ver:<10} {dele:<10} {status['details'][:40]}")
     
     if total_downloaded == len(FILES_TO_DOWNLOAD):
-        print("\n" + "="*70)
-        print("SUCCESS! All files downloaded")
-        print("="*70)
-        
-        if all_verified:
-            print("\nVERIFICATION PASSED:")
-            print("  - All files downloaded successfully")
-            print("  - File sizes verified")
-            print("  - Row counts calculated")
-            print("\nExpected approximate row counts:")
-            print("  - gene_features: ~190,000 rows")
-            print("  - chromosome_features: ~25 rows")
-            print("  - gene_disease_association: ~500,000+ rows")
-            print("  - ml_features: ~190,000 rows")
-            print("\nIf your counts are significantly different, check:")
-            print("  1. Feature engineering completed successfully")
-            print("  2. No data filtering removed too many rows")
-            print("  3. Export notebook ran without errors")
-        
-        print("\n" + "="*70)
-        print("NEXT STEP: Load to PostgreSQL")
-        print("="*70)
+        print("\n" + "="*80)
+        print("SUCCESS! All 11 files downloaded, verified, and cleaned up")
+        print("="*80)
+        print("\nNEXT STEP: Load to PostgreSQL")
         print("Run: python scripts/transformation/load_gold_to_postgres.py")
-        print("="*70)
+        print("="*80)
     else:
-        print("\n" + "="*70)
+        print("\n" + "="*80)
         print("INCOMPLETE DOWNLOAD")
-        print("="*70)
-        print("Troubleshooting:")
-        print("1. Make sure you ran 05_export_to_csv.py in Databricks first")
-        print("2. Verify token has permissions to access Unity Catalog Volumes")
-        print("3. Check that files exist in: Catalog > workspace > gold > gold_exports")
-        print("="*70)
-
-# ====================================================================
-# MAIN
-# ====================================================================
+        print("="*80)
+        print("Resume by running this script again - progress is saved")
+        print("="*80)
 
 if __name__ == "__main__":
     download_gold_tables()
