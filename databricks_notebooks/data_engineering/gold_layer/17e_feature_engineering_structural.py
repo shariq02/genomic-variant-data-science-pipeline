@@ -483,6 +483,20 @@ print(f"Structural variant ML features: {feature_count:,} SVs")
 
 # COMMAND ----------
 
+# DBTITLE 1,Deduplicate by sv_id
+print("\nDEDUPLICATING BY SV_ID")
+print("="*80)
+
+before_count = structural_features.count()
+structural_features = structural_features.dropDuplicates(["sv_id"])
+after_count = structural_features.count()
+
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication: {after_count:,}")
+print(f"Duplicates removed: {before_count - after_count:,}")
+
+# COMMAND ----------
+
 # DBTITLE 1,Save to Gold Layer
 structural_features.write \
     .mode("overwrite") \
@@ -546,3 +560,7 @@ print("  - Chromosome-level disruption rates")
 
 print("\nTable created:")
 print(f"  {catalog_name}.gold.structural_variant_ml_features")
+
+# COMMAND ----------
+
+

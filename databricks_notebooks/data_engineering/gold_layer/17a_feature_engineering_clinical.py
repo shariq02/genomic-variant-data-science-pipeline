@@ -413,6 +413,20 @@ print(f"Clinical ML features: {feature_count:,} variants")
 
 # COMMAND ----------
 
+# DBTITLE 1,Deduplicate by variant_id
+print("\nDEDUPLICATING BY VARIANT_ID")
+print("="*80)
+
+before_count = clinical_features.count()
+clinical_features = clinical_features.dropDuplicates(["variant_id"])
+after_count = clinical_features.count()
+
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication: {after_count:,}")
+print(f"Duplicates removed: {before_count - after_count:,}")
+
+# COMMAND ----------
+
 # DBTITLE 1,Save to Gold Layer
 clinical_features.write \
     .mode("overwrite") \
@@ -463,7 +477,7 @@ clinical_features.groupBy("gene_mutation_burden").count().orderBy("count", ascen
 print("CLINICAL FEATURE ENGINEERING COMPLETE")
 print("="*80)
 
-print(f"\nTotal features created: {feature_count:,}")
+print(f"\nTotal features created: {after_count:,}")
 
 print("\nUse Cases Covered:")
 print("  1. Clinical Pathogenicity Prediction")

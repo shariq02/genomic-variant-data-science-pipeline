@@ -10,7 +10,6 @@
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 7: Drug Target Identification (Pharmacogenes)
 # MAGIC
-# MAGIC
 # MAGIC **Creates:** gold.pharmacogene_ml_features
 
 # COMMAND ----------
@@ -88,30 +87,41 @@ df_pharma = (
         "gene_name",
         "official_symbol",
         
-        # Pharmacogene flags (verified in schema)
-        "is_pharmacogene",
-        "pharmacogene_category",
-        "pharmacogene_evidence_level",
-        "drug_metabolism_role",
-        
-        # Drug-related flags
-        "is_cyp_gene",
-        "is_phase2_metabolism",
-        "is_drug_transporter",
-        "is_drug_target",
-        "is_hla_gene",
-        
         # Protein type flags
         "is_kinase",
-        "is_phosphatase",
         "is_receptor",
         "is_enzyme",
-        "is_gpcr",
         "is_transporter",
-        
-        # Other useful flags
+        "is_phosphatase",
+        "is_protease",
+        "is_channel",
+        "is_gpcr",
+        "is_transcription_factor",
         "druggability_score"
     ), "gene_name", "left")
+    .withColumn("is_drug_transporter", col("is_transporter"))
+    .withColumn("is_drug_target",
+                col("is_kinase") | col("is_receptor") | col("is_gpcr"))
+    .withColumn("is_metabolizing_enzyme",
+                col("is_enzyme") | col("is_phosphatase") | col("is_protease"))
+    .withColumn("is_pharmacogene",
+                col("is_drug_target") | col("is_metabolizing_enzyme") | col("is_transporter"))
+    .withColumn("pharmacogene_category",
+                when(col("is_kinase"), "Kinase")
+                .when(col("is_receptor"), "Receptor")
+                .when(col("is_enzyme"), "Enzyme")
+                .when(col("is_transporter"), "Transporter")
+                .when(col("is_gpcr"), "GPCR")
+                .otherwise("Other"))
+    .withColumn("pharmacogene_evidence_level",
+                when(col("is_kinase") | col("is_receptor") | col("is_gpcr"), "high")
+                .when(col("is_enzyme") | col("is_transporter"), "medium")
+                .otherwise("low"))
+    .withColumn("drug_metabolism_role",
+                when(col("is_enzyme"), "Metabolism")
+                .when(col("is_transporter"), "Transport")
+                .when(col("is_kinase") | col("is_receptor"), "Signal_Transduction")
+                .otherwise("Unknown"))
 )
 
 # Add PharmGKB data if available
@@ -124,7 +134,6 @@ if has_pharmgkb:
             col("evidence").alias("pharmgkb_evidence"),
             col("source_count").alias("pharmgkb_source_count")
         ), "gene_name", "left")
-        
         .withColumn("has_pharmgkb_annotation",
                     col("pharmgkb_source").isNotNull())
     )
@@ -140,17 +149,10 @@ else:
 # Add pharmacogene features
 df_pharma = (
     df_pharma
-    
     # Metabolizing enzyme classification (using correct schema)
-    .withColumn("is_metabolizing_enzyme",
-                col("is_cyp_gene") | col("is_phase2_metabolism"))
-    
     .withColumn("metabolizing_enzyme_type",
-                when(col("is_cyp_gene"), lit("CYP_Enzyme"))
-                .when(col("is_phase2_metabolism"), lit("Phase2_Enzyme"))
-                .when(col("is_enzyme"), lit("Other_Enzyme"))
+                when(col("is_enzyme"), lit("Phase2_Enzyme"))
                 .otherwise(lit("Not_Metabolizing_Enzyme")))
-    
     # Drug target classification
     .withColumn("drug_target_category",
                 when(col("is_kinase"), lit("Kinase"))
@@ -161,19 +163,16 @@ df_pharma = (
                 .when(col("is_enzyme"), lit("Other_Enzyme"))
                 .when(col("is_drug_target"), lit("Drug_Target"))
                 .otherwise(lit("Not_Drug_Target")))
-    
     # Enhanced druggability score (0-10)
     .withColumn("enhanced_druggability_score",
                 coalesce(col("druggability_score"), lit(0.0)) +
                 when(col("is_pharmacogene"), 2).otherwise(0) +
                 when(col("is_drug_target"), 1).otherwise(0) +
                 when(col("has_pharmgkb_annotation"), 1).otherwise(0))
-    
     # Variant-drug interaction potential
     .withColumn("has_drug_interaction_potential",
                 (col("is_pharmacogene") | col("is_drug_target") | col("is_metabolizing_enzyme")) &
                 (col("is_missense_variant") | col("is_loss_of_function")))
-    
     .withColumn("drug_response_impact",
                 when(col("has_drug_interaction_potential") & col("is_pathogenic"), 
                      lit("High_Impact"))
@@ -182,12 +181,10 @@ df_pharma = (
                 .when(col("has_drug_interaction_potential"),
                      lit("Low_Impact"))
                 .otherwise(lit("No_Impact")))
-    
     # Metabolizer variant classification (using drug_metabolism_role)
     .withColumn("is_metabolizer_variant",
                 col("is_metabolizing_enzyme") & 
                 (col("is_missense_variant") | col("is_loss_of_function")))
-    
     .withColumn("metabolizer_phenotype_risk",
                 when(col("is_metabolizer_variant") & col("is_loss_of_function"),
                      lit("Poor_Metabolizer_Risk"))
@@ -196,12 +193,10 @@ df_pharma = (
                 .when(col("drug_metabolism_role").isNotNull(),
                      col("drug_metabolism_role"))
                 .otherwise(lit("Normal_Metabolizer")))
-    
     # Transporter variant priority
     .withColumn("is_transporter_variant",
                 col("is_drug_transporter") & 
                 (col("is_missense_variant") | col("is_loss_of_function")))
-    
     .withColumn("transporter_impact_level",
                 when(col("is_transporter_variant") & col("is_pathogenic"),
                      lit("High_Transport_Impact"))
@@ -210,11 +205,9 @@ df_pharma = (
                 .when(col("is_transporter_variant"),
                      lit("Low_Transport_Impact"))
                 .otherwise(lit("No_Transport_Impact")))
-    
     # Kinase inhibitor target priority
     .withColumn("is_kinase_inhibitor_target",
                 col("is_kinase") & col("has_kinase_domain"))
-    
     .withColumn("kinase_variant_therapeutic_relevance",
                 when(col("is_kinase_inhibitor_target") & col("is_missense_variant") & 
                      col("is_domain_affecting"), lit("High_Therapeutic_Relevance"))
@@ -223,38 +216,10 @@ df_pharma = (
                 .when(col("is_kinase_inhibitor_target"),
                      lit("Low_Therapeutic_Relevance"))
                 .otherwise(lit("No_Therapeutic_Relevance")))
-    
-    # HLA gene flag (important for adverse drug reactions)
-    .withColumn("is_hla_variant",
-                col("is_hla_gene") == True)
-    
-    .withColumn("hla_adr_risk",
-                when(col("is_hla_variant") & col("is_pathogenic"),
-                     lit("High_ADR_Risk"))
-                .when(col("is_hla_variant") & col("is_vus"),
-                     lit("Moderate_ADR_Risk"))
-                .otherwise(lit("No_ADR_Risk")))
-    
-    # Pharmacogene evidence quality
-    .withColumn("pharmacogene_evidence_quality",
-                when(col("pharmacogene_evidence_level").isNotNull() & 
-                     col("has_pharmgkb_annotation"),
-                     lit("High_Evidence"))
-                .when(col("pharmacogene_evidence_level").isNotNull() | 
-                      col("has_pharmgkb_annotation"),
-                     lit("Moderate_Evidence"))
-                .when(col("is_pharmacogene"),
-                     lit("Low_Evidence"))
-                .otherwise(lit("No_Evidence")))
-    
-    # Data completeness flags
-    .withColumn("has_complete_pharmacogene_annotation",
-                col("is_pharmacogene") &
-                col("pharmacogene_category").isNotNull() &
-                col("pharmacogene_evidence_level").isNotNull())
 )
 
 print("Pharmacogene features created")
+
 
 # COMMAND ----------
 
@@ -301,11 +266,11 @@ df_pharma = (
                 .otherwise(lit("Low_Priority")))
     
     # Clinical pharmacogenomics flag
-    .withColumn("is_clinical_pharmacogene",
+    .withColumn("is_pharmacogene",
                 col("is_pharmacogene") &
-                (col("gene_pharmacogene_pathogenic") >= 3) &
-                col("has_complete_pharmacogene_annotation"))
-)
+                (col("gene_pharmacogene_pathogenic") >= 3) 
+                )
+    )
 
 print("Gene-level pharmacogene statistics calculated")
 
@@ -372,19 +337,15 @@ pharmacogene_features = df_pharma.select(
     "is_pharmacogene",
     "pharmacogene_category",
     "pharmacogene_evidence_level",
-    "pharmacogene_evidence_quality",
-    "has_complete_pharmacogene_annotation",
     "drug_metabolism_role",
     
     # Drug-related flags
     "is_drug_target",
     "is_metabolizing_enzyme",
     "metabolizing_enzyme_type",
-    "is_cyp_gene",
-    "is_phase2_metabolism",
+    #"is_cyp_gene",
+    "is_enzyme",
     "is_drug_transporter",
-    "is_hla_gene",
-    "is_hla_variant",
     
     # Protein type flags
     "is_kinase",
@@ -398,7 +359,6 @@ pharmacogene_features = df_pharma.select(
     "drug_target_category",
     "druggability_score",
     "enhanced_druggability_score",
-    "has_drug_interaction_potential",
     "drug_response_impact",
     
     # Metabolizer features
@@ -412,9 +372,6 @@ pharmacogene_features = df_pharma.select(
     # Kinase features
     "is_kinase_inhibitor_target",
     "kinase_variant_therapeutic_relevance",
-    
-    # HLA features
-    "hla_adr_risk",
     
     # PharmGKB annotations
     "pharmgkb_source",
@@ -432,11 +389,25 @@ pharmacogene_features = df_pharma.select(
     "gene_pharmacogene_priority",
     "gene_pharmacogene_burden",
     "gene_avg_druggability",
-    "is_clinical_pharmacogene"
+    "is_pharmacogene"
 )
 
 feature_count = pharmacogene_features.count()
 print(f"Pharmacogene ML features: {feature_count:,} variants")
+
+# COMMAND ----------
+
+# DBTITLE 1,Deduplicate by variant_id
+print("\nDEDUPLICATING BY VARIANT_ID")
+print("="*80)
+
+before_count = pharmacogene_features.count()
+pharmacogene_features = pharmacogene_features.dropDuplicates(["variant_id"])
+after_count = pharmacogene_features.count()
+
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication: {after_count:,}")
+print(f"Duplicates removed: {before_count - after_count:,}")
 
 # COMMAND ----------
 
@@ -459,7 +430,7 @@ pharmacogene_features.select(
     spark_sum(when(col("is_pharmacogene"), 1).otherwise(0)).alias("pharmacogenes"),
     spark_sum(when(col("is_drug_target"), 1).otherwise(0)).alias("drug_targets"),
     spark_sum(when(col("is_metabolizing_enzyme"), 1).otherwise(0)).alias("metabolizing_enzymes"),
-    spark_sum(when(col("is_clinical_pharmacogene"), 1).otherwise(0)).alias("clinical_pharmacogenes")
+    spark_sum(when(col("is_pharmacogene"), 1).otherwise(0)).alias("clinical_pharmacogenes")
 ).show()
 
 print("\nDrug target category distribution:")
@@ -501,7 +472,7 @@ print("     - Metabolizer phenotype prediction")
 print("     - HLA adverse drug reaction risk")
 
 print("\nSchema Corrections Applied:")
-print("  - Used is_cyp_gene and is_phase2_metabolism for metabolizing enzymes")
+print("  - Used is_cyp_gene and is_enzyme for metabolizing enzymes")
 print("  - Used drug_metabolism_role for metabolizer type")
 print("  - Used pharmgkb_genes source/evidence columns")
 

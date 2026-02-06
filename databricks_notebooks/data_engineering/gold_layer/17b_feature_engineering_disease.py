@@ -1,5 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
+# MAGIC
 # MAGIC #### FEATURE ENGINEERING - DISEASE USE CASES
 # MAGIC ##### Module 2: Disease Association, Polygenic Risk, Gene Prioritization
 # MAGIC
@@ -35,7 +36,6 @@ print("SPARK INITIALIZED FOR DISEASE FEATURE ENGINEERING - MODULE 2")
 
 # COMMAND ----------
 
-# DBTITLE 1,Load Required Tables
 # DBTITLE 1,Load Required Tables
 print("\nLOADING TABLES")
 print("="*80)
@@ -148,7 +148,6 @@ print("Disease enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Use Case 4 - Disease Association Features
 # DBTITLE 1,USE CASE 4 - Disease Association Discovery
 print("\nUSE CASE 4: DISEASE ASSOCIATION DISCOVERY")
 print("="*80)
@@ -232,7 +231,6 @@ df_disease = (
             "is_multi_disease_gene",
             "disease_association_strength",
             "is_omim_gene",
-            "is_pharmacogene"
         ),
         df_variants_enriched.gene_name == col("gene_name_lookup"),
         "left"
@@ -435,11 +433,11 @@ df_disease = (
                 (coalesce(col("gene_total_variants"), lit(0)) >= 50) &
                 ~col("is_clinically_actionable"))
     
-    # Pharmacogene prioritization
-    .withColumn("is_pharmacogene_priority",
-                col("is_pharmacogene") &
-                col("is_disease_associated") &
-                (coalesce(col("gene_pathogenic_count"), lit(0)) >= 3))
+    # Drug development potential
+    .withColumn("has_drug_development_potential",
+            col("is_disease_associated") &
+            (coalesce(col("gene_pathogenic_count"), lit(0)) >= 3) &
+            (coalesce(col("gene_disease_diversity"), lit(0)) >= 1))
     
     # Annotation quality-based prioritization
     .withColumn("has_excellent_annotation",
@@ -562,7 +560,6 @@ else:
 # COMMAND ----------
 
 # DBTITLE 1,Create Final Disease Features Table
-# DBTITLE 1,Create Final Disease Features Table
 print("\nCREATING DISEASE ML FEATURES")
 print("="*80)
 
@@ -620,8 +617,7 @@ base_features = [
     "gene_priority_tier",
     "is_clinically_actionable",
     "is_research_candidate",
-    "is_pharmacogene",
-    "is_pharmacogene_priority",
+    "has_drug_development_potential",
     "gene_annotation_score",
     "has_excellent_annotation",
     "annotation_priority_level",
@@ -639,7 +635,6 @@ enhanced_features = [
     "is_cardiovascular_gene_variant",
     "is_metabolic_gene_variant",
     "is_rare_disease_gene_variant",
-    "has_drug_development_potential",
     "is_highly_actionable"
 ]
 
@@ -687,6 +682,20 @@ disease_features = df_disease.select(*valid_features)
 feature_count = disease_features.count()
 print(f"Disease ML features: {feature_count:,} variants")
 print(f"Feature columns: {len(valid_features)}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Deduplicate by variant_id
+print("\nDEDUPLICATING BY VARIANT_ID")
+print("="*80)
+
+before_count = disease_features.count()
+disease_features = disease_features.dropDuplicates(["variant_id"])
+after_count = disease_features.count()
+
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication: {after_count:,}")
+print(f"Duplicates removed: {before_count - after_count:,}")
 
 # COMMAND ----------
 
