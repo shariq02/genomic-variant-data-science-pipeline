@@ -351,7 +351,6 @@ pharmacogene_features = df_pharma.select(
     "is_kinase",
     "is_phosphatase",
     "is_receptor",
-    "is_enzyme",
     "is_gpcr",
     "is_transporter",
     
@@ -389,7 +388,6 @@ pharmacogene_features = df_pharma.select(
     "gene_pharmacogene_priority",
     "gene_pharmacogene_burden",
     "gene_avg_druggability",
-    "is_pharmacogene"
 )
 
 feature_count = pharmacogene_features.count()
@@ -445,12 +443,8 @@ pharmacogene_features.groupBy("metabolizer_phenotype_risk").count().orderBy("cou
 print("\nGene pharmacogene priority distribution:")
 pharmacogene_features.groupBy("gene_pharmacogene_priority").count().show()
 
-print("\nPharmacogene evidence quality:")
-pharmacogene_features.groupBy("pharmacogene_evidence_quality").count().orderBy("count", ascending=False).show()
-
 print("\nData completeness:")
 pharmacogene_features.select(
-    spark_sum(when(col("has_complete_pharmacogene_annotation"), 1).otherwise(0)).alias("complete_annotation"),
     spark_sum(when(col("has_pharmgkb_annotation"), 1).otherwise(0)).alias("has_pharmgkb"),
     spark_sum(when(col("gene_is_validated"), 1).otherwise(0)).alias("gene_validated")
 ).show()
@@ -461,7 +455,7 @@ pharmacogene_features.select(
 print("PHARMACOGENE FEATURE ENGINEERING COMPLETE")
 print("="*80)
 
-print(f"\nTotal features created: {feature_count:,}")
+print(f"\nTotal features created: {after_count:,}")
 
 print("\nUse Cases Covered:")
 print("  7. Drug Target Identification")
