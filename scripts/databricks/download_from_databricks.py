@@ -303,10 +303,6 @@ def download_gold_tables():
     if total_downloaded == len(FILES_TO_DOWNLOAD):
         print("\n" + "="*80)
         print("SUCCESS! All 11 files downloaded, verified, and cleaned up")
-        print("="*80)
-        print("\nNEXT STEP: Load to PostgreSQL")
-        print("Run: python scripts/transformation/load_gold_to_postgres.py")
-        print("="*80)
     else:
         print("\n" + "="*80)
         print("INCOMPLETE DOWNLOAD")
