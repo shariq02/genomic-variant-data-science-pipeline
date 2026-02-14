@@ -128,9 +128,6 @@ df_genes_coord = (
         col("end_position").alias("gene_end"),
         "gene_length",
         "is_transporter",
-        
-        # Gene flags from schema
-        #"is_pharmacogene",
         "is_kinase",
         "is_receptor",
         "is_enzyme",
@@ -141,7 +138,6 @@ df_genes_coord = (
     .withColumn("is_pharmacogene",
             col("is_kinase") | col("is_receptor") | col("is_enzyme") | 
             col("is_gpcr") | col("is_transporter"))
-    # Derive gene flags
     .withColumn("is_omim_gene",
                 col("mim_id").isNotNull())
 )
@@ -149,18 +145,16 @@ df_genes_coord = (
 genes_with_coords_count = df_genes_coord.count()
 print(f"Genes with coordinates: {genes_with_coords_count:,}")
 
-# Join SVs with genes on chromosome (reduces search space)
-# Then filter for actual overlap
+# CRITICAL FIX: Keep inner join for finding overlaps, but process separately
 df_sv_gene_overlap = (
     df_sv
     .join(
         df_genes_coord,
         df_sv.chromosome == df_genes_coord.chromosome,
-        "inner"
+        "inner"  # Keep inner - this finds actual overlaps only
     )
     
     # Filter for actual coordinate overlap
-    # SV overlaps gene if: (SV_start <= Gene_end) AND (SV_end >= Gene_start)
     .filter(
         (col("start_pos") <= col("gene_end")) &
         (col("end_pos") >= col("gene_start"))
@@ -184,14 +178,12 @@ df_sv_gene_overlap = (
     .withColumn("sv_overlap_percentage",
                 (col("overlap_size") / col("sv_size")) * 100)
     
-    # Overlap classification
     .withColumn("overlap_type",
                 when(col("gene_overlap_percentage") >= 90, lit("Complete_Gene_Overlap"))
                 .when(col("gene_overlap_percentage") >= 50, lit("Major_Gene_Overlap"))
                 .when(col("gene_overlap_percentage") >= 10, lit("Partial_Gene_Overlap"))
                 .otherwise(lit("Minor_Gene_Overlap")))
     
-    # Functional impact based on gene and SV type
     .withColumn("gene_disruption_type",
                 when((col("sv_type_class") == "Deletion") & 
                      (col("gene_overlap_percentage") > 50), lit("Gene_Loss"))
@@ -203,6 +195,11 @@ df_sv_gene_overlap = (
 
 overlap_count = df_sv_gene_overlap.count()
 print(f"Found {overlap_count:,} SV-gene overlaps")
+
+# Show overlap rate
+svs_with_overlaps = df_sv_gene_overlap.select("sv_id").distinct().count()
+total_svs = df_sv.count()
+print(f"SVs with gene overlaps: {svs_with_overlaps:,} / {total_svs:,} ({svs_with_overlaps/total_svs*100:.1f}%)")
 
 # COMMAND ----------
 
@@ -256,9 +253,10 @@ df_sv = (
     df_sv
     .join(sv_gene_summary, "sv_id", "left")
     
-    # Fill nulls for SVs with no gene overlap
+    # Fill nulls for SVs with no gene overlap - FIXED: Added "affected_genes"
     .fillna({
         "affected_gene_count": 0,
+        "affected_genes": "",  # ← FIX: Added this
         "complete_overlap_genes": 0,
         "major_overlap_genes": 0,
         "pharmacogenes_affected": 0,
@@ -267,8 +265,8 @@ df_sv = (
         "omim_genes_affected": 0,
         "genes_lost": 0,
         "genes_gained": 0,
-        "avg_gene_overlap_pct": 0,
-        "max_gene_overlap_pct": 0
+        "avg_gene_overlap_pct": 0.0,  # ← FIX: Changed to 0.0 for double
+        "max_gene_overlap_pct": 0.0   # ← FIX: Changed to 0.0 for double
     })
     
     # Gene overlap flags
@@ -286,6 +284,7 @@ df_sv = (
 )
 
 print("Merge complete")
+print(f"SVs with gene overlaps: {df_sv.filter(col('has_gene_overlap')).count():,}")
 
 # COMMAND ----------
 
@@ -371,6 +370,8 @@ print("SV impact scores calculated")
 # DBTITLE 1,Calculate Chromosome and Study Statistics
 print("\nCALCULATING CHROMOSOME AND STUDY STATISTICS")
 print("="*80)
+
+# CRITICAL FIX: Calculate these AFTER has_gene_overlap and is_high_risk_sv exist
 
 # Chromosome-level stats
 chromosome_stats = (
