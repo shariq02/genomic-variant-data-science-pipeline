@@ -55,7 +55,7 @@ print("="*80)
 
 try:
     # Load the GENCODE table (you created this from CSV upload)
-    gencode_coords = spark.table(f"{catalog_name}.silver.gencode_gene_coordinates")
+    gencode_coords = spark.table(f"{catalog_name}.default.gencode_gene_coordinates")
     
     gencode_count = gencode_coords.count()
     print(f"✓ GENCODE genes loaded: {gencode_count:,}")
@@ -69,7 +69,7 @@ try:
     has_gencode = True
     
 except Exception as e:
-    print(f"✗ ERROR: Could not load gencode_gene_coordinates table")
+    print(f" ERROR: Could not load gencode_gene_coordinates table")
     print(f"  Error: {e}")
     print("\n  Please ensure:")
     print("    1. Run extract_gencode_coordinates.py locally")
@@ -94,8 +94,8 @@ variant_coords = (
     .filter(col("chromosome").isNotNull())
     .groupBy("gene_name", "chromosome")
     .agg(
-        spark_min("position").alias("start_position"),
-        spark_max("position").alias("end_position"),
+        spark_min(col("position").cast("long")).alias("start_position"),
+        spark_max(col("position").cast("long")).alias("end_position"),
         count("*").alias("variant_count")
     )
     .withColumn("gene_length", col("end_position") - col("start_position"))
@@ -105,7 +105,7 @@ variant_coords = (
 )
 
 variant_count = variant_coords.count()
-print(f"✓ Coordinates from variants: {variant_count:,}")
+print(f" Coordinates from variants: {variant_count:,}")
 
 print("\nSample variant-derived coordinates:")
 variant_coords.show(10, truncate=False)
@@ -146,7 +146,7 @@ else:
     merged_coords = variant_coords
 
 merged_count = merged_coords.count()
-print(f"\n✓ Total unique coordinates: {merged_count:,}")
+print(f"\n Total unique coordinates: {merged_count:,}")
 
 print("\nSource breakdown:")
 merged_coords.groupBy("source").count().orderBy("count", ascending=False).show()
@@ -213,7 +213,7 @@ df_genes_updated.write \
     .option("overwriteSchema", "true") \
     .saveAsTable(f"{catalog_name}.silver.genes_ultra_enriched")
 
-print("✓ genes_ultra_enriched updated")
+print(" genes_ultra_enriched updated")
 
 # COMMAND ----------
 
@@ -234,7 +234,7 @@ improvement_pct = improvement / total * 100
 print(f"Total genes: {total:,}")
 print(f"\nBEFORE: {with_coords:,} ({with_coords/total*100:.1f}%)")
 print(f"AFTER:  {with_coords_final:,} ({with_coords_final/total*100:.1f}%)")
-print(f"\n✓ IMPROVEMENT: +{improvement:,} genes (+{improvement_pct:.1f} percentage points)")
+print(f"\n IMPROVEMENT: +{improvement:,} genes (+{improvement_pct:.1f} percentage points)")
 
 print("\nCoordinate sources:")
 df_genes_final.groupBy("coordinate_source").count().orderBy("count", ascending=False).show()
@@ -272,9 +272,9 @@ invalid_lengths = df_genes_final.filter(
 ).count()
 
 if invalid_lengths > 0:
-    print(f"⚠ WARNING: {invalid_lengths:,} genes have invalid lengths (<=0)")
+    print(f" WARNING: {invalid_lengths:,} genes have invalid lengths (<=0)")
 else:
-    print(f"✓ PASS: All gene lengths valid (>0)")
+    print(f" PASS: All gene lengths valid (>0)")
 
 # COMMAND ----------
 
@@ -304,29 +304,29 @@ print(f"\nFinal coverage: {with_coords_final/total*100:.1f}%")
 print(f"Improvement: +{improvement_pct:.1f} percentage points")
 
 if coverage_rate >= 0.50:
-    print("\n✓ EXCELLENT: >50% coverage - SV mapping will work very well")
+    print("\n EXCELLENT: >50% coverage - SV mapping will work very well")
     success_level = "excellent"
 elif coverage_rate >= 0.30:
-    print("\n✓ GOOD: 30-50% coverage - SV mapping should work well")
+    print("\n GOOD: 30-50% coverage - SV mapping should work well")
     success_level = "good"
 elif coverage_rate >= 0.15:
-    print("\n⚠ MODERATE: 15-30% coverage - SV mapping will have limited coverage")
+    print("\n MODERATE: 15-30% coverage - SV mapping will have limited coverage")
     success_level = "moderate"
 else:
-    print("\n✗ POOR: <15% coverage - SV mapping may not work")
+    print("\n POOR: <15% coverage - SV mapping may not work")
     success_level = "poor"
 
 print("\n" + "="*80)
 print("NEXT STEPS")
 print("="*80)
 if success_level in ["excellent", "good"]:
-    print("✓ Ready to run: 17e_feature_engineering_structural.py")
+    print(" Ready to run: 17e_feature_engineering_structural.py")
     print("  Expected: 40-60% of SVs will have gene overlaps")
 elif success_level == "moderate":
-    print("⚠ Can proceed but expect lower SV coverage")
+    print(" Can proceed but expect lower SV coverage")
     print("  Run: 17e_feature_engineering_structural.py")
 else:
-    print("✗ Need to investigate gene coordinate enrichment")
+    print(" Need to investigate gene coordinate enrichment")
     print("  Check: Why so few genes have coordinates?")
 
 print("="*80)
