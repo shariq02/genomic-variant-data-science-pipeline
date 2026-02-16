@@ -3,8 +3,8 @@
 # MAGIC #### SMART EXPORT - CHANGED TABLES ONLY
 # MAGIC ##### Compares Databricks vs exported versions, exports only changed tables
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 2026
 
 # COMMAND ----------
