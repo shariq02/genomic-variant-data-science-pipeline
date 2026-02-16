@@ -115,9 +115,9 @@ print("Basic SV features created")
 # DBTITLE 1,Map SVs to Genes Using Coordinate Overlap
 print("\nMAPPING SVs TO GENES (COORDINATE OVERLAP)")
 print("="*80)
-print("This may take a few minutes for large datasets...")
+print("Filtering out biological-region LOC genes...")
 
-# Prepare genes with coordinates
+# Prepare genes with coordinates - EXCLUDE biological-region LOC genes
 df_genes_coord = (
     df_genes
     .select(
@@ -127,6 +127,7 @@ df_genes_coord = (
         col("start_position").alias("gene_start"),
         col("end_position").alias("gene_end"),
         "gene_length",
+        "gene_type",
         "is_transporter",
         "is_kinase",
         "is_receptor",
@@ -135,6 +136,9 @@ df_genes_coord = (
         "mim_id"
     )
     .filter(col("start_position").isNotNull() & col("end_position").isNotNull())
+    .filter(
+        ~(col("gene_name").startswith("LOC") & (col("gene_type") == "biological-region"))
+    )
     .withColumn("is_pharmacogene",
             col("is_kinase") | col("is_receptor") | col("is_enzyme") | 
             col("is_gpcr") | col("is_transporter"))
@@ -143,15 +147,14 @@ df_genes_coord = (
 )
 
 genes_with_coords_count = df_genes_coord.count()
-print(f"Genes with coordinates: {genes_with_coords_count:,}")
+print(f"Genes with coordinates (real genes only): {genes_with_coords_count:,}")
 
-# CRITICAL FIX: Keep inner join for finding overlaps, but process separately
 df_sv_gene_overlap = (
     df_sv
     .join(
         df_genes_coord,
         df_sv.chromosome == df_genes_coord.chromosome,
-        "inner"  # Keep inner - this finds actual overlaps only
+        "inner"  
     )
     
     # Filter for actual coordinate overlap
@@ -173,10 +176,14 @@ df_sv_gene_overlap = (
                 col("overlap_end") - col("overlap_start"))
     
     .withColumn("gene_overlap_percentage",
-                (col("overlap_size") / col("gene_length")) * 100)
+                when(col("gene_length") > 0,
+                     (col("overlap_size") / col("gene_length")) * 100)
+                .otherwise(0))
     
     .withColumn("sv_overlap_percentage",
-                (col("overlap_size") / col("sv_size")) * 100)
+                when(col("sv_size") > 0,
+                     (col("overlap_size") / col("sv_size")) * 100)
+                .otherwise(0))
     
     .withColumn("overlap_type",
                 when(col("gene_overlap_percentage") >= 90, lit("Complete_Gene_Overlap"))
@@ -385,7 +392,9 @@ chromosome_stats = (
         avg("affected_gene_count").alias("chr_avg_genes_per_sv")
     )
     .withColumn("chr_gene_disruption_rate",
-                col("chr_gene_affecting_svs") / col("chr_total_svs"))
+                when(col("chr_total_svs") > 0,
+                     col("chr_gene_affecting_svs") / col("chr_total_svs"))
+                .otherwise(0))
 )
 
 # Study-level stats

@@ -16,7 +16,7 @@
 # DBTITLE 1,Import Libraries
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    col, when, coalesce, lit,
+    col, when, coalesce, lit, length,
     min as spark_min, max as spark_max, count
 )
 
@@ -58,18 +58,18 @@ try:
     gencode_coords = spark.table(f"{catalog_name}.default.gencode_gene_coordinates")
     
     gencode_count = gencode_coords.count()
-    print(f"✓ GENCODE genes loaded: {gencode_count:,}")
+    print(f"GENCODE genes loaded: {gencode_count:,}")
     
     print("\nSample GENCODE data:")
     gencode_coords.show(10, truncate=False)
     
     print("\nGENCODE chromosomes:")
-    gencode_coords.groupBy("chromosome").count().orderBy(col("chromosome").cast("int")).show(25)
+    gencode_coords.groupBy("chromosome").count().orderBy("count", ascending=False).show(25)
     
     has_gencode = True
     
 except Exception as e:
-    print(f" ERROR: Could not load gencode_gene_coordinates table")
+    print(f"ERROR: Could not load gencode_gene_coordinates table")
     print(f"  Error: {e}")
     print("\n  Please ensure:")
     print("    1. Run extract_gencode_coordinates.py locally")
@@ -152,7 +152,7 @@ print("\nSource breakdown:")
 merged_coords.groupBy("source").count().orderBy("count", ascending=False).show()
 
 print("\nChromosome distribution:")
-merged_coords.groupBy("chromosome").count().orderBy(col("chromosome").cast("int")).show(25)
+merged_coords.groupBy("chromosome").count().orderBy("count", ascending=False).show(25)
 
 # COMMAND ----------
 
@@ -197,13 +197,7 @@ df_genes_updated = (
                          col("end_position") - col("start_position"))
                 ))
     
-    # Update coordinate_source
-    .withColumn("coordinate_source",
-                when(col("coordinate_source").isNotNull() & (col("coordinate_source") != "missing"),
-                     col("coordinate_source"))  # Keep existing
-                .when(col("new_source").isNotNull(), col("new_source"))  # Use new
-                .otherwise(lit("missing")))
-    
+    # Drop temporary columns
     .drop("new_start", "new_end", "new_length", "new_source")
 )
 
@@ -213,7 +207,7 @@ df_genes_updated.write \
     .option("overwriteSchema", "true") \
     .saveAsTable(f"{catalog_name}.silver.genes_ultra_enriched")
 
-print(" genes_ultra_enriched updated")
+print("genes_ultra_enriched updated")
 
 # COMMAND ----------
 
@@ -236,11 +230,8 @@ print(f"\nBEFORE: {with_coords:,} ({with_coords/total*100:.1f}%)")
 print(f"AFTER:  {with_coords_final:,} ({with_coords_final/total*100:.1f}%)")
 print(f"\n IMPROVEMENT: +{improvement:,} genes (+{improvement_pct:.1f} percentage points)")
 
-print("\nCoordinate sources:")
-df_genes_final.groupBy("coordinate_source").count().orderBy("count", ascending=False).show()
-
 print("\nChromosome coverage:")
-df_genes_final.filter(col("start_position").isNotNull()).groupBy("chromosome").count().orderBy(col("chromosome").cast("int")).show(25)
+df_genes_final.filter(col("start_position").isNotNull()).groupBy("chromosome").count().orderBy("count", ascending=False).show(25)
 
 # COMMAND ----------
 
