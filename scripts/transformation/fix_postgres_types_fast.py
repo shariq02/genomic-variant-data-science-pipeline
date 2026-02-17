@@ -17,7 +17,7 @@ POSTGRES_USER = os.getenv('POSTGRES_USER', 'postgres')
 POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD')
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-SCHEMA_FILE = PROJECT_ROOT / 'documents' / 'schemas' / 'gold_table_schema.csv'
+SCHEMA_FILE = PROJECT_ROOT / 'documents' / 'schemas' / 'gold_schema_table.csv'
 
 print("="*80)
 print("POSTGRESQL TYPE CONVERSION SCRIPT - FAST VERSION")
@@ -89,6 +89,9 @@ for table_name in sorted(schema.keys()):
     print(f"\n{'='*80}")
     print(f"Processing: gold.{table_name}")
     print(f"{'='*80}")
+    table_start = time.time()
+    table_start_dt = time.strftime('%Y-%m-%d %H:%M:%S')
+    print(f"Start: {table_start_dt}")
     
     cur.execute(f"SELECT COUNT(*) FROM gold.{table_name}")
     row_count = cur.fetchone()[0]
@@ -145,6 +148,7 @@ for table_name in sorted(schema.keys()):
                         ALTER COLUMN {col} TYPE INTEGER 
                         USING CASE 
                             WHEN {col}::TEXT ~ '^-?[0-9]+$' THEN {col}::INTEGER
+                            WHEN {col}::TEXT ~ '^-?[0-9]+\\.0+$' THEN {col}::DOUBLE PRECISION::INTEGER
                             ELSE NULL
                         END
                     """)
@@ -187,7 +191,10 @@ for table_name in sorted(schema.keys()):
     stats['columns_failed'] += table_stats['failed']
     stats['columns_skipped'] += table_stats['skipped']
     
+    table_elapsed = time.time() - table_start
     print(f"\nTable summary:")
+    print(f"  End: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Duration: {table_elapsed:.1f}s ({table_elapsed/60:.1f} min)")
     print(f"  Converted: {table_stats['converted']}")
     print(f"  Failed: {table_stats['failed']}")
     print(f"  Skipped: {table_stats['skipped']}")
