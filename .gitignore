@@ -30,6 +30,9 @@ data/ml/**/*.pkl
 !*schema*.csv
 !requirements.txt
 
+#SCHEMA FILES
+documents/schemas/*
+
 # JSON metrics and results - NEVER COMMIT (except metadata)
 data/ml/*.json
 data/ml/*.txt
