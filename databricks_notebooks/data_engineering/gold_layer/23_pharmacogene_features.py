@@ -2,20 +2,20 @@
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - PHARMACOGENE ANALYSIS
 # MAGIC ##### Module: Pharmacogene Gene-Level Features
-# MAGIC 
+# MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 19, 2026
-# MAGIC 
+# MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 9: Pharmacogenomic Guidance
 # MAGIC - Use Case 14: Drug Target Identification
-# MAGIC 
+# MAGIC
 # MAGIC **Input:**
 # MAGIC - silver.pharmgkb_genes
 # MAGIC - silver.pharmgkb_relationships
 # MAGIC - silver.genes_ultra_enriched
-# MAGIC 
+# MAGIC
 # MAGIC **Output:** gold.pharmacogene_ml_features
 
 # COMMAND ----------
@@ -72,9 +72,7 @@ df_gene_relationships = (
     .select(
         col("entity1_name").alias("gene_symbol"),
         col("entity2_type").alias("related_entity_type"),
-        col("evidence"),
-        col("pk"),
-        col("pd")
+        col("evidence")
     )
 )
 
@@ -94,12 +92,10 @@ df_relationship_counts = (
     .agg(
         count("*").alias("total_relationships"),
         countDistinct("related_entity_type").alias("entity_type_count"),
-        spark_sum(when(col("related_entity_type") == "Drug", 1).otherwise(0)).alias("drug_relationships"),
+        spark_sum(when(col("related_entity_type") == "Chemical", 1).otherwise(0)).alias("drug_relationships"),  
         spark_sum(when(col("related_entity_type") == "Disease", 1).otherwise(0)).alias("disease_relationships"),
         spark_sum(when(col("related_entity_type") == "Variant", 1).otherwise(0)).alias("variant_relationships"),
-        spark_sum(when(col("evidence").isNotNull(), 1).otherwise(0)).alias("evidence_count"),
-        spark_sum(when(col("pk") == "yes", 1).otherwise(0)).alias("pk_relationships"),
-        spark_sum(when(col("pd") == "yes", 1).otherwise(0)).alias("pd_relationships")
+        spark_sum(when(col("evidence").isNotNull(), 1).otherwise(0)).alias("evidence_count")
     )
 )
 
@@ -116,13 +112,9 @@ print("="*80)
 df_pharmgkb_features = (
     df_pharmgkb_genes
     .select(
-        upper(trim(col("Symbol"))).alias("gene_symbol"),
-        col("Name").alias("pharmgkb_name"),
-        col("`Is VIP`").alias("is_vip"),
-        col("`Has Variant Annotation`").alias("has_variant_annotation"),
-        col("`Has CPIC Dosing Guideline`").alias("has_cpic_guideline"),
-        col("Chromosome").alias("pharmgkb_chromosome"),
-        col("`PharmGKB Accession Id`").alias("pharmgkb_id")
+        upper(trim(col("gene_symbol"))).alias("gene_symbol"),
+        col("gene_name").alias("pharmgkb_name"),
+        col("pharmgkb_gene_id")
     )
     .join(
         df_relationship_counts,
@@ -141,20 +133,31 @@ df_pharmgkb_features.show(5, truncate=60)
 print("\nJOINING WITH GENE MASTER DATA")
 print("="*80)
 
+# Filter to only genes that actually have PharmGKB data AND relationships
+df_pharmgkb_with_data = df_pharmgkb_features.filter(
+    (col("pharmgkb_gene_id").isNotNull()) & 
+    (col("total_relationships").isNotNull()) &
+    (col("total_relationships") > 0)
+)
+
+print(f"PharmGKB genes with relationships: {df_pharmgkb_with_data.count():,}")
+
 df_gene_pharmacogene = (
     df_genes
     .select(
         upper(trim(col("official_symbol"))).alias("gene_symbol"),
         col("gene_name").alias("gene_full_name"),
         col("description"),
+        col("chromosome"),
         col("is_kinase"),
         col("is_receptor"),
         col("is_enzyme"),
         col("is_transporter"),
-        col("is_metabolic")
+        col("is_metabolic"),
+        col("druggability_score")
     )
     .join(
-        df_pharmgkb_features,
+        df_pharmgkb_with_data,
         on="gene_symbol",
         how="inner"
     )
@@ -172,14 +175,8 @@ print("="*80)
 
 df_classified = (
     df_gene_pharmacogene
-    .withColumn("is_vip_gene",
-                when(col("is_vip") == "yes", True).otherwise(False))
-    
-    .withColumn("has_clinical_annotation",
-                when(col("has_variant_annotation") == "yes", True).otherwise(False))
-    
-    .withColumn("has_dosing_guideline",
-                when(col("has_cpic_guideline") == "yes", True).otherwise(False))
+    .withColumn("has_pharmacogene_annotation",
+                when(col("pharmgkb_gene_id").isNotNull(), True).otherwise(False))
     
     .withColumn("is_drug_metabolizer",
                 when(col("is_metabolic") & (col("drug_relationships") > 0), True).otherwise(False))
@@ -190,11 +187,14 @@ df_classified = (
     .withColumn("is_drug_target_gene",
                 when((col("is_kinase") | col("is_receptor") | col("is_enzyme")) & 
                      (col("drug_relationships") > 0), True).otherwise(False))
+    
+    .withColumn("has_high_druggability",
+                when(col("druggability_score") >= 0.7, True).otherwise(False))
 )
 
 print("Added classification flags")
-print("\nVIP gene distribution:")
-df_classified.groupBy("is_vip_gene").count().show()
+print("\nPharmacogene annotation distribution:")
+df_classified.groupBy("has_pharmacogene_annotation").count().show()
 
 print("\nDrug metabolizer distribution:")
 df_classified.groupBy("is_drug_metabolizer").count().show()
@@ -209,19 +209,16 @@ df_evidence = (
     df_classified
     .withColumn("pharmacogene_evidence_score",
                 coalesce(col("evidence_count"), lit(0)) +
-                when(col("is_vip_gene"), 5).otherwise(0) +
-                when(col("has_clinical_annotation"), 3).otherwise(0) +
-                when(col("has_dosing_guideline"), 4).otherwise(0))
+                when(col("has_pharmacogene_annotation"), 5).otherwise(0) +
+                when(col("has_high_druggability"), 3).otherwise(0))
     
     .withColumn("drug_interaction_score",
                 coalesce(col("drug_relationships"), lit(0)) * 2 +
-                coalesce(col("pk_relationships"), lit(0)) * 3 +
-                coalesce(col("pd_relationships"), lit(0)) * 3)
+                coalesce(col("evidence_count"), lit(0)))
     
     .withColumn("clinical_utility_score",
-                when(col("has_dosing_guideline"), 10).otherwise(0) +
-                when(col("is_vip_gene"), 8).otherwise(0) +
-                when(col("has_clinical_annotation"), 5).otherwise(0) +
+                when(col("has_pharmacogene_annotation"), 10).otherwise(0) +
+                when(col("has_high_druggability"), 5).otherwise(0) +
                 (coalesce(col("drug_relationships"), lit(0)) * 0.5))
 )
 
@@ -246,9 +243,10 @@ df_priority = (
                 when(col("pharmacogene_priority") == "high", True).otherwise(False))
     
     .withColumn("pharmacogene_category",
-                when(col("is_drug_metabolizer"), "metabolizer")
-                .when(col("is_drug_transporter_gene"), "transporter")
-                .when(col("is_drug_target_gene"), "target")
+                when((col("is_drug_metabolizer")) & (col("drug_relationships") > 0), "metabolizer")
+                .when((col("is_drug_transporter_gene")) & (col("drug_relationships") > 0), "transporter")
+                .when((col("is_drug_target_gene")) & (col("drug_relationships") > 0), "target")
+                .when(col("drug_relationships") > 0, "interaction")
                 .otherwise("other"))
 )
 
@@ -273,14 +271,13 @@ df_final = (
         col("pharmgkb_name"),
         col("description"),
         col("chromosome"),
-        col("pharmgkb_id"),
+        col("pharmgkb_gene_id"),
         
-        col("is_vip_gene"),
-        col("has_clinical_annotation"),
-        col("has_dosing_guideline"),
+        col("has_pharmacogene_annotation"),
         col("is_drug_metabolizer"),
         col("is_drug_transporter_gene"),
         col("is_drug_target_gene"),
+        col("has_high_druggability"),
         
         col("is_kinase"),
         col("is_receptor"),
@@ -288,14 +285,14 @@ df_final = (
         col("is_transporter"),
         col("is_metabolic"),
         
+        coalesce(col("druggability_score"), lit(0.0)).alias("druggability_score"),
+        
         coalesce(col("total_relationships"), lit(0)).alias("total_relationships"),
         coalesce(col("entity_type_count"), lit(0)).alias("entity_type_count"),
         coalesce(col("drug_relationships"), lit(0)).alias("drug_relationships"),
         coalesce(col("disease_relationships"), lit(0)).alias("disease_relationships"),
         coalesce(col("variant_relationships"), lit(0)).alias("variant_relationships"),
         coalesce(col("evidence_count"), lit(0)).alias("evidence_count"),
-        coalesce(col("pk_relationships"), lit(0)).alias("pk_relationships"),
-        coalesce(col("pd_relationships"), lit(0)).alias("pd_relationships"),
         
         col("pharmacogene_evidence_score"),
         col("drug_interaction_score"),
@@ -341,6 +338,20 @@ df_final.orderBy(col("drug_relationships").desc()).show(10, truncate=False)
 
 # COMMAND ----------
 
+# DBTITLE 1,Deduplicate by Gene Symbol
+print("\nDEDUPLICATING BY GENE_SYMBOL")
+print("="*80)
+
+before_count = df_final.count()
+df_final = df_final.dropDuplicates(["gene_symbol"])
+after_count = df_final.count()
+
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication: {after_count:,}")
+print(f"Duplicates removed: {before_count - after_count:,}")
+
+# COMMAND ----------
+
 # DBTITLE 1,Save Gold Pharmacogene Features
 print("\nSAVING GOLD PHARMACOGENE FEATURES")
 print("="*80)
@@ -375,10 +386,5 @@ spark.table(f"{catalog_name}.gold.pharmacogene_ml_features") \
     .count() \
     .orderBy("pharmacogene_category") \
     .show()
-
-print("\nVIP genes:")
-vip_count = spark.table(f"{catalog_name}.gold.pharmacogene_ml_features") \
-    .filter(col("is_vip_gene")).count()
-print(f"  VIP genes: {vip_count:,}")
 
 print("\nProcessing complete")

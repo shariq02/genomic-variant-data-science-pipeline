@@ -2,21 +2,21 @@
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - DRUG RESPONSE ANALYSIS
 # MAGIC ##### Module: Drug Response Variant-Level Features
-# MAGIC 
+# MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 19, 2026
-# MAGIC 
+# MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 9: Pharmacogenomic Guidance
 # MAGIC - Use Case 11: Treatment Response Prediction
-# MAGIC 
+# MAGIC
 # MAGIC **Input:**
 # MAGIC - silver.pharmgkb_variants
 # MAGIC - silver.pharmgkb_relationships
 # MAGIC - silver.variant_protein_impact
 # MAGIC - silver.variants_ultra_enriched
-# MAGIC 
+# MAGIC
 # MAGIC **Output:** gold.drug_response_ml_features
 
 # COMMAND ----------
@@ -25,7 +25,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, count, countDistinct, sum as spark_sum, max as spark_max,
-    when, lit, trim, upper, lower, coalesce, split, size, array_contains
+    when, lit, trim, upper, lower, coalesce, split, size, array_contains, row_number
 )
 from pyspark.sql.window import Window
 
@@ -74,12 +74,10 @@ df_variant_relationships = (
     .filter(col("entity1_type") == "Variant")
     .select(
         col("entity1_id").alias("variant_pharmgkb_id"),
-        col("entity1_name").alias("variant_name"),
+        col("entity1_name").alias("variant_name_rel"),
         col("entity2_type").alias("related_entity_type"),
         col("entity2_name").alias("related_entity_name"),
-        col("evidence"),
-        col("pk"),
-        col("pd")
+        col("evidence")
     )
 )
 
@@ -102,11 +100,9 @@ df_variant_drug_counts = (
     .agg(
         count("*").alias("total_interactions"),
         countDistinct("related_entity_type").alias("interaction_type_count"),
-        spark_sum(when(col("related_entity_type") == "Drug", 1).otherwise(0)).alias("drug_interaction_count"),
+        spark_sum(when(col("related_entity_type") == "Chemical", 1).otherwise(0)).alias("drug_interaction_count"),  
         spark_sum(when(col("related_entity_type") == "Disease", 1).otherwise(0)).alias("disease_interaction_count"),
-        spark_sum(when(col("evidence").isNotNull(), 1).otherwise(0)).alias("evidence_count"),
-        spark_sum(when(col("pk") == "yes", 1).otherwise(0)).alias("pk_interaction_count"),
-        spark_sum(when(col("pd") == "yes", 1).otherwise(0)).alias("pd_interaction_count")
+        spark_sum(when(col("evidence").isNotNull(), 1).otherwise(0)).alias("evidence_count")
     )
 )
 
@@ -120,24 +116,16 @@ df_variant_drug_counts.orderBy(col("total_interactions").desc()).show(10, trunca
 print("\nPROCESSING PHARMGKB VARIANT ANNOTATIONS")
 print("="*80)
 
+# PharmGKB variants already have annotation counts - use them directly
 df_pharmgkb_features = (
     df_pharmgkb_variants
     .select(
-        col("`Variant ID`").alias("variant_pharmgkb_id"),
-        col("`Variant Name`").alias("variant_name"),
-        upper(trim(col("`Gene Symbols`"))).alias("gene_symbol"),
-        col("Location").alias("variant_location"),
-        coalesce(col("`Variant Annotation count`"), lit(0)).alias("variant_annotation_count"),
-        coalesce(col("`Clinical Annotation count`"), lit(0)).alias("clinical_annotation_count"),
-        coalesce(col("`Level 1/2 Clinical Annotation count`"), lit(0)).alias("high_level_annotation_count"),
-        coalesce(col("`Guideline Annotation count`"), lit(0)).alias("guideline_annotation_count"),
-        coalesce(col("`Label Annotation count`"), lit(0)).alias("label_annotation_count")
+        col("variant_id").alias("variant_pharmgkb_id"),
+        col("variant_name"),
+        upper(trim(col("gene_symbols"))).alias("gene_symbol"),
+        col("location").alias("variant_location")
     )
-    .join(
-        df_variant_drug_counts,
-        on="variant_pharmgkb_id",
-        how="left"
-    )
+    .withColumn("has_annotation", lit(True))
 )
 
 print(f"PharmGKB variant features: {df_pharmgkb_features.count():,}")
@@ -150,32 +138,57 @@ df_pharmgkb_features.show(5, truncate=60)
 print("\nJOINING WITH VARIANT PROTEIN IMPACT")
 print("="*80)
 
-df_with_impact = (
-    df_pharmgkb_features
-    .join(
-        df_variant_impact.select(
-            col("variant_id"),
-            upper(trim(col("gene_name"))).alias("gene_symbol"),
-            col("clinical_significance_simple"),
-            col("is_pathogenic"),
-            col("is_benign"),
-            col("is_vus"),
-            col("is_missense_variant"),
-            col("is_frameshift_variant"),
-            col("is_nonsense_variant"),
-            col("is_splice_variant"),
-            col("has_functional_domain"),
-            col("affects_functional_domain"),
-            col("phylop_score"),
-            col("cadd_phred"),
-            col("conservation_level")
-        ),
-        on="gene_symbol",
-        how="left"
+# Prepare variant impact data
+df_variant_impact_prep = (
+    df_variant_impact
+    .select(
+        col("variant_id"),
+        col("variant_name").alias("clinvar_variant_name"),
+        upper(trim(col("gene_name"))).alias("gene_symbol"),
+        col("clinical_significance_simple"),
+        col("is_pathogenic"),
+        col("is_benign"),
+        col("is_vus"),
+        col("is_missense_variant"),
+        col("is_frameshift_variant"),
+        col("is_nonsense_variant"),
+        col("is_splice_variant"),
+        col("has_functional_domain"),
+        col("affects_functional_domain"),
+        col("phylop_score"),
+        col("cadd_phred"),
+        col("conservation_level")
     )
 )
 
-print(f"Variants with impact: {df_with_impact.count():,}")
+# RIGHT JOIN to keep all ClinVar variants + add PharmGKB annotations where available
+df_with_impact = (
+    df_pharmgkb_features
+    .join(
+        df_variant_impact_prep,
+        on="gene_symbol",
+        how="right"
+    )
+)
+
+print(f"Variants with impact (before dedup): {df_with_impact.count():,}")
+
+# Deduplicate by variant_id (ClinVar), keeping best PharmGKB annotation
+from pyspark.sql.window import Window
+from pyspark.sql.functions import row_number
+
+window_spec = Window.partitionBy("variant_id").orderBy(
+    col("variant_pharmgkb_id").desc_nulls_last()
+)
+
+df_with_impact = (
+    df_with_impact
+    .withColumn("row_num", row_number().over(window_spec))
+    .filter(col("row_num") == 1)
+    .drop("row_num")
+)
+
+print(f"Variants with impact (after dedup): {df_with_impact.count():,}")
 print("\nSample with impact:")
 df_with_impact.show(5, truncate=60)
 
@@ -187,42 +200,30 @@ print("="*80)
 
 df_classified = (
     df_with_impact
-    .withColumn("has_clinical_annotation",
-                when(col("clinical_annotation_count") > 0, True).otherwise(False))
+    .withColumn("has_pharmgkb_annotation",
+                when(col("variant_pharmgkb_id").isNotNull(), True).otherwise(False))
     
-    .withColumn("has_high_level_evidence",
-                when(col("high_level_annotation_count") > 0, True).otherwise(False))
-    
-    .withColumn("has_guideline",
-                when(col("guideline_annotation_count") > 0, True).otherwise(False))
-    
-    .withColumn("has_fda_label",
-                when(col("label_annotation_count") > 0, True).otherwise(False))
-    
-    .withColumn("has_drug_interaction",
-                when(col("drug_interaction_count") > 0, True).otherwise(False))
-    
-    .withColumn("is_pharmacokinetic",
-                when(col("pk_interaction_count") > 0, True).otherwise(False))
-    
-    .withColumn("is_pharmacodynamic",
-                when(col("pd_interaction_count") > 0, True).otherwise(False))
+    .withColumn("has_high_conservation",
+                when(col("conservation_level") >= 1, True).otherwise(False))
     
     .withColumn("affects_drug_metabolism",
-                when((col("is_pharmacokinetic")) & 
+                when((col("has_pharmgkb_annotation")) & 
                      (col("has_functional_domain")), True).otherwise(False))
     
     .withColumn("affects_drug_efficacy",
-                when((col("is_pharmacodynamic")) & 
+                when((col("has_pharmgkb_annotation")) & 
                      (col("is_missense_variant") | col("affects_functional_domain")), True).otherwise(False))
+    
+    .withColumn("is_high_impact_variant",
+                when((col("is_pathogenic")) & (col("has_pharmgkb_annotation")), True).otherwise(False))
 )
 
 print("Added classification flags")
-print("\nClinical annotation distribution:")
-df_classified.groupBy("has_clinical_annotation").count().show()
+print("\nPharmGKB annotation distribution:")
+df_classified.groupBy("has_pharmgkb_annotation").count().show()
 
-print("\nHigh level evidence distribution:")
-df_classified.groupBy("has_high_level_evidence").count().show()
+print("\nHigh impact distribution:")
+df_classified.groupBy("is_high_impact_variant").count().show()
 
 # COMMAND ----------
 
@@ -232,16 +233,8 @@ print("="*80)
 
 df_scored = (
     df_classified
-    .withColumn("clinical_evidence_score",
-                coalesce(col("clinical_annotation_count"), lit(0)) +
-                (coalesce(col("high_level_annotation_count"), lit(0)) * 3) +
-                (coalesce(col("guideline_annotation_count"), lit(0)) * 4) +
-                (coalesce(col("label_annotation_count"), lit(0)) * 2))
-    
-    .withColumn("drug_interaction_score",
-                (coalesce(col("drug_interaction_count"), lit(0)) * 2) +
-                (coalesce(col("pk_interaction_count"), lit(0)) * 3) +
-                (coalesce(col("pd_interaction_count"), lit(0)) * 3))
+    .withColumn("pharmacogene_annotation_score",
+                when(col("has_pharmgkb_annotation"), 10).otherwise(0))
     
     .withColumn("functional_impact_score",
                 when(col("affects_functional_domain"), 5).otherwise(0) +
@@ -250,15 +243,21 @@ df_scored = (
                 when(col("is_frameshift_variant"), 5).otherwise(0) +
                 (coalesce(col("conservation_level"), lit(0))))
     
+    .withColumn("pathogenicity_score",
+                when(col("is_pathogenic"), 10)
+                .when(col("is_benign"), -5)
+                .when(col("is_vus"), 0)
+                .otherwise(0))
+    
     .withColumn("drug_response_priority_score",
-                col("clinical_evidence_score") * 0.4 +
-                col("drug_interaction_score") * 0.3 +
-                col("functional_impact_score") * 0.3)
+                col("pharmacogene_annotation_score") * 0.5 +
+                col("functional_impact_score") * 0.3 +
+                col("pathogenicity_score") * 0.2)
 )
 
 print("Added response scores")
 print("\nScore distribution:")
-df_scored.select("clinical_evidence_score", "drug_interaction_score", "functional_impact_score", "drug_response_priority_score").describe().show()
+df_scored.select("pharmacogene_annotation_score", "functional_impact_score", "pathogenicity_score", "drug_response_priority_score").describe().show()
 
 # COMMAND ----------
 
@@ -269,26 +268,22 @@ print("="*80)
 df_priority = (
     df_scored
     .withColumn("drug_response_priority",
-                when(col("drug_response_priority_score") >= 20, "high")
-                .when(col("drug_response_priority_score") >= 10, "medium")
+                when(col("drug_response_priority_score") >= 15, "high")
+                .when(col("drug_response_priority_score") >= 8, "medium")
                 .otherwise("low"))
     
     .withColumn("is_actionable_pharmacogene_variant",
-                when((col("has_guideline")) | 
-                     (col("has_fda_label")) |
-                     (col("has_high_level_evidence")), True).otherwise(False))
+                when(col("has_pharmgkb_annotation"), True).otherwise(False))
     
     .withColumn("drug_response_category",
                 when(col("affects_drug_metabolism"), "metabolism")
                 .when(col("affects_drug_efficacy"), "efficacy")
-                .when(col("has_drug_interaction"), "interaction")
+                .when(col("has_pharmgkb_annotation"), "pharmacogene_variant")
                 .otherwise("unknown"))
     
     .withColumn("clinical_actionability",
-                when(col("has_guideline"), "guideline_available")
-                .when(col("has_fda_label"), "fda_label")
-                .when(col("has_high_level_evidence"), "high_evidence")
-                .when(col("has_clinical_annotation"), "clinical_annotation")
+                when((col("is_pathogenic")) & (col("has_pharmgkb_annotation")), "high_evidence")
+                .when(col("has_pharmgkb_annotation"), "pharmgkb_annotated")
                 .otherwise("research_only"))
 )
 
@@ -312,7 +307,7 @@ df_final = (
     df_priority
     .select(
         col("variant_pharmgkb_id"),
-        col("variant_name"),
+        coalesce(col("variant_name"), col("clinvar_variant_name")).alias("variant_name"),
         col("variant_id"),
         col("gene_symbol"),
         col("variant_location"),
@@ -334,33 +329,15 @@ df_final = (
         coalesce(col("cadd_phred"), lit(0.0)).alias("cadd_phred"),
         coalesce(col("conservation_level"), lit(0)).alias("conservation_level"),
         
-        coalesce(col("variant_annotation_count"), lit(0)).alias("variant_annotation_count"),
-        coalesce(col("clinical_annotation_count"), lit(0)).alias("clinical_annotation_count"),
-        coalesce(col("high_level_annotation_count"), lit(0)).alias("high_level_annotation_count"),
-        coalesce(col("guideline_annotation_count"), lit(0)).alias("guideline_annotation_count"),
-        coalesce(col("label_annotation_count"), lit(0)).alias("label_annotation_count"),
-        
-        coalesce(col("total_interactions"), lit(0)).alias("total_interactions"),
-        coalesce(col("interaction_type_count"), lit(0)).alias("interaction_type_count"),
-        coalesce(col("drug_interaction_count"), lit(0)).alias("drug_interaction_count"),
-        coalesce(col("disease_interaction_count"), lit(0)).alias("disease_interaction_count"),
-        coalesce(col("evidence_count"), lit(0)).alias("evidence_count"),
-        coalesce(col("pk_interaction_count"), lit(0)).alias("pk_interaction_count"),
-        coalesce(col("pd_interaction_count"), lit(0)).alias("pd_interaction_count"),
-        
-        col("has_clinical_annotation"),
-        col("has_high_level_evidence"),
-        col("has_guideline"),
-        col("has_fda_label"),
-        col("has_drug_interaction"),
-        col("is_pharmacokinetic"),
-        col("is_pharmacodynamic"),
+        col("has_pharmgkb_annotation"),
+        col("has_high_conservation"),
         col("affects_drug_metabolism"),
         col("affects_drug_efficacy"),
+        col("is_high_impact_variant"),
         
-        col("clinical_evidence_score"),
-        col("drug_interaction_score"),
+        col("pharmacogene_annotation_score"),
         col("functional_impact_score"),
+        col("pathogenicity_score"),
         col("drug_response_priority_score"),
         
         col("drug_response_priority"),
@@ -400,8 +377,20 @@ print(f"  Count: {actionable:,}")
 print("\nTop 10 variants by priority score:")
 df_final.orderBy(col("drug_response_priority_score").desc()).show(10, truncate=False)
 
-print("\nTop 10 variants by clinical evidence:")
-df_final.orderBy(col("clinical_evidence_score").desc()).show(10, truncate=False)
+# COMMAND ----------
+
+# DBTITLE 1,Deduplicate by Variant PharmGKB ID
+# DBTITLE 1,Deduplicate by Variant ID
+print("\nFINAL DEDUPLICATION BY VARIANT_ID")
+print("="*80)
+
+before_count = df_final.count()
+df_final = df_final.dropDuplicates(["variant_id"])
+after_count = df_final.count()
+
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication: {after_count:,}")
+print(f"Duplicates removed: {before_count - after_count:,}")
 
 # COMMAND ----------
 
