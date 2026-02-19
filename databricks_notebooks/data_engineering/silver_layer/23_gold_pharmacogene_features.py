@@ -2,20 +2,20 @@
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - PHARMACOGENE ANALYSIS
 # MAGIC ##### Module: Pharmacogene Gene-Level Features
-# MAGIC 
+# MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 19, 2026
-# MAGIC 
+# MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 9: Pharmacogenomic Guidance
 # MAGIC - Use Case 14: Drug Target Identification
-# MAGIC 
+# MAGIC
 # MAGIC **Input:**
 # MAGIC - silver.pharmgkb_genes
 # MAGIC - silver.pharmgkb_relationships
 # MAGIC - silver.genes_ultra_enriched
-# MAGIC 
+# MAGIC
 # MAGIC **Output:** gold.pharmacogene_ml_features
 
 # COMMAND ----------
@@ -36,9 +36,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GOLD PHARMACOGENE FEATURES")
-print("Gene-level pharmacogene feature engineering")
-print("="*80)
+print("SPARK INITAILIZED FOR GOLD PHARMACOGENE FEATURES")
 
 # COMMAND ----------
 

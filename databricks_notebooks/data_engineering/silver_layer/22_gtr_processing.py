@@ -2,16 +2,16 @@
 # MAGIC %md
 # MAGIC #### DATA PROCESSING - GENETIC TEST REGISTRY
 # MAGIC ##### Module: GTR Gene Disease Tests Processing
-# MAGIC 
+# MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 19, 2026
-# MAGIC 
+# MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 5: Genetic Test Availability
 # MAGIC - Use Case 27: Clinical Test Discovery
-# MAGIC 
-# MAGIC **Input:** default.gtr_gene_disease_tests
+# MAGIC
+# MAGIC **Input:** default.gtr_gene_disease_tests  
 # MAGIC **Output:** silver.gtr_gene_disease_tests
 
 # COMMAND ----------
@@ -30,8 +30,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GTR GENE DISEASE TESTS PROCESSING")
-print("Default to Silver transformation")
+print("SPARK INITIALIZED FOR GTR GENE DISEASE TESTS PROCESSING")
 
 # COMMAND ----------
 
