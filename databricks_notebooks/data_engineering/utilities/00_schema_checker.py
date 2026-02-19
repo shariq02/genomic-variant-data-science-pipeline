@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Schema Exporter - All Schemas to CSV
+# MAGIC ## Schema Exporter - All Schemas to CSV
 # MAGIC Exports schema and sample data for all tables to CSV files
 
 # COMMAND ----------
@@ -77,7 +77,7 @@ def export_schema_to_csv(schema_name):
 
 # COMMAND ----------
 
-def export_sample_data_to_csv(schema_name, sample_rows=10):
+def export_sample_data_to_csv(schema_name, sample_rows=5):
     """Export sample data for all tables to CSV."""
     print(f"\nExporting {schema_name} sample data...")
     
@@ -103,6 +103,11 @@ def export_sample_data_to_csv(schema_name, sample_rows=10):
                 df = spark.table(full_table_name)
                 sample_df = df.limit(sample_rows)
                 
+                for col_name in sample_df.columns:
+                    col_type = str([f.dataType for f in sample_df.schema.fields if f.name == col_name][0])
+                    if 'ArrayType' in col_type or 'MapType' in col_type or 'StructType' in col_type:
+                        sample_df = sample_df.withColumn(col_name, sample_df[col_name].cast("string"))
+                
                 output_path = f"/Volumes/{catalog_name}/{schema_name}/{volume_name}/{table_name}_sample"
                 
                 sample_df.coalesce(1).write.mode("overwrite").option("header", "true").csv(output_path)
@@ -123,7 +128,7 @@ def export_sample_data_to_csv(schema_name, sample_rows=10):
 # COMMAND ----------
 
 export_schema_to_csv("default")
-export_sample_data_to_csv("default", 10)
+export_sample_data_to_csv("default", 5)
 
 # COMMAND ----------
 
@@ -133,7 +138,7 @@ export_sample_data_to_csv("default", 10)
 # COMMAND ----------
 
 export_schema_to_csv("silver")
-export_sample_data_to_csv("silver", 10)
+export_sample_data_to_csv("silver", 5)
 
 # COMMAND ----------
 
@@ -143,7 +148,7 @@ export_sample_data_to_csv("silver", 10)
 # COMMAND ----------
 
 export_schema_to_csv("reference")
-export_sample_data_to_csv("reference", 10)
+export_sample_data_to_csv("reference", 5)
 
 # COMMAND ----------
 
@@ -153,7 +158,7 @@ export_sample_data_to_csv("reference", 10)
 # COMMAND ----------
 
 export_schema_to_csv("gold")
-export_sample_data_to_csv("gold", 10)
+export_sample_data_to_csv("gold", 5)
 
 # COMMAND ----------
 
@@ -169,6 +174,5 @@ for schema in schemas:
     print(f"  Schema: /Volumes/{catalog_name}/{schema}/{schema}_exports/{schema}_schema/")
     print(f"  Samples: /Volumes/{catalog_name}/{schema}/{schema}_exports/[table_name]_sample/")
 
-print("\nDownload CSV files from Volumes in Databricks UI")
 
 
