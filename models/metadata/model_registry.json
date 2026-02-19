@@ -1,0 +1,18 @@
+{
+  "registry_version": "1.0",
+  "last_updated": "2026-02-18T18:00:48.072403",
+  "models": [
+    {
+      "model_id": "variant_pathogenicity_v1",
+      "status": "production",
+      "metadata_file": "variant_model_metadata.json",
+      "model_file": "ensemble_xgb_variants.pkl"
+    },
+    {
+      "model_id": "sv_risk_v1",
+      "status": "production",
+      "metadata_file": "sv_model_metadata.json",
+      "model_file": "sv_raw_features_best.pkl"
+    }
+  ]
+}

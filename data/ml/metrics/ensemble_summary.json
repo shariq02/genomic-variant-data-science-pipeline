@@ -1,0 +1,170 @@
+{
+  "timestamp": "2026-02-18T05:34:02.953265",
+  "models_trained": 6,
+  "variant_pathogenicity": {
+    "random_forest": {
+      "model": "Random Forest",
+      "task": "Variant Pathogenicity",
+      "best_params": {
+        "n_estimators": 200,
+        "min_samples_split": 5,
+        "min_samples_leaf": 1,
+        "max_features": "sqrt",
+        "max_depth": null,
+        "bootstrap": false
+      },
+      "cv_score": 0.9579913951999667,
+      "train": {
+        "accuracy": 0.9954372592036561,
+        "precision": 0.9926398027337876,
+        "recall": 0.9936796739308944,
+        "f1": 0.9931594661374299
+      },
+      "validation": {
+        "accuracy": 0.9724165596919128,
+        "precision": 0.8116417219564882,
+        "recall": 0.8500383791863613,
+        "f1": 0.830396432306569,
+        "roc_auc": 0.9779081750188876
+      }
+    },
+    "xgboost": {
+      "model": "XGBoost",
+      "task": "Variant Pathogenicity",
+      "best_params": {
+        "subsample": 0.8,
+        "n_estimators": 300,
+        "max_depth": 7,
+        "learning_rate": 0.1,
+        "gamma": 0.1,
+        "colsample_bytree": 0.8
+      },
+      "cv_score": 0.9464456934419045,
+      "train": {
+        "accuracy": 0.9731726434617443,
+        "precision": 0.9626809235238143,
+        "recall": 0.9566012570979252,
+        "f1": 0.9596314611004745
+      },
+      "validation": {
+        "accuracy": 0.972716623876765,
+        "precision": 0.7955301776654362,
+        "recall": 0.883670666181877,
+        "f1": 0.837287194847699,
+        "roc_auc": 0.9895291241197709
+      }
+    },
+    "lightgbm": {
+      "model": "LightGBM",
+      "task": "Variant Pathogenicity",
+      "best_params": {
+        "subsample": 0.8,
+        "num_leaves": 70,
+        "n_estimators": 200,
+        "max_depth": 10,
+        "learning_rate": 0.1,
+        "colsample_bytree": 0.8
+      },
+      "cv_score": 0.9453213360104339,
+      "train": {
+        "accuracy": 0.972790272346108,
+        "precision": 0.9623827671830799,
+        "recall": 0.9557278577080607,
+        "f1": 0.959043767798576
+      },
+      "validation": {
+        "accuracy": 0.9725160462130937,
+        "precision": 0.7949030894782863,
+        "recall": 0.8814487132872784,
+        "f1": 0.8359418401946322,
+        "roc_auc": 0.989451712720491
+      }
+    },
+    "best_model": "XGBoost",
+    "best_f1": 0.837287194847699,
+    "baseline_f1": 0.780099851099238,
+    "improvement_pct": 7.330772293813206
+  },
+  "sv_risk": {
+    "random_forest": {
+      "model": "Random Forest",
+      "task": "SV Risk",
+      "best_params": {
+        "n_estimators": 200,
+        "min_samples_split": 2,
+        "min_samples_leaf": 4,
+        "max_features": "log2",
+        "max_depth": null,
+        "bootstrap": false
+      },
+      "cv_score": 1.0,
+      "train": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "validation": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "roc_auc": 0.9999999999999999
+      }
+    },
+    "xgboost": {
+      "model": "XGBoost",
+      "task": "SV Risk",
+      "best_params": {
+        "subsample": 0.8,
+        "n_estimators": 200,
+        "max_depth": 7,
+        "learning_rate": 0.01,
+        "gamma": 0.1,
+        "colsample_bytree": 0.8
+      },
+      "cv_score": 1.0,
+      "train": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "validation": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0
+      }
+    },
+    "lightgbm": {
+      "model": "LightGBM",
+      "task": "SV Risk",
+      "best_params": {
+        "subsample": 0.8,
+        "num_leaves": 50,
+        "n_estimators": 100,
+        "max_depth": 7,
+        "learning_rate": 0.05,
+        "colsample_bytree": 0.8
+      },
+      "cv_score": 1.0,
+      "train": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "validation": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0
+      }
+    },
+    "best_model": "Random Forest",
+    "best_recall": 1.0
+  }
+}

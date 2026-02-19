@@ -1,0 +1,36 @@
+{
+  "model_name": "sv_risk_xgboost_raw_features",
+  "version": "1.0",
+  "created_date": "2026-02-18",
+  "algorithm": "XGBoost",
+  "task": "binary_classification",
+  "target": "is_high_risk_sv",
+  "training_samples": 151948,
+  "test_samples": 32512,
+  "n_features": 8,
+  "feature_type": "raw_genomic_features",
+  "hyperparameters": {
+    "n_estimators": 100,
+    "max_depth": 7,
+    "learning_rate": 0.05,
+    "subsample": 1.0,
+    "colsample_bytree": 1.0,
+    "random_state": 42
+  },
+  "performance": {
+    "test_f1": 0.9783,
+    "test_precision": 0.9772,
+    "test_recall": 0.9794,
+    "test_roc_auc": 0.9983
+  },
+  "preprocessing": {
+    "scaler": "None",
+    "label_encoding": [
+      "sv_type_class",
+      "sv_size_category"
+    ]
+  },
+  "files": {
+    "model": "sv_raw_features_best.pkl"
+  }
+}
