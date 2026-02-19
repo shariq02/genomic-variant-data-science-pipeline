@@ -1,22 +1,23 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Silver: GTEx Expression Data Processing
-# MAGIC Transform GTEx tissue expression data to silver layer
+# MAGIC #### GTEx Expression Data Processing
+# MAGIC ###### Transform GTEx tissue expression data to silver layer
 # MAGIC
-# MAGIC DNA Gene Mapping Project
-# MAGIC Author: Sharique Mohammad
-# MAGIC Date: February 19, 2026
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **Date:** February 19, 2026
 # MAGIC
-# MAGIC Input: default.gtex_tissue_expression
-# MAGIC Output: silver.gtex_tissue_expression
+# MAGIC **Input:** default.gtex_tissue_expression  
+# MAGIC **Output:** silver.gtex_tissue_expression
 
 # COMMAND ----------
 
 # DBTITLE 1,Import Libraries
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    col, trim, upper, lower, when, lit, count as spark_count
+    col, trim, upper, lower, when, lit, count as spark_count, max
 )
+from pyspark.sql.window import Window
 
 # COMMAND ----------
 
@@ -26,8 +27,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GTEX EXPRESSION SILVER PROCESSING")
-print("Default to Silver transformation")
+print("SPARK INITILIZED FOR GTEX EXPRESSION PROCESSING")
 
 # COMMAND ----------
 
@@ -110,7 +110,7 @@ df_gtex_clean.show(5, truncate=60)
 print("\nADDING TISSUE SPECIFICITY METRICS")
 print("="*80)
 
-from pyspark.sql.window import Window
+
 
 gene_window = Window.partitionBy("gene_id")
 
@@ -130,6 +130,7 @@ df_gtex_enriched = (
 
 print("Added tissue specificity metrics")
 df_gtex_enriched.show(5, truncate=60)
+
 
 # COMMAND ----------
 
