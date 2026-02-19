@@ -2,18 +2,18 @@
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - CANCER VARIANT ANALYSIS
 # MAGIC ##### Module: Variant and Gene-Level Cancer Features
-# MAGIC 
+# MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 19, 2026
-# MAGIC 
+# MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 12: Cancer Variant Classification
-# MAGIC 
+# MAGIC
 # MAGIC **Input:**
 # MAGIC - silver.cancer_mutations
 # MAGIC - silver.genes_ultra_enriched
-# MAGIC 
+# MAGIC
 # MAGIC **Output:** gold.cancer_variant_ml_features
 
 # COMMAND ----------
@@ -221,6 +221,8 @@ print("="*80)
 
 df_combined = (
     df_variant_classified
+    .withColumn("variant_gene_symbol", upper(trim(col("gene_symbol"))))  
+    .drop("gene_symbol")  # Drop original
     .join(
         df_gene_scored.select(
             upper(trim(col("gene_symbol"))).alias("gene_symbol"),
@@ -233,9 +235,11 @@ df_combined = (
             col("cancer_mutation_burden_score"),
             col("cancer_priority_score")
         ),
-        on=upper(trim(df_variant_classified["gene_symbol"])) == col("gene_symbol"),
+        on=col("variant_gene_symbol") == col("gene_symbol"),
         how="left"
     )
+    .withColumn("gene_symbol", col("variant_gene_symbol"))  # Restore column name
+    .drop("variant_gene_symbol")
 )
 
 print(f"Combined variant-gene features: {df_combined.count():,}")
