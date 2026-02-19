@@ -8,6 +8,9 @@ venv/
 ENV/
 env/
 *.egg-info/
+build/
+dist/
+*.egg
 
 # Data files (large files)
 data/raw/*
@@ -17,29 +20,109 @@ data/analytical/*
 !data/processed/.gitkeep
 !data/analytical/.gitkeep
 
-# Environment variables
+# ML datasets (pickle files) - NEVER COMMIT
+*.pkl
+data/ml/*.pkl
+data/ml/**/*.pkl
+
+# CSV data files - NEVER COMMIT (except tiny schemas)
+*.csv
+!*schema*.csv
+!requirements.txt
+
+#SCHEMA FILES
+documents/schemas/*
+
+# JSON metrics and results - NEVER COMMIT (except metadata)
+data/ml/*.json
+data/ml/*.txt
+data/analytical/**/*.json
+!models/metadata/*.json
+
+# Environment variables and secrets
 .env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+credentials/
 
 # Database
 *.db
 *.sqlite
+*.sqlite3
+*.sql
 
-# Models
+# Models - ALL model files
 models/*.pkl
+models/**/*.pkl
 models/*.h5
+models/*.hdf5
+models/*.pb
+models/*.pth
+models/*.pt
+*.ckpt
+
+# Scalers and preprocessors
+*scaler*.pkl
+*encoder*.pkl
+*imputer*.pkl
+
+# EXCEPT: Keep model metadata
+!models/metadata/*.json
 
 # Jupyter
 .ipynb_checkpoints/
+*/.ipynb_checkpoints/*
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+*.sublime-project
+*.sublime-workspace
 
 # OS
 .DS_Store
 Thumbs.db
+._*
+.AppleDouble
 
 # Logs
 *.log
+logs/
+*.out
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Planning documents (internal only)
+docs/planning/
+*COMPLETE*.txt
+*LEFT_TO_DO*.txt
+*ENHANCEMENTS*.txt
+planning/
+
+# EXCEPT: Keep public documentation
+!docs/models/MODEL_CARD*.txt
+!docs/deployment/
+!README.md
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Databricks
+.databricks/
+
+# Cache
+.cache/
+*.cache
