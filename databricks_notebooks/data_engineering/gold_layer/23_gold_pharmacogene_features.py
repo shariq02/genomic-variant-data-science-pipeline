@@ -2,20 +2,20 @@
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - PHARMACOGENE ANALYSIS
 # MAGIC ##### Module: Pharmacogene Gene-Level Features
-# MAGIC
+# MAGIC 
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 19, 2026
-# MAGIC
+# MAGIC 
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 9: Pharmacogenomic Guidance
 # MAGIC - Use Case 14: Drug Target Identification
-# MAGIC
+# MAGIC 
 # MAGIC **Input:**
 # MAGIC - silver.pharmgkb_genes
 # MAGIC - silver.pharmgkb_relationships
 # MAGIC - silver.genes_ultra_enriched
-# MAGIC
+# MAGIC 
 # MAGIC **Output:** gold.pharmacogene_ml_features
 
 # COMMAND ----------
@@ -36,7 +36,9 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("SPARK INITAILIZED FOR GOLD PHARMACOGENE FEATURES")
+print("GOLD PHARMACOGENE FEATURES")
+print("Gene-level pharmacogene feature engineering")
+print("="*80)
 
 # COMMAND ----------
 
@@ -66,14 +68,13 @@ print("="*80)
 
 df_gene_relationships = (
     df_relationships
-    .filter(col("Entity1_type") == "Gene")
+    .filter(col("entity1_type") == "Gene")
     .select(
-        col("Entity1_name").alias("gene_symbol"),
-        col("Entity2_type").alias("related_entity_type"),
-        col("Evidence"),
-        col("Association"),
-        col("PK"),
-        col("PD")
+        col("entity1_name").alias("gene_symbol"),
+        col("entity2_type").alias("related_entity_type"),
+        col("evidence"),
+        col("pk"),
+        col("pd")
     )
 )
 
@@ -96,9 +97,9 @@ df_relationship_counts = (
         spark_sum(when(col("related_entity_type") == "Drug", 1).otherwise(0)).alias("drug_relationships"),
         spark_sum(when(col("related_entity_type") == "Disease", 1).otherwise(0)).alias("disease_relationships"),
         spark_sum(when(col("related_entity_type") == "Variant", 1).otherwise(0)).alias("variant_relationships"),
-        spark_sum(when(col("Evidence").isNotNull(), 1).otherwise(0)).alias("evidence_count"),
-        spark_sum(when(col("PK") == "yes", 1).otherwise(0)).alias("pk_relationships"),
-        spark_sum(when(col("PD") == "yes", 1).otherwise(0)).alias("pd_relationships")
+        spark_sum(when(col("evidence").isNotNull(), 1).otherwise(0)).alias("evidence_count"),
+        spark_sum(when(col("pk") == "yes", 1).otherwise(0)).alias("pk_relationships"),
+        spark_sum(when(col("pd") == "yes", 1).otherwise(0)).alias("pd_relationships")
     )
 )
 
@@ -116,11 +117,12 @@ df_pharmgkb_features = (
     df_pharmgkb_genes
     .select(
         upper(trim(col("Symbol"))).alias("gene_symbol"),
-        col("Name").alias("gene_name"),
-        col("Is VIP").alias("is_vip"),
-        col("Has Variant Annotation").alias("has_variant_annotation"),
-        col("Has CPIC Dosing Guideline").alias("has_cpic_guideline"),
-        col("Chromosome").alias("chromosome")
+        col("Name").alias("pharmgkb_name"),
+        col("`Is VIP`").alias("is_vip"),
+        col("`Has Variant Annotation`").alias("has_variant_annotation"),
+        col("`Has CPIC Dosing Guideline`").alias("has_cpic_guideline"),
+        col("Chromosome").alias("pharmgkb_chromosome"),
+        col("`PharmGKB Accession Id`").alias("pharmgkb_id")
     )
     .join(
         df_relationship_counts,
@@ -267,10 +269,11 @@ df_final = (
     df_priority
     .select(
         col("gene_symbol"),
-        col("gene_name"),
         col("gene_full_name"),
+        col("pharmgkb_name"),
         col("description"),
         col("chromosome"),
+        col("pharmgkb_id"),
         
         col("is_vip_gene"),
         col("has_clinical_annotation"),
