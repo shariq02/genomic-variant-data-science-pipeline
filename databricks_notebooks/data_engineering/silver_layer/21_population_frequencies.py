@@ -1,14 +1,14 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Silver: Population Frequency Processing
-# MAGIC Extract population frequencies from existing conservation scores
+# MAGIC #### Population Frequency Processing
+# MAGIC ######Extract population frequencies from existing conservation scores
 # MAGIC
-# MAGIC DNA Gene Mapping Project
-# MAGIC Author: Sharique Mohammad
-# MAGIC Date: February 19, 2026
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **Date:** February 19, 2026
 # MAGIC
-# MAGIC Input: silver.conservation_scores
-# MAGIC Output: silver.population_frequencies
+# MAGIC **Input:** silver.conservation_scores  
+# MAGIC **Output:** silver.population_frequencies
 
 # COMMAND ----------
 
@@ -26,8 +26,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("POPULATION FREQUENCY SILVER PROCESSING")
-print("Extract from conservation scores")
+print("SPARK INITIALIZED FOR POPULATION FREQUENCY PROCESSING")
 
 # COMMAND ----------
 

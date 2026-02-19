@@ -1,14 +1,14 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Silver: TCGA Cancer Data Processing
-# MAGIC Transform TCGA cancer mutation data to silver layer
+# MAGIC #### TCGA Cancer Data Processing
+# MAGIC ######Transform TCGA cancer mutation data to silver layer
 # MAGIC
-# MAGIC DNA Gene Mapping Project
-# MAGIC Author: Sharique Mohammad
-# MAGIC Date: February 19, 2026
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **Date:** February 19, 2026
 # MAGIC
-# MAGIC Input: default.cancer_mutations
-# MAGIC Output: silver.cancer_mutations
+# MAGIC **Input:** default.cancer_mutations  
+# MAGIC **Output:** silver.cancer_mutations
 
 # COMMAND ----------
 
@@ -26,8 +26,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("TCGA CANCER SILVER PROCESSING")
-print("Default to Silver transformation")
+print("SPARK INITIALIZED FOR TCGA CANCER PROCESSING")
 
 # COMMAND ----------
 
