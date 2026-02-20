@@ -1,6 +1,7 @@
 """
-SMART DOWNLOAD - CHANGED TABLES ONLY
+SMART DOWNLOAD - AUTO-DISCOVER CHANGED TABLES
 Downloads only tables that have been updated in Databricks
+WITH AUTOMATIC VOLUME CLEANUP
 DNA Gene Mapping Project
 Author: Sharique Mohammad
 Date: February 2026
@@ -22,10 +23,15 @@ PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 LOCAL_CHECKPOINT = PROCESSED_DIR / ".download_checkpoint.json"
-VOLUME_BASE = "/Volumes/workspace/gold/gold_exports"
+
+CATALOG = "workspace"
+SCHEMA = "gold"
+VOLUME_NAME = "gold_exports"
+VOLUME_BASE = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME_NAME}"
 REMOTE_METADATA = f"{VOLUME_BASE}/.export_metadata.json"
 
 def get_file_content(file_path):
+    """Get content of a file from Databricks."""
     url = f"{DATABRICKS_HOST}/api/2.0/fs/files{file_path}"
     headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
     response = requests.get(url, headers=headers)
@@ -34,6 +40,7 @@ def get_file_content(file_path):
     return None
 
 def list_directory(path):
+    """List contents of a Databricks directory."""
     url = f"{DATABRICKS_HOST}/api/2.0/fs/directories{path}"
     headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
     response = requests.get(url, headers=headers)
@@ -42,6 +49,7 @@ def list_directory(path):
     return []
 
 def download_file(remote_path, local_path):
+    """Download a file from Databricks with progress."""
     url = f"{DATABRICKS_HOST}/api/2.0/fs/files{remote_path}"
     headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
     
@@ -63,31 +71,42 @@ def download_file(remote_path, local_path):
         return True
     return False
 
+def delete_volume(catalog, schema, volume):
+    """Delete a volume in Databricks."""
+    url = f"{DATABRICKS_HOST}/api/2.1/unity-catalog/volumes/{catalog}/{schema}/{volume}"
+    headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
+    response = requests.delete(url, headers=headers)
+    return response.status_code == 200
+
 def load_local_checkpoint():
+    """Load local checkpoint file."""
     if LOCAL_CHECKPOINT.exists():
         with open(LOCAL_CHECKPOINT, 'r') as f:
             return json.load(f)
     return {}
 
 def save_local_checkpoint(data):
+    """Save local checkpoint file."""
     with open(LOCAL_CHECKPOINT, 'w') as f:
         json.dump(data, f, indent=2)
 
 def main():
     print("="*80)
-    print("SMART DOWNLOAD - CHANGED TABLES ONLY")
+    print("SMART DOWNLOAD - AUTO-DISCOVER CHANGED TABLES")
     print("="*80)
     
     if not DATABRICKS_HOST or not DATABRICKS_TOKEN:
         print("\nERROR: Databricks credentials not found in .env")
         return
     
+    print(f"\nTarget: {CATALOG}.{SCHEMA}.{VOLUME_NAME}")
+    
     print("\nLoading remote export metadata...")
     remote_metadata_content = get_file_content(REMOTE_METADATA)
     
     if not remote_metadata_content:
         print("ERROR: Could not load remote metadata")
-        print("Make sure 18_export_changed_tables_only.py ran successfully in Databricks")
+        print("Make sure 18_export_gold_tables.py ran successfully in Databricks")
         return
     
     remote_metadata = json.loads(remote_metadata_content)
@@ -104,14 +123,14 @@ def main():
     
     for table_name, remote_info in remote_metadata.items():
         if table_name not in local_checkpoint:
-            print(f"{table_name}: DOWNLOAD (not downloaded yet)")
+            print(f"{table_name}: DOWNLOAD (new table)")
             tables_to_download.append(table_name)
             continue
         
         local_info = local_checkpoint[table_name]
         
         if remote_info.get("rows") != local_info.get("rows"):
-            print(f"{table_name}: DOWNLOAD (rows changed: {local_info.get('rows'):,} -> {remote_info.get('rows'):,})")
+            print(f"{table_name}: DOWNLOAD (rows: {local_info.get('rows'):,} -> {remote_info.get('rows'):,})")
             tables_to_download.append(table_name)
             continue
         
@@ -189,15 +208,35 @@ def main():
     
     print(f"\nSuccessful: {len(successful)}/{len(tables_to_download)}")
     for table in successful:
-        print(f"  - {table}")
+        size = download_results[table]["size_mb"]
+        print(f"  - {table} ({size:.2f} MB)")
     
     if failed:
         print(f"\nFailed: {len(failed)}")
         for table in failed:
             print(f"  - {table}")
     
+    if len(successful) == len(tables_to_download) and len(successful) > 0:
+        print("\n" + "="*80)
+        print("CLEANING UP VOLUME")
+        print("="*80)
+        
+        print(f"\nDeleting volume: {CATALOG}.{SCHEMA}.{VOLUME_NAME}", end=' ')
+        
+        if delete_volume(CATALOG, SCHEMA, VOLUME_NAME):
+            print("OK")
+            print("\nVolume deleted successfully")
+        else:
+            print("FAILED")
+            print("\nNote: Volume may need manual cleanup in Databricks")
+    
     print("\n" + "="*80)
-    print("NEXT STEP: Run load_changed_tables_to_postgres.py")
+    print("PROCESS COMPLETE")
+    print("="*80)
+    
+    if successful:
+        print("\nNEXT STEP: Run load_changed_tables_to_postgres.py")
+    
     print("="*80)
 
 if __name__ == "__main__":

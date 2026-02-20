@@ -1,15 +1,23 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC ## Schema Exporter - All Schemas to CSV
-# MAGIC Exports schema and sample data for all tables to CSV files
+# MAGIC ## SCHEMA EXPORTER - AUTO-DISCOVER ALL SCHEMAS
+# MAGIC Exports schema and sample data for all tables in all schemas
 
 # COMMAND ----------
 
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("SCHEMA EXPORTER TO CSV")
+print("SCHEMA EXPORTER - AUTO-DISCOVER ALL SCHEMAS")
 print("="*80)
+
+# COMMAND ----------
+
+def get_all_schemas():
+    """Get all schemas in the catalog."""
+    schemas = spark.sql(f"SHOW SCHEMAS IN {catalog_name}").collect()
+    schema_names = [s.databaseName for s in schemas if s.databaseName not in ['information_schema']]
+    return schema_names
 
 # COMMAND ----------
 
@@ -38,6 +46,10 @@ def export_schema_to_csv(schema_name):
         
         for table in tables:
             table_name = table.tableName
+            
+            if table_name.endswith("_exports"):
+                continue
+            
             full_table_name = f"{catalog_name}.{schema_name}.{table_name}"
             
             try:
@@ -95,8 +107,14 @@ def export_sample_data_to_csv(schema_name, sample_rows=5):
         except:
             pass
         
+        exported_count = 0
+        
         for table in tables:
             table_name = table.tableName
+            
+            if table_name.endswith("_exports"):
+                continue
+            
             full_table_name = f"{catalog_name}.{schema_name}.{table_name}"
             
             try:
@@ -112,53 +130,32 @@ def export_sample_data_to_csv(schema_name, sample_rows=5):
                 
                 sample_df.coalesce(1).write.mode("overwrite").option("header", "true").csv(output_path)
                 
+                exported_count += 1
                 print(f"  {table_name}: {sample_rows} sample rows")
             
             except Exception as e:
                 print(f"  Error with {table_name}: {e}")
+        
+        print(f"Exported {exported_count} tables")
     
     except Exception as e:
         print(f"Error exporting samples for {schema_name}: {e}")
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Export Default Schema
+# DBTITLE 1,Auto-Discover and Export All Schemas
+print("\nAUTO-DISCOVERING SCHEMAS")
+print("="*80)
 
-# COMMAND ----------
+schemas = get_all_schemas()
+print(f"Found {len(schemas)} schemas: {', '.join(schemas)}")
 
-export_schema_to_csv("default")
-export_sample_data_to_csv("default", 5)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Export Silver Schema
-
-# COMMAND ----------
-
-export_schema_to_csv("silver")
-export_sample_data_to_csv("silver", 5)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Export Reference Schema
-
-# COMMAND ----------
-
-export_schema_to_csv("reference")
-export_sample_data_to_csv("reference", 5)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Export Gold Schema
-
-# COMMAND ----------
-
-export_schema_to_csv("gold")
-export_sample_data_to_csv("gold", 5)
+for schema in schemas:
+    print("\n" + "="*80)
+    print(f"{schema.upper()} SCHEMA")
+    print("="*80)
+    export_schema_to_csv(schema)
+    export_sample_data_to_csv(schema, 5)
 
 # COMMAND ----------
 
@@ -166,13 +163,12 @@ print("\n" + "="*80)
 print("EXPORT COMPLETE")
 print("="*80)
 
-schemas = ["default", "silver", "reference", "gold"]
-
 print("\nExported files:")
 for schema in schemas:
     print(f"\n{schema.upper()} SCHEMA:")
     print(f"  Schema: /Volumes/{catalog_name}/{schema}/{schema}_exports/{schema}_schema/")
     print(f"  Samples: /Volumes/{catalog_name}/{schema}/{schema}_exports/[table_name]_sample/")
 
-
-
+print("\n" + "="*80)
+print("NEXT STEP: Run download_schemas_to_local.py locally")
+print("="*80)

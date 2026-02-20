@@ -1,5 +1,6 @@
 """
 Download Schemas and Sample Data from Databricks Volumes
+WITH AUTOMATIC VOLUME CLEANUP
 DNA Gene Mapping Project
 Author: Sharique Mohammad
 Date: February 2026
@@ -21,6 +22,7 @@ SCHEMAS_DIR = DOCS_DIR / "schemas"
 SCHEMAS_DIR.mkdir(parents=True, exist_ok=True)
 
 def list_directory(path):
+    """List contents of a Databricks directory."""
     url = f"{DATABRICKS_HOST}/api/2.0/fs/directories{path}"
     headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
     response = requests.get(url, headers=headers)
@@ -29,6 +31,7 @@ def list_directory(path):
     return []
 
 def download_file(remote_path, local_path):
+    """Download a file from Databricks."""
     url = f"{DATABRICKS_HOST}/api/2.0/fs/files{remote_path}"
     headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
     
@@ -42,6 +45,13 @@ def download_file(remote_path, local_path):
         return True
     return False
 
+def delete_volume(catalog, schema, volume):
+    """Delete a volume in Databricks."""
+    url = f"{DATABRICKS_HOST}/api/2.1/unity-catalog/volumes/{catalog}/{schema}/{volume}"
+    headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
+    response = requests.delete(url, headers=headers)
+    return response.status_code == 200
+
 def main():
     print("="*80)
     print("DOWNLOADING SCHEMAS AND SAMPLE DATA")
@@ -51,7 +61,24 @@ def main():
         print("\nERROR: Databricks credentials not found in .env")
         return
     
-    schemas = ["default", "silver", "reference", "gold"]
+    schemas = []
+    catalog = "workspace"
+    
+    print("\nAuto-discovering schemas...")
+    catalog_url = f"{DATABRICKS_HOST}/api/2.1/unity-catalog/schemas"
+    headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
+    params = {"catalog_name": catalog}
+    
+    response = requests.get(catalog_url, headers=headers, params=params)
+    if response.status_code == 200:
+        schema_list = response.json().get('schemas', [])
+        schemas = [s['name'] for s in schema_list if s['name'] not in ['information_schema']]
+        print(f"Found schemas: {', '.join(schemas)}")
+    else:
+        schemas = ["default", "silver", "reference", "gold"]
+        print(f"Using default schemas: {', '.join(schemas)}")
+    
+    download_summary = {}
     
     for schema in schemas:
         print(f"\n{schema.upper()} SCHEMA")
@@ -60,13 +87,17 @@ def main():
         sample_dir = SCHEMAS_DIR / schema
         sample_dir.mkdir(exist_ok=True)
         
-        volume_base = f"/Volumes/workspace/{schema}/{schema}_exports"
+        volume_name = f"{schema}_exports"
+        volume_base = f"/Volumes/{catalog}/{schema}/{volume_name}"
         
         folders = list_directory(volume_base)
         
         if not folders:
             print(f"  No exports found")
+            download_summary[schema] = {"downloaded": 0, "volume_existed": False}
             continue
+        
+        download_summary[schema] = {"downloaded": 0, "volume_existed": True}
         
         for folder_info in folders:
             folder_path = folder_info.get('path')
@@ -84,29 +115,49 @@ def main():
             
             csv_file = csv_files[0]
             remote_path = csv_file['path']
-            file_name = csv_file.get('name')
             
             if folder_name == f"{schema}_schema":
                 local_file = SCHEMAS_DIR / f"{schema}_schema.csv"
-                print(f"  Schema: {schema}_schema.csv")
+                print(f"  Schema: {schema}_schema.csv", end=' ')
             else:
                 local_file = sample_dir / f"{folder_name}.csv"
-                print(f"  Sample: {folder_name}.csv")
+                print(f"  Sample: {folder_name}.csv", end=' ')
             
             if download_file(remote_path, local_file):
-                print(f"Downloaded successfully: {local_file}")
+                print("OK")
+                download_summary[schema]["downloaded"] += 1
             else:
-                print(f"FAILED")
+                print("FAILED")
     
     print("\n" + "="*80)
     print("DOWNLOAD COMPLETE")
     print("="*80)
-    print(f"\nLocation: {DOCS_DIR / 'schemas'}")
-    print("\nStructure:")
-    print("  schemas/default_schema.csv  - Default schema")
-    print("  schemas/default/            - Default sample tables")
-    print("  schemas/silver_schema.csv   - Silver schema")
-    print("  schemas/silver/             - Silver sample tables")
+    print(f"\nLocation: {SCHEMAS_DIR}")
+    
+    total_downloaded = sum(s["downloaded"] for s in download_summary.values())
+    print(f"Total files downloaded: {total_downloaded}")
+    
+    if total_downloaded > 0:
+        print("\n" + "="*80)
+        print("CLEANING UP VOLUMES")
+        print("="*80)
+        
+        cleanup_count = 0
+        for schema in schemas:
+            if download_summary.get(schema, {}).get("volume_existed"):
+                volume_name = f"{schema}_exports"
+                print(f"\nDeleting volume: {catalog}.{schema}.{volume_name}", end=' ')
+                
+                if delete_volume(catalog, schema, volume_name):
+                    print("OK")
+                    cleanup_count += 1
+                else:
+                    print("FAILED (may need manual cleanup)")
+        
+        print(f"\nVolumes cleaned up: {cleanup_count}/{len([s for s in schemas if download_summary.get(s, {}).get('volume_existed')])}")
+    
+    print("\n" + "="*80)
+    print("PROCESS COMPLETE")
     print("="*80)
 
 if __name__ == "__main__":
