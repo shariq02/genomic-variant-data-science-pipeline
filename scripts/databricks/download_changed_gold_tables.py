@@ -71,12 +71,46 @@ def download_file(remote_path, local_path):
         return True
     return False
 
+def delete_volume_contents(volume_path):
+    """Delete all contents of a volume (files and folders)."""
+    url = f"{DATABRICKS_HOST}/api/2.0/fs/delete"
+    headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
+    
+    try:
+        # Get all items in volume
+        items = list_directory(volume_path)
+        deleted = 0
+        
+        for item in items:
+            item_path = item.get('path')
+            data = {"path": item_path, "recursive": True}
+            response = requests.delete(url, headers=headers, json=data)
+            
+            if response.status_code == 200:
+                deleted += 1
+        
+        return deleted, len(items)
+    except Exception as e:
+        return 0, 0
+
 def delete_volume(catalog, schema, volume):
-    """Delete a volume in Databricks."""
+    """Delete a volume in Databricks using Workspace API."""
+    # Try Unity Catalog API first
     url = f"{DATABRICKS_HOST}/api/2.1/unity-catalog/volumes/{catalog}/{schema}/{volume}"
     headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
     response = requests.delete(url, headers=headers)
-    return response.status_code == 200
+    
+    if response.status_code == 200:
+        return True, "deleted"
+    
+    # If Unity Catalog fails, try deleting contents instead
+    volume_path = f"/Volumes/{catalog}/{schema}/{volume}"
+    deleted, total = delete_volume_contents(volume_path)
+    
+    if deleted > 0:
+        return True, f"cleaned ({deleted}/{total} items)"
+    
+    return False, f"failed (status: {response.status_code})"
 
 def load_local_checkpoint():
     """Load local checkpoint file."""
@@ -221,13 +255,15 @@ def main():
         print("CLEANING UP VOLUME")
         print("="*80)
         
-        print(f"\nDeleting volume: {CATALOG}.{SCHEMA}.{VOLUME_NAME}", end=' ')
+        print(f"\nCleaning volume: {CATALOG}.{SCHEMA}.{VOLUME_NAME}", end=' ')
         
-        if delete_volume(CATALOG, SCHEMA, VOLUME_NAME):
-            print("OK")
-            print("\nVolume deleted successfully")
+        success, message = delete_volume(CATALOG, SCHEMA, VOLUME_NAME)
+        
+        if success:
+            print(f"OK ({message})")
+            print("\nVolume cleaned successfully")
         else:
-            print("FAILED")
+            print(f"FAILED ({message})")
             print("\nNote: Volume may need manual cleanup in Databricks")
     
     print("\n" + "="*80)

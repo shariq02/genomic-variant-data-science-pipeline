@@ -45,12 +45,46 @@ def download_file(remote_path, local_path):
         return True
     return False
 
+def delete_volume_contents(volume_path):
+    """Delete all contents of a volume (files and folders)."""
+    url = f"{DATABRICKS_HOST}/api/2.0/fs/delete"
+    headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
+    
+    try:
+        # Get all items in volume
+        items = list_directory(volume_path)
+        deleted = 0
+        
+        for item in items:
+            item_path = item.get('path')
+            data = {"path": item_path, "recursive": True}
+            response = requests.delete(url, headers=headers, json=data)
+            
+            if response.status_code == 200:
+                deleted += 1
+        
+        return deleted, len(items)
+    except Exception as e:
+        return 0, 0
+
 def delete_volume(catalog, schema, volume):
-    """Delete a volume in Databricks."""
+    """Delete a volume in Databricks using Workspace API."""
+    # Try Unity Catalog API first
     url = f"{DATABRICKS_HOST}/api/2.1/unity-catalog/volumes/{catalog}/{schema}/{volume}"
     headers = {"Authorization": f"Bearer {DATABRICKS_TOKEN}"}
     response = requests.delete(url, headers=headers)
-    return response.status_code == 200
+    
+    if response.status_code == 200:
+        return True, "deleted"
+    
+    # If Unity Catalog fails, try deleting contents instead
+    volume_path = f"/Volumes/{catalog}/{schema}/{volume}"
+    deleted, total = delete_volume_contents(volume_path)
+    
+    if deleted > 0:
+        return True, f"cleaned ({deleted}/{total} items)"
+    
+    return False, f"failed (status: {response.status_code})"
 
 def main():
     print("="*80)
@@ -103,6 +137,10 @@ def main():
             folder_path = folder_info.get('path')
             folder_name = folder_info.get('name')
             
+            # Only process schema file and sample files
+            if not (folder_name == f"{schema}_schema" or folder_name.endswith("_sample")):
+                continue
+            
             files = list_directory(folder_path)
             
             if not files:
@@ -139,20 +177,23 @@ def main():
     
     if total_downloaded > 0:
         print("\n" + "="*80)
-        print("CLEANING UP VOLUMES")
+        print("CLEANING UP SCHEMA EXPORT VOLUMES")
         print("="*80)
         
         cleanup_count = 0
         for schema in schemas:
             if download_summary.get(schema, {}).get("volume_existed"):
                 volume_name = f"{schema}_exports"
-                print(f"\nDeleting volume: {catalog}.{schema}.{volume_name}", end=' ')
                 
-                if delete_volume(catalog, schema, volume_name):
-                    print("OK")
+                print(f"\nCleaning volume: {catalog}.{schema}.{volume_name}", end=' ')
+                
+                success, message = delete_volume(catalog, schema, volume_name)
+                
+                if success:
+                    print(f"OK ({message})")
                     cleanup_count += 1
                 else:
-                    print("FAILED (may need manual cleanup)")
+                    print(f"FAILED ({message})")
         
         print(f"\nVolumes cleaned up: {cleanup_count}/{len([s for s in schemas if download_summary.get(s, {}).get('volume_existed')])}")
     
