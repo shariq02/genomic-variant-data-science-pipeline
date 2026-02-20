@@ -2,19 +2,19 @@
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - TRANSCRIPT EXPRESSION ANALYSIS
 # MAGIC ##### Module: Gene-Level Expression Features
-# MAGIC 
+# MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 19, 2026
-# MAGIC 
+# MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 6: Transcript Isoform Impact
 # MAGIC - Use Case 16: Gene Expression Analysis
-# MAGIC 
+# MAGIC
 # MAGIC **Input:**
 # MAGIC - silver.gtex_tissue_expression
 # MAGIC - silver.genes_ultra_enriched
-# MAGIC 
+# MAGIC
 # MAGIC **Output:** gold.transcript_expression_ml_features
 
 # COMMAND ----------
@@ -160,7 +160,7 @@ df_with_genes = (
     df_genes
     .select(
         upper(trim(col("official_symbol"))).alias("gene_symbol"),
-        col("gene_name"),
+        col("gene_name").alias("gene_full_name"),
         col("description"),
         col("chromosome"),
         col("gene_length"),
@@ -215,7 +215,7 @@ df_final = (
     df_priority
     .select(
         col("gene_symbol"),
-        col("gene_name"),
+        col("gene_full_name"),
         col("description"),
         col("chromosome"),
         col("gene_length"),
