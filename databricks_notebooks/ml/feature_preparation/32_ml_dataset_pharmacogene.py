@@ -2,22 +2,22 @@
 # MAGIC %md
 # MAGIC #### ML DATASET - PHARMACOGENE PRIORITY PREDICTION
 # MAGIC ##### Module: Prepare Pharmacogene Druggability ML Dataset
-# MAGIC 
+# MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 19, 2026
-# MAGIC 
+# MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 9: Pharmacogenomic Guidance
 # MAGIC - Use Case 14: Drug Target Identification
-# MAGIC 
-# MAGIC **Input:** gold.pharmacogene_ml_features (2,209 genes)
-# MAGIC 
+# MAGIC
+# MAGIC **Input:** gold.gene_pharmacogene_ml_features (2,209 genes)
+# MAGIC
 # MAGIC **Output:**
-# MAGIC - gold.ml_dataset_pharmacogene_train
-# MAGIC - gold.ml_dataset_pharmacogene_validation
-# MAGIC - gold.ml_dataset_pharmacogene_test
-# MAGIC 
+# MAGIC - gold.ml_dataset_gene_pharmacogene_train
+# MAGIC - gold.ml_dataset_gene_pharmacogene_validation
+# MAGIC - gold.ml_dataset_gene_pharmacogene_test
+# MAGIC
 # MAGIC **Target:** Pharmacogene priority (high/medium/low)
 
 # COMMAND ----------
@@ -43,7 +43,7 @@ print("="*80)
 print("\nLOADING PHARMACOGENE FEATURES")
 print("="*80)
 
-df = spark.table(f"{catalog_name}.gold.pharmacogene_ml_features")
+df = spark.table(f"{catalog_name}.gold.gene_pharmacogene_ml_features")
 
 print(f"Total records: {df.count():,}")
 
@@ -168,9 +168,9 @@ print("="*80)
 df_train.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.gold.ml_dataset_pharmacogene_train")
+    .saveAsTable(f"{catalog_name}.gold.ml_dataset_gene_pharmacogene_train")
 
-print(f"Saved: {catalog_name}.gold.ml_dataset_pharmacogene_train")
+print(f"Saved: {catalog_name}.gold.ml_dataset_gene_pharmacogene_train")
 
 # COMMAND ----------
 
@@ -181,7 +181,7 @@ print("="*80)
 df_validation.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.gold.ml_dataset_pharmacogene_validation")
+    .saveAsTable(f"{catalog_name}.gold.ml_dataset_gene_pharmacogene_validation")
 
 print(f"Saved: {catalog_name}.gold.ml_dataset_pharmacogene_validation")
 
@@ -194,7 +194,7 @@ print("="*80)
 df_test.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.gold.ml_dataset_pharmacogene_test")
+    .saveAsTable(f"{catalog_name}.gold.ml_dataset_gene_pharmacogene_test")
 
 print(f"Saved: {catalog_name}.gold.ml_dataset_pharmacogene_test")
 
@@ -204,9 +204,9 @@ print(f"Saved: {catalog_name}.gold.ml_dataset_pharmacogene_test")
 print("\nVERIFYING DATASETS")
 print("="*80)
 
-train_count = spark.table(f"{catalog_name}.gold.ml_dataset_pharmacogene_train").count()
-val_count = spark.table(f"{catalog_name}.gold.ml_dataset_pharmacogene_validation").count()
-test_count = spark.table(f"{catalog_name}.gold.ml_dataset_pharmacogene_test").count()
+train_count = spark.table(f"{catalog_name}.gold.ml_dataset_gene_pharmacogene_train").count()
+val_count = spark.table(f"{catalog_name}.gold.ml_dataset_gene_pharmacogene_validation").count()
+test_count = spark.table(f"{catalog_name}.gold.ml_dataset_gene_pharmacogene_test").count()
 total = train_count + val_count + test_count
 
 print(f"Train: {train_count:,} ({train_count/total*100:.1f}%)")
@@ -215,14 +215,14 @@ print(f"Test: {test_count:,} ({test_count/total*100:.1f}%)")
 print(f"Total: {total:,}")
 
 print("\nTrain set - Priority distribution:")
-spark.table(f"{catalog_name}.gold.ml_dataset_pharmacogene_train") \
+spark.table(f"{catalog_name}.gold.ml_dataset_gene_pharmacogene_train") \
     .groupBy("pharmacogene_priority") \
     .count() \
     .orderBy("pharmacogene_priority") \
     .show()
 
 print("\nTrain set - Category distribution:")
-spark.table(f"{catalog_name}.gold.ml_dataset_pharmacogene_train") \
+spark.table(f"{catalog_name}.gold.ml_dataset_gene_pharmacogene_train") \
     .groupBy("pharmacogene_category") \
     .count() \
     .orderBy("pharmacogene_category") \

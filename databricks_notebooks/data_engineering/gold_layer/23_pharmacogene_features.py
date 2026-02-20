@@ -16,7 +16,7 @@
 # MAGIC - silver.pharmgkb_relationships
 # MAGIC - silver.genes_ultra_enriched
 # MAGIC
-# MAGIC **Output:** gold.pharmacogene_ml_features
+# MAGIC **Output:** gold.gene_pharmacogene_ml_features
 
 # COMMAND ----------
 
@@ -359,9 +359,9 @@ print("="*80)
 df_final.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.gold.pharmacogene_ml_features")
+    .saveAsTable(f"{catalog_name}.gold.gene_pharmacogene_ml_features")
 
-print(f"Saved: {catalog_name}.gold.pharmacogene_ml_features")
+print(f"Saved: {catalog_name}.gold.gene_pharmacogene_ml_features")
 
 # COMMAND ----------
 
@@ -369,19 +369,19 @@ print(f"Saved: {catalog_name}.gold.pharmacogene_ml_features")
 print("\nPHARMACOGENE FEATURES COMPLETE")
 print("="*80)
 
-result_count = spark.table(f"{catalog_name}.gold.pharmacogene_ml_features").count()
+result_count = spark.table(f"{catalog_name}.gold.gene_pharmacogene_ml_features").count()
 print(f"\nTable created:")
 print(f"  gold.pharmacogene_ml_features: {result_count:,} genes")
 
 print("\nPriority breakdown:")
-spark.table(f"{catalog_name}.gold.pharmacogene_ml_features") \
+spark.table(f"{catalog_name}.gold.gene_pharmacogene_ml_features") \
     .groupBy("pharmacogene_priority") \
     .count() \
     .orderBy("pharmacogene_priority") \
     .show()
 
 print("\nCategory breakdown:")
-spark.table(f"{catalog_name}.gold.pharmacogene_ml_features") \
+spark.table(f"{catalog_name}.gold.gene_pharmacogene_ml_features") \
     .groupBy("pharmacogene_category") \
     .count() \
     .orderBy("pharmacogene_category") \
