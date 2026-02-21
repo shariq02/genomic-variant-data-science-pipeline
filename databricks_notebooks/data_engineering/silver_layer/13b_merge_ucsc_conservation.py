@@ -9,7 +9,7 @@
 # MAGIC
 # MAGIC **Input:**
 # MAGIC - silver.conservation_base (CADD + gnomAD)
-# MAGIC - default.ucsc_conservation_scores (PhyloP + PhastCons from 13b)
+# MAGIC - default.ucsc_conservation_scores (PhyloP + PhastCons from 13a)
 # MAGIC
 # MAGIC **Output:**
 # MAGIC - silver.conservation_with_phylop (NEW TABLE - combines all scores)
@@ -37,7 +37,7 @@ print("="*80)
 print("\nLOADING CONSERVATION BASE")
 print("="*80)
 
-df_base = spark.table(f"{catalog_name}.silver.conservation_base")
+df_base = spark.table(f"{catalog_name}.silver.conservation_scores")
 base_count = df_base.count()
 
 print(f"Conservation base: {base_count:,} variants")
@@ -63,7 +63,7 @@ try:
     
 except Exception as e:
     print(f"ERROR: UCSC table not found!")
-    print(f"Please run 13b_download_ucsc_filtered first")
+    print(f"Please run 13a_download_ucsc_filtered first")
     dbutils.notebook.exit("UCSC data not available")
 
 # COMMAND ----------

@@ -2,18 +2,18 @@
 # MAGIC %md
 # MAGIC #### DOWNLOAD UCSC CONSERVATION SCORES (FILTERED VERSION)
 # MAGIC ##### Optimized for Databricks Community Edition
-# MAGIC 
+# MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 2026
-# MAGIC 
+# MAGIC
 # MAGIC **Optimization:**
 # MAGIC - Filters to ~500K variants (from 4.2M) - 88% reduction
 # MAGIC - Uses Unity Catalog Volumes (no DBFS needed)
 # MAGIC - Downloads bigWig to temp storage
 # MAGIC - Processes in ~60-90 minutes
 # MAGIC - Storage: ~1 GB max during processing
-# MAGIC 
+# MAGIC
 # MAGIC **Filter Criteria:**
 # MAGIC - Pathogenic or VUS variants
 # MAGIC - Coding variants (missense, frameshift, nonsense, splice)
@@ -27,7 +27,7 @@ print("INSTALLING PYBIGWIG")
 print("="*80)
 
 # Install pyBigWig in Databricks cluster
-%pip install pyBigWig --quiet
+%pip install pyBigWig tqdm --quiet
 
 print("pyBigWig installed successfully")
 
@@ -83,6 +83,7 @@ print(f"  PhastCons: {PHASTCONS_FILE}")
 # COMMAND ----------
 
 # DBTITLE 1,Filter Variants to Important Subset
+# DBTITLE 1,Filter Variants to Important Subset (STRICTER)
 print("\nFILTERING VARIANTS TO IMPORTANT SUBSET")
 print("="*80)
 
@@ -91,40 +92,42 @@ df_all = spark.table(f"{catalog_name}.silver.variants_ultra_enriched")
 total_count = df_all.count()
 print(f"Total variants in database: {total_count:,}")
 
-# Apply filters
+# Apply MUCH STRICTER filter - Focus on HIGH VALUE variants only
 df_filtered = (
     df_all
+    # Filter 1: Standard chromosomes only
+    .filter(col("chromosome").isin([str(i) for i in range(1, 23)] + ['X', 'Y']))
+    
+    # Filter 2: ONLY pathogenic or high-quality VUS (remove low quality VUS)
     .filter(
-        # Chromosome filter: Only standard chromosomes (no unplaced contigs)
-        col("chromosome").isin([str(i) for i in range(1, 23)] + ['X', 'Y'])
-    )
-    .filter(
-        # Clinical significance filter
-        (col("is_pathogenic") == True) |
-        (col("is_vus") == True) |
+        # Pathogenic variants (329K)
+        (col("is_pathogenic")) |
         
-        # OR coding variants
-        (col("is_missense_variant") == True) |
-        (col("is_frameshift_variant") == True) |
-        (col("is_nonsense_variant") == True) |
-        (col("is_splice_variant") == True) |
-        
-        # OR has clinical review
-        (col("review_quality_score") >= 1)
+        # VUS BUT ONLY with high review quality (removes 2M low quality VUS)
+        (col("is_vus") & (col("review_quality_score") >= 2))
     )
     .select("variant_id", "chromosome", "position")
     .distinct()
 )
 
+# Check counts
 filtered_count = df_filtered.count()
 reduction = (1 - filtered_count/total_count) * 100
 
-print(f"\nFiltered variants: {filtered_count:,}")
-print(f"Reduction: {reduction:.1f}%")
-print(f"Estimated processing time: {filtered_count / 10000:.0f} minutes")
+print(f"\nAfter filtering:")
+print(f"  Original: {total_count:,}")
+print(f"  Filtered: {filtered_count:,}")
+print(f"  Reduction: {reduction:.1f}%")
+print(f"  Estimated time: {filtered_count / 10000 * 15:.0f} minutes")
 
-# Convert to Pandas for processing
-print("\nConverting to Pandas DataFrame...")
+# Safety check
+if filtered_count > 1000000:
+    print(f"\nWARNING: Still {filtered_count:,} variants")
+    print("Filter not strict enough - stopping")
+    dbutils.notebook.exit("Filter not strict enough")
+
+# Convert to Pandas
+print("\nConverting to Pandas...")
 df_variants = df_filtered.toPandas()
 print(f"Ready to process: {len(df_variants):,} variants")
 
@@ -346,7 +349,7 @@ print(f"  Filtered variants: {filtered_count:,}")
 print(f"  Reduction: {reduction:.1f}%")
 
 print(f"\nNEXT STEP:")
-print(f"  Run notebook: 13c_merge_ucsc_with_conservation")
+print(f"  Run notebook: 13b_merge_ucsc_with_conservation")
 print(f"  This will merge UCSC scores with existing conservation data")
 
 print("\n" + "="*80)

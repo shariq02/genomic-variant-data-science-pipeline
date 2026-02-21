@@ -57,7 +57,7 @@ if not has_gene2refseq:
 print("\nCHECKING CURRENT GENE TABLE STATE")
 print("="*80)
 
-df_genes = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes = spark.table(f"{catalog_name}.silver.genes_with_coords_v2")
 
 total_genes = df_genes.count()
 with_coords = df_genes.filter(
@@ -72,7 +72,7 @@ print(f"Missing coordinates: {missing_coords:,} ({missing_coords/total_genes*100
 # COMMAND ----------
 
 # DBTITLE 1,Match gene2refseq to genes by gene_id
-print("\nMATCHING gene2refseq TO genes_ultra_enriched")
+print("\nMATCHING gene2refseq TO genes_with_refseq_coords")
 print("="*80)
 
 # Convert gene_id to string for join
@@ -128,9 +128,9 @@ df_genes_updated = (
 df_genes_updated.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.silver.genes_ultra_enriched")
+    .saveAsTable(f"{catalog_name}.silver.genes_with_refseq_coords")
 
-print("genes_ultra_enriched updated")
+print("genes_with_refseq_coords updated")
 
 # COMMAND ----------
 
@@ -138,7 +138,7 @@ print("genes_ultra_enriched updated")
 print("\nFINAL STATISTICS")
 print("="*80)
 
-df_genes_final = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes_final = spark.table(f"{catalog_name}.silver.genes_with_refseq_coords")
 
 total = df_genes_final.count()
 with_coords_final = df_genes_final.filter(

@@ -12,7 +12,7 @@
 
 # DBTITLE 1,Import
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, when, coalesce, length, lit, first, expr
+from pyspark.sql.functions import col, when, coalesce, length, lit, first, expr, trim
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType
 import requests
 import time
@@ -33,7 +33,7 @@ print("SPARK INITIALIZED FOR MULTI-SOURCE ID ENRICHMENT")
 print("\nSOURCE 1: GENE_ID FROM VARIANTS")
 print("="*80)
 
-df_genes = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes = spark.table(f"{catalog_name}.silver.genes_with_descriptions")
 df_variants = spark.table(f"{catalog_name}.silver.variants_ultra_enriched")
 
 # Get gene_id from variants (use first non-null value per gene)
@@ -186,60 +186,95 @@ df_hgnc_ids = spark.createDataFrame(hgnc_data, schema=hgnc_schema)
 print("\nMERGING ALL ID SOURCES")
 print("="*80)
 
-# First, let's check what type entrez_id actually is in the table
+# Inspect original type
 print("Checking entrez_id column type:")
 df_genes.select('entrez_id').printSchema()
 
-df_genes_updated = (
-    df_genes
-    
-    # Join variant gene_ids
-    .join(variant_gene_ids, 'gene_name', 'left')
-    
-    # Join disease gene_ids  
-    .join(disease_gene_ids, 'gene_name', 'left')
-    
-    # Join HGNC IDs
-    .join(
-        df_hgnc_ids.drop('hgnc_id'),
-        'gene_name', 
-        'left'
-    )
-    
-    # Convert all string IDs to BIGINT using try_cast (returns NULL for empty strings)
-    .withColumn('variant_gene_id_bigint', expr("try_cast(variant_gene_id as bigint)"))
-    .withColumn('disease_gene_id_bigint', expr("try_cast(disease_gene_id as bigint)"))
-    .withColumn('hgnc_entrez_id_bigint', expr("try_cast(hgnc_entrez_id as bigint)"))
-    
-    # Update Entrez ID - now all are BIGINT or NULL
-    .withColumn('entrez_id',
-                coalesce(
-                    col('entrez_id'),  # Keep existing if not null
-                    col('variant_gene_id_bigint'),
-                    col('disease_gene_id_bigint'),
-                    col('hgnc_entrez_id_bigint')
-                ))
-    
-    # Update Ensembl ID (string column)
-    .withColumn('ensembl_id',
-                when((col('ensembl_id').isNull()) | (col('ensembl_id') == '') | (length(col('ensembl_id')) <= 10),
-                     coalesce(
-                         when((col('hgnc_ensembl_id').isNotNull()) & (col('hgnc_ensembl_id') != '') & (length(col('hgnc_ensembl_id')) > 10), 
-                              col('hgnc_ensembl_id')),
-                         col('ensembl_id')
-                     ))
-                .otherwise(col('ensembl_id')))
-    
-    # Drop all temporary columns
-    .drop('variant_gene_id', 'disease_gene_id', 'hgnc_ensembl_id', 'hgnc_entrez_id',
-          'variant_gene_id_bigint', 'disease_gene_id_bigint', 'hgnc_entrez_id_bigint')
+# ---------------------------------------------------------------------
+# STEP 1: Clean existing Entrez ID (string → BIGINT safely)
+# ---------------------------------------------------------------------
+df_genes = df_genes.withColumn(
+    "entrez_id",
+    expr("try_cast(nullif(trim(entrez_id), '') as bigint)")
 )
 
-# Save with overwrite to handle schema changes
+# ---------------------------------------------------------------------
+# STEP 2: Merge ID sources
+# ---------------------------------------------------------------------
+df_genes_updated = (
+    df_genes
+
+    # Join variant gene IDs
+    .join(variant_gene_ids, 'gene_name', 'left')
+
+    # Join disease gene IDs
+    .join(disease_gene_ids, 'gene_name', 'left')
+
+    # Join HGNC IDs (drop duplicate key column)
+    .join(
+        df_hgnc_ids.drop('hgnc_id'),
+        'gene_name',
+        'left'
+    )
+
+    # Convert all candidate ID columns to BIGINT safely
+    .withColumn('variant_gene_id_bigint',
+                expr("try_cast(nullif(trim(variant_gene_id), '') as bigint)"))
+    .withColumn('disease_gene_id_bigint',
+                expr("try_cast(nullif(trim(disease_gene_id), '') as bigint)"))
+    .withColumn('hgnc_entrez_id_bigint',
+                expr("try_cast(nullif(trim(hgnc_entrez_id), '') as bigint)"))
+
+    # Merge Entrez ID sources (priority order preserved)
+    .withColumn(
+        'entrez_id',
+        coalesce(
+            col('entrez_id'),
+            col('variant_gene_id_bigint'),
+            col('disease_gene_id_bigint'),
+            col('hgnc_entrez_id_bigint')
+        )
+    )
+
+    # Update Ensembl ID (string logic retained)
+    .withColumn(
+        'ensembl_id',
+        when(
+            (col('ensembl_id').isNull()) |
+            (col('ensembl_id') == '') |
+            (length(col('ensembl_id')) <= 10),
+
+            coalesce(
+                when(
+                    (col('hgnc_ensembl_id').isNotNull()) &
+                    (col('hgnc_ensembl_id') != '') &
+                    (length(col('hgnc_ensembl_id')) > 10),
+                    col('hgnc_ensembl_id')
+                ),
+                col('ensembl_id')
+            )
+        ).otherwise(col('ensembl_id'))
+    )
+
+    # Drop temporary columns
+    .drop(
+        'variant_gene_id',
+        'disease_gene_id',
+        'hgnc_ensembl_id',
+        'hgnc_entrez_id',
+        'variant_gene_id_bigint',
+        'disease_gene_id_bigint',
+        'hgnc_entrez_id_bigint'
+    )
+)
+
+# ---------------------------------------------------------------------
+# STEP 3: Save table with schema overwrite
+# ---------------------------------------------------------------------
 df_genes_updated.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.silver.genes_ultra_enriched")
+    .saveAsTable(f"{catalog_name}.silver.genes_with_gene_ids")
 
 print("IDs merged successfully")
 
@@ -249,7 +284,7 @@ print("IDs merged successfully")
 print("\nFINAL STATISTICS")
 print("="*80)
 
-df_genes_final = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes_final = spark.table(f"{catalog_name}.silver.genes_with_gene_ids")
 total = df_genes_final.count()
 
 final_ensembl = df_genes_final.filter(

@@ -3,7 +3,7 @@
 # MAGIC #### CREATE VARIANT-PROTEIN IMPACT TABLE
 # MAGIC ##### Map variants to protein changes and functional domains
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
+# MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** January 27, 2026
 # MAGIC

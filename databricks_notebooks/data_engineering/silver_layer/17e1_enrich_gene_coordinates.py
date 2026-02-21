@@ -7,7 +7,7 @@
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** January 28, 2026
 # MAGIC
-# MAGIC **Purpose:** Fill missing start_position and end_position in genes_ultra_enriched
+# MAGIC **Purpose:** Fill missing start_position and end_position in genes_with_ensembl_coords
 # MAGIC
 # MAGIC **Data Sources (in priority order):**
 # MAGIC 1. transcripts table (most detailed)
@@ -15,7 +15,7 @@
 # MAGIC 3. gene_universal_search reference table
 # MAGIC 4. variants_ultra_enriched (infer from variant positions)
 # MAGIC
-# MAGIC **Updates:** genes_ultra_enriched.start_position, end_position
+# MAGIC **Updates:** genes_with_ensembl_coords.start_position, end_position
 
 # COMMAND ----------
 
@@ -43,7 +43,7 @@ print("SPARK INITIALIZED FOR GENE COORDINATE ENRICHMENT")
 print("\nANALYZING CURRENT STATE")
 print("="*80)
 
-df_genes = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes = spark.table(f"{catalog_name}.silver.genes_with_gene_ids")
 
 total_genes = df_genes.count()
 with_coords = df_genes.filter(
@@ -298,14 +298,14 @@ df_genes_updated = (
     .join(df_ensembl_coords, col("gene_name") == col("gene_name_ensembl"), "left")
     .drop("gene_name_ensembl", "ensembl_chr")
     
-    # Update coordinates
+    # Update coordinates - use Ensembl if base doesn't have them
     .withColumn("start_position",
                 coalesce(col("start_position"), col("ensembl_start")))
     
     .withColumn("end_position",
                 coalesce(col("end_position"), col("ensembl_end")))
     
-    # Update gene_length
+    # Update gene_length - calculate if missing
     .withColumn("gene_length",
                 when(col("gene_length").isNull() & 
                      col("start_position").isNotNull() & 
@@ -313,12 +313,9 @@ df_genes_updated = (
                      col("end_position") - col("start_position"))
                 .otherwise(col("gene_length")))
     
-    # Update coordinate_source
-    .withColumn("coordinate_source",
-                when(col("coordinate_source") == "missing",
-                     when(col("ensembl_start").isNotNull(), lit("ensembl"))
-                     .otherwise(lit("missing")))
-                .otherwise(col("coordinate_source")))
+    # Add coordinate source tracking (NEW column)
+    .withColumn("ensembl_coordinates_added",
+                col("ensembl_start").isNotNull())
     
     .drop("ensembl_start", "ensembl_end")
 )
@@ -327,7 +324,7 @@ df_genes_updated = (
 df_genes_updated.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.silver.genes_ultra_enriched")
+    .saveAsTable(f"{catalog_name}.silver.genes_with_ensembl_coords")
 
 print("Ensembl coordinates merged")
 
@@ -337,7 +334,7 @@ print("Ensembl coordinates merged")
 print("\nFINAL STATISTICS")
 print("="*80)
 
-df_genes_final = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes_final = spark.table(f"{catalog_name}.silver.genes_with_ensembl_coords")
 
 total = df_genes_final.count()
 with_coords_final = df_genes_final.filter(
@@ -357,9 +354,6 @@ print(f"\nIMPROVEMENT:")
 print(f"  Added: {with_coords_final - with_coords:,} genes")
 print(f"  Improvement: {(with_coords_final - with_coords)/total*100:.1f} percentage points")
 
-print("\nCoordinate sources:")
-df_genes_final.groupBy("coordinate_source").count().orderBy("count", ascending=False).show()
-
 # COMMAND ----------
 
 # DBTITLE 1,Summary
@@ -372,13 +366,11 @@ print(f"Expected SV-gene mapping: ~{with_coords_final/total*100:.0f}% coverage")
 
 # COMMAND ----------
 
-# COMMAND ----------
-
 # DBTITLE 1,What ARE the 134K Missing Genes?
 print("ANALYZING THE 134K MISSING GENES")
 print("="*80)
 
-df_genes = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes = spark.table(f"{catalog_name}.silver.genes_with_ensembl_coords")
 
 genes_missing = df_genes.filter(
     col("start_position").isNull() | col("end_position").isNull()

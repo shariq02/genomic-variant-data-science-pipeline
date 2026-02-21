@@ -27,7 +27,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GENE COORDINATE ENRICHMENT V2 - GENCODE CSV + VARIANTS")
+print("GENE COORDINATE ENRICHMENT V2 - GENCODE + VARIANTS")
 print("="*80)
 
 # COMMAND ----------
@@ -36,7 +36,7 @@ print("="*80)
 print("\nCURRENT STATE")
 print("="*80)
 
-df_genes = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes = spark.table(f"{catalog_name}.silver.genes_with_merged_coords")
 
 total_genes = df_genes.count()
 with_coords = df_genes.filter(
@@ -54,7 +54,6 @@ print("\nSOURCE 1: LOADING GENCODE FROM CSV")
 print("="*80)
 
 try:
-    # Load the GENCODE table (you created this from CSV upload)
     gencode_coords = spark.table(f"{catalog_name}.default.gencode_gene_coordinates")
     
     gencode_count = gencode_coords.count()
@@ -156,7 +155,7 @@ merged_coords.groupBy("chromosome").count().orderBy("count", ascending=False).sh
 
 # COMMAND ----------
 
-# DBTITLE 1,Update genes_ultra_enriched
+# DBTITLE 1,Update genes_with_coords_v2
 print("\nUPDATING GENES TABLE")
 print("="*80)
 
@@ -205,9 +204,9 @@ df_genes_updated = (
 df_genes_updated.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.silver.genes_ultra_enriched")
+    .saveAsTable(f"{catalog_name}.silver.genes_with_coords_v2")
 
-print("genes_ultra_enriched updated")
+print("genes_with_coords_v2 updated")
 
 # COMMAND ----------
 
@@ -215,7 +214,7 @@ print("genes_ultra_enriched updated")
 print("\nFINAL STATISTICS")
 print("="*80)
 
-df_genes_final = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes_final = spark.table(f"{catalog_name}.silver.genes_with_coords_v2")
 
 total = df_genes_final.count()
 with_coords_final = df_genes_final.filter(
@@ -311,11 +310,9 @@ print("\n" + "="*80)
 print("NEXT STEPS")
 print("="*80)
 if success_level in ["excellent", "good"]:
-    print(" Ready to run: 17e_feature_engineering_structural.py")
     print("  Expected: 40-60% of SVs will have gene overlaps")
 elif success_level == "moderate":
     print(" Can proceed but expect lower SV coverage")
-    print("  Run: 17e_feature_engineering_structural.py")
 else:
     print(" Need to investigate gene coordinate enrichment")
     print("  Check: Why so few genes have coordinates?")
