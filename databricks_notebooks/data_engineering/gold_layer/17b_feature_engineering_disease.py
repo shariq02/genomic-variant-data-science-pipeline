@@ -1,12 +1,14 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC
-# MAGIC #### FEATURE ENGINEERING - DISEASE USE CASES
+# MAGIC #### FEATURE ENGINEERING - DISEASE USE CASES (UPDATED)
 # MAGIC ##### Module 2: Disease Association, Polygenic Risk, Gene Prioritization
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** January 27, 2026
+# MAGIC **Date:** February 22, 2026
+# MAGIC
+# MAGIC **UPDATED:** Uses genes_with_pharmgkb (final enriched gene table)
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 4: Disease Association Discovery (Gene-Disease links)
@@ -32,7 +34,8 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("SPARK INITIALIZED FOR DISEASE FEATURE ENGINEERING - MODULE 2")
+print("DISEASE FEATURE ENGINEERING - MODULE 2 (UPDATED)")
+print("="*80)
 
 # COMMAND ----------
 
@@ -41,31 +44,30 @@ print("\nLOADING TABLES")
 print("="*80)
 
 df_variants = spark.table(f"{catalog_name}.silver.variants_ultra_enriched")
-df_genes = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
+df_gene_disease_comp = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
 
 # Load reference tables for disease enrichment
 df_omim_lookup = spark.table(f"{catalog_name}.reference.omim_disease_lookup")
 df_mondo_lookup = spark.table(f"{catalog_name}.reference.mondo_disease_lookup")
 df_orphanet_lookup = spark.table(f"{catalog_name}.reference.orphanet_disease_lookup")
 
+# Additional enrichment tables
+df_gtex = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
+df_cancer = spark.table(f"{catalog_name}.silver.cancer_mutations")
+df_conservation = spark.table(f"{catalog_name}.silver.conservation_with_phylop")
+df_protein_domains = spark.table(f"{catalog_name}.silver.protein_domains")
+
 print(f"Variants: {df_variants.count():,}")
-print(f"Genes: {df_genes.count():,}")
+print(f"Genes (enriched): {df_genes.count():,}")
+print(f"Gene-disease comprehensive: {df_gene_disease_comp.count():,}")
 print(f"OMIM lookup: {df_omim_lookup.count():,}")
 print(f"MONDO lookup: {df_mondo_lookup.count():,}")
 print(f"Orphanet lookup: {df_orphanet_lookup.count():,}")
-
-# Check flags
-gene_cols = df_genes.columns
-has_description_features = 'primary_description' in gene_cols
-has_comprehensive_diseases = 'has_cancer_combined' in gene_cols and 'total_disease_count' in gene_cols
-
-# Only load gene_disease_links if Module 16b comprehensive data is NOT available
-if has_comprehensive_diseases:
-    df_gene_disease = None
-    print("Comprehensive disease data available - skipping gene_disease_links")
-else:
-    df_gene_disease = spark.table(f"{catalog_name}.silver.gene_disease_links")
-    print(f"\n Gene-disease links: {df_gene_disease.count():,}")
+print(f"GTEx expression: {df_gtex.count():,}")
+print(f"Cancer mutations: {df_cancer.count():,}")
+print(f"Conservation: {df_conservation.count():,}")
+print(f"Protein domains: {df_protein_domains.count():,}")
 
 # COMMAND ----------
 
@@ -109,7 +111,7 @@ df_variants_enriched = (
     )
     .drop("orphanet_id_lookup")
     
-    # Create enriched disease name (use best available source)
+    # Create enriched disease name
     .withColumn("disease_name_enriched",
                 coalesce(
                     col("disease_enriched"),
@@ -138,7 +140,6 @@ df_variants_enriched = (
     .withColumn("disease_is_well_annotated",
                 col("disease_db_coverage") >= 2)
     
-    # Disease name quality
     .withColumn("disease_name_is_generic",
                 col("disease_name_enriched").rlike("(?i)disease|disorder|syndrome") &
                 (length(col("disease_name_enriched")) < 30))
@@ -152,137 +153,72 @@ print("Disease enrichment complete")
 print("\nUSE CASE 4: DISEASE ASSOCIATION DISCOVERY")
 print("="*80)
 
-if has_comprehensive_diseases:
-    # df_genes already has omim_disease_count and total_disease_count
-    # Do NOT join anything - just derive columns directly
-    df_genes_with_disease = (
-        df_genes
-        .withColumn("disease_count", col("total_disease_count"))
-        .withColumn("disease_count_category",
-                    when(col("total_disease_count") >= 10, lit("Highly_Associated"))
-                    .when(col("total_disease_count") >= 5, lit("Moderately_Associated"))
-                    .when(col("total_disease_count") >= 2, lit("Associated"))
-                    .when(col("total_disease_count") == 1, lit("Single_Disease"))
-                    .otherwise(lit("Not_Associated")))
-        .withColumn("is_disease_associated", col("total_disease_count") >= 1)
-        .withColumn("is_multi_disease_gene", col("total_disease_count") >= 3)
-        .withColumn("disease_association_strength",
-                    when(col("total_disease_count") >= 10, 5)
-                    .when(col("total_disease_count") >= 5, 4)
-                    .when(col("total_disease_count") >= 2, 3)
-                    .when(col("total_disease_count") == 1, 2)
-                    .otherwise(1))
-        .withColumn("is_omim_gene", col("omim_disease_count") >= 1)
+# Use gene_disease_comprehensive for disease counts
+df_genes_with_disease = (
+    df_gene_disease_comp
+    .select(
+        "gene_name",
+        col("total_disease_count").alias("disease_count"),
+        "omim_disease_count"
     )
-    print("df_genes_with_disease created directly from genes_ultra_enriched")
-else:
-    # Original path - compute from gene_disease_links
-    gene_disease_stats = (
-        df_gene_disease
-        .groupBy(col("gene_symbol").alias("gene_name"))
-        .agg(
-            countDistinct("medgen_id").alias("disease_count"),
-            countDistinct(when(col("omim_id").isNotNull(), col("omim_id"))).alias("omim_disease_count")
-        )
-        .withColumn("disease_count_category",
-                    when(col("disease_count") >= 10, lit("Highly_Associated"))
-                    .when(col("disease_count") >= 5, lit("Moderately_Associated"))
-                    .when(col("disease_count") >= 2, lit("Associated"))
-                    .when(col("disease_count") == 1, lit("Single_Disease"))
-                    .otherwise(lit("Not_Associated")))
-        .withColumn("is_disease_associated", col("disease_count") >= 1)
-        .withColumn("is_multi_disease_gene", col("disease_count") >= 3)
-        .withColumn("disease_association_strength",
-                    when(col("disease_count") >= 10, 5)
-                    .when(col("disease_count") >= 5, 4)
-                    .when(col("disease_count") >= 2, 3)
-                    .when(col("disease_count") == 1, 2)
-                    .otherwise(1))
-        .withColumn("is_omim_gene", col("omim_disease_count") >= 1)
-    )
-    df_genes_with_disease = (
-        df_genes
-        .join(gene_disease_stats, "gene_name", "left")
-        .fillna({
-            "disease_count": 0,
-            "omim_disease_count": 0,
-            "disease_association_strength": 1,
-            "is_disease_associated": False,
-            "is_multi_disease_gene": False,
-            "is_omim_gene": False
-        })
-        .fillna("Not_Associated", ["disease_count_category"])
-    )
-    print("df_genes_with_disease created via join from gene_disease_links")
-
-# Join variant data with enriched gene info
-# Drop BOTH disease_count and omim_disease_count from variants side before join
-df_disease = (
-    df_variants_enriched
-    .drop("disease_count")
-    .drop("omim_disease_count")
-    .join(
-        df_genes_with_disease.select(
-            col("gene_name").alias("gene_name_lookup"),
-            "disease_count",
-            "omim_disease_count",
-            "disease_count_category",
-            "is_disease_associated",
-            "is_multi_disease_gene",
-            "disease_association_strength",
-            "is_omim_gene",
-        ),
-        df_variants_enriched.gene_name == col("gene_name_lookup"),
-        "left"
-    )
-    .drop("gene_name_lookup")
-    .withColumn("variant_disease_link_quality",
-                (when(col("has_omim_disease"), 3).otherwise(0)) +
-                (when(col("has_mondo_disease"), 2).otherwise(0)) +
-                (when(col("has_orphanet_disease"), 2).otherwise(0)) +
-                (when(col("is_disease_associated"), 2).otherwise(0)) +
-                (when(col("disease_is_well_annotated"), 1).otherwise(0)))
+    .withColumn("disease_count_category",
+                when(col("disease_count") >= 10, lit("Highly_Associated"))
+                .when(col("disease_count") >= 5, lit("Moderately_Associated"))
+                .when(col("disease_count") >= 2, lit("Associated"))
+                .when(col("disease_count") == 1, lit("Single_Disease"))
+                .otherwise(lit("Not_Associated")))
+    .withColumn("is_disease_associated", col("disease_count") >= 1)
+    .withColumn("is_multi_disease_gene", col("disease_count") >= 3)
+    .withColumn("disease_association_strength",
+                when(col("disease_count") >= 10, 5)
+                .when(col("disease_count") >= 5, 4)
+                .when(col("disease_count") >= 2, 3)
+                .when(col("disease_count") == 1, 2)
+                .otherwise(1))
+    .withColumn("is_omim_gene", col("omim_disease_count") >= 1)
 )
 
-print("df_genes_with_disease created, df_disease created")
-print(f"df_genes_with_disease: {df_genes_with_disease.count():,} rows")
-print(f"df_disease: {df_disease.count():,} rows")
+print("Disease association features created")
 
 # COMMAND ----------
 
-# DBTITLE 1,Use Case 5 - Polygenic Risk Features
-print("\nUSE CASE 5: POLYGENIC RISK ASSESSMENT")
+# DBTITLE 1,Join Variants with Disease Features
+print("\nJOINING VARIANTS WITH DISEASE FEATURES")
 print("="*80)
 
-# These columns may already exist on df_disease from variants_ultra_enriched
-# Drop them first to avoid ambiguous reference after join
-uc5_cols_to_drop = [
-    "disease_total_variants",
-    "disease_pathogenic_variants",
-    "disease_benign_variants",
-    "disease_vus_variants",
-    "disease_pathogenic_ratio",
-    "disease_gene_count",
-    "is_polygenic_disease",
-    "disease_complexity",
-    "disease_has_high_pathogenic_burden",
-    "disease_complexity_score"
-]
+df_disease = (
+    df_variants_enriched
+    .join(df_genes_with_disease, "gene_name", "left")
+    .fillna({
+        "disease_count": 0,
+        "omim_disease_count": 0,
+        "disease_association_strength": 1,
+        "is_disease_associated": False,
+        "is_multi_disease_gene": False,
+        "is_omim_gene": False
+    })
+    .fillna("Not_Associated", ["disease_count_category"])
+    
+    # Variant-disease link quality
+    .withColumn("variant_disease_link_quality",
+                when(col("has_omim_disease") & col("is_omim_gene"), lit("High_Quality"))
+                .when(col("disease_db_coverage") >= 2, lit("Medium_Quality"))
+                .when(col("disease_db_coverage") >= 1, lit("Low_Quality"))
+                .otherwise(lit("No_Link")))
+)
 
-for c in uc5_cols_to_drop:
-    if c in df_disease.columns:
-        df_disease = df_disease.drop(c)
-        print(f"  Dropped existing: {c}")
+print("Variant-disease join complete")
 
-# Calculate disease-level variant statistics
-disease_variant_stats = (
+# COMMAND ----------
+
+# DBTITLE 1,USE CASE 5 - Polygenic Risk Features
+print("\nUSE CASE 5: POLYGENIC RISK SCORES")
+print("="*80)
+
+# Calculate disease-level statistics
+disease_stats = (
     df_disease
-    .filter(
-        (col("disease_name_enriched") != "Unknown_Disease") &
-        (col("disease_name_enriched") != "not provided") &
-        (col("disease_name_enriched") != "not specified") &
-        (col("disease_name_enriched").isNotNull())
-    )
+    .filter(col("disease_name_enriched") != "Unknown_Disease")
     .groupBy("disease_name_enriched")
     .agg(
         count("*").alias("disease_total_variants"),
@@ -292,47 +228,29 @@ disease_variant_stats = (
         countDistinct("gene_name").alias("disease_gene_count")
     )
     .withColumn("disease_pathogenic_ratio",
-                when(col("disease_total_variants") > 0,
-                     col("disease_pathogenic_variants") / col("disease_total_variants"))
-                .otherwise(lit(0)))
+                col("disease_pathogenic_variants") / col("disease_total_variants"))
     .withColumn("is_polygenic_disease",
                 col("disease_gene_count") >= 3)
     .withColumn("disease_complexity",
-                when(col("disease_gene_count") >= 10, lit("Complex_Polygenic"))
-                .when(col("disease_gene_count") >= 5, lit("Moderate_Polygenic"))
-                .when(col("disease_gene_count") >= 3, lit("Simple_Polygenic"))
+                when(col("disease_gene_count") >= 10, lit("Highly_Complex"))
+                .when(col("disease_gene_count") >= 5, lit("Complex"))
+                .when(col("disease_gene_count") >= 3, lit("Moderately_Complex"))
+                .when(col("disease_gene_count") >= 2, lit("Oligogenic"))
                 .otherwise(lit("Monogenic")))
-    .withColumn("disease_has_high_pathogenic_burden",
-                (col("disease_pathogenic_variants") >= 10) |
-                (col("disease_pathogenic_ratio") >= 0.5))
     .withColumn("disease_complexity_score",
-                col("disease_gene_count") * 2 +
-                col("disease_total_variants"))
+                when(col("disease_gene_count") >= 10, 5)
+                .when(col("disease_gene_count") >= 5, 4)
+                .when(col("disease_gene_count") >= 3, 3)
+                .when(col("disease_gene_count") >= 2, 2)
+                .otherwise(1))
+    .withColumn("disease_has_high_pathogenic_burden",
+                coalesce(col("disease_pathogenic_ratio"), lit(0.0)) > 0.2)
 )
 
-print(f"disease_variant_stats rows: {disease_variant_stats.count():,}")
-
-# Join back to main dataset
+# Join with main dataframe
 df_disease = (
     df_disease
-    .join(
-        disease_variant_stats.select(
-            col("disease_name_enriched").alias("disease_name_enriched_stats"),
-            "disease_total_variants",
-            "disease_pathogenic_variants",
-            "disease_benign_variants",
-            "disease_vus_variants",
-            "disease_gene_count",
-            "disease_pathogenic_ratio",
-            "is_polygenic_disease",
-            "disease_complexity",
-            "disease_has_high_pathogenic_burden",
-            "disease_complexity_score"
-        ),
-        col("disease_name_enriched") == col("disease_name_enriched_stats"),
-        "left"
-    )
-    .drop("disease_name_enriched_stats")
+    .join(disease_stats, "disease_name_enriched", "left")
     .fillna({
         "disease_total_variants": 0,
         "disease_pathogenic_variants": 0,
@@ -340,29 +258,31 @@ df_disease = (
         "disease_vus_variants": 0,
         "disease_gene_count": 0,
         "disease_pathogenic_ratio": 0.0,
-        "disease_complexity_score": 0
+        "is_polygenic_disease": False,
+        "disease_complexity_score": 1,
+        "disease_has_high_pathogenic_burden": False
     })
-    .fillna(False, ["is_polygenic_disease", "disease_has_high_pathogenic_burden"])
-    .fillna("Monogenic", ["disease_complexity"])
+    .fillna("Unknown", ["disease_complexity"])
+    
+    # Polygenic risk contribution
     .withColumn("polygenic_risk_contribution",
-                when(col("is_pathogenic") & col("is_polygenic_disease"), lit(1.0))
-                .when(col("is_vus") & col("is_polygenic_disease"), lit(0.5))
-                .when(col("is_pathogenic") & ~col("is_polygenic_disease"), lit(0.8))
-                .otherwise(lit(0.0)))
+                when(col("is_pathogenic") & col("is_polygenic_disease"), lit("High_Risk_Contributor"))
+                .when(col("is_vus") & col("is_polygenic_disease"), lit("Moderate_Risk_Contributor"))
+                .when(col("is_polygenic_disease"), lit("Low_Risk_Contributor"))
+                .otherwise(lit("Not_Applicable")))
 )
 
-print(f"df_disease rows: {df_disease.count():,}")
 print("Polygenic risk features created")
 
 # COMMAND ----------
 
-# DBTITLE 1,Use Case 6 - Gene Prioritization Features
-print("\nUSE CASE 6: GENE PRIORITIZATION (CLINICAL UTILITY)")
+# DBTITLE 1,USE CASE 6 - Gene Prioritization Features
+print("\nUSE CASE 6: GENE PRIORITIZATION")
 print("="*80)
 
-# Calculate comprehensive gene-level clinical utility metrics
-gene_clinical_utility = (
-    df_variants_enriched
+# Calculate gene-level clinical utility statistics
+gene_stats = (
+    df_disease
     .groupBy("gene_name")
     .agg(
         count("*").alias("gene_total_variants"),
@@ -370,192 +290,185 @@ gene_clinical_utility = (
         spark_sum(when(col("is_benign"), 1).otherwise(0)).alias("gene_benign_count"),
         spark_sum(when(col("review_quality_score") >= 2, 1).otherwise(0)).alias("gene_high_quality_count"),
         countDistinct("disease_name_enriched").alias("gene_disease_diversity"),
-        
-        # Disease database coverage
         spark_sum(when(col("has_omim_disease"), 1).otherwise(0)).alias("gene_omim_variants"),
         spark_sum(when(col("has_mondo_disease"), 1).otherwise(0)).alias("gene_mondo_variants"),
         spark_sum(when(col("disease_is_well_annotated"), 1).otherwise(0)).alias("gene_well_annotated_variants")
     )
-    
-    # Clinical utility score calculation
     .withColumn("gene_clinical_utility_score",
                 (col("gene_pathogenic_count") * 3) +
                 (col("gene_high_quality_count") * 2) +
-                (col("gene_disease_diversity") * 4) +
-                (col("gene_well_annotated_variants") * 1))
-    
-    # Gene annotation completeness score
+                (col("gene_disease_diversity") * 2))
+    .withColumn("gene_priority_tier",
+                when(col("gene_clinical_utility_score") >= 20, lit("Tier_1_Critical"))
+                .when(col("gene_clinical_utility_score") >= 10, lit("Tier_2_High"))
+                .when(col("gene_clinical_utility_score") >= 5, lit("Tier_3_Medium"))
+                .when(col("gene_clinical_utility_score") >= 1, lit("Tier_4_Low"))
+                .otherwise(lit("Tier_5_Minimal")))
+    .withColumn("is_clinically_actionable",
+                (col("gene_pathogenic_count") >= 5) & (col("gene_high_quality_count") >= 3))
+    .withColumn("is_research_candidate",
+                (col("gene_total_variants") >= 10) & (col("gene_disease_diversity") >= 2))
     .withColumn("gene_annotation_score",
-                (col("gene_omim_variants") * 2) +
-                (col("gene_mondo_variants") * 1) +
-                (col("gene_well_annotated_variants") * 3))
+                col("gene_omim_variants") + col("gene_mondo_variants") + col("gene_well_annotated_variants"))
+    .withColumn("has_excellent_annotation",
+                col("gene_annotation_score") >= 10)
+    .withColumn("annotation_priority_level",
+                when(col("gene_annotation_score") >= 20, lit("Excellent"))
+                .when(col("gene_annotation_score") >= 10, lit("Good"))
+                .when(col("gene_annotation_score") >= 5, lit("Moderate"))
+                .otherwise(lit("Poor")))
 )
 
-# Join with main dataset
+# Join with main dataframe
 df_disease = (
     df_disease
-    .join(
-        gene_clinical_utility.select(
-            col("gene_name").alias("gene_name_utility"),
-            "gene_total_variants",
-            "gene_pathogenic_count",
-            "gene_benign_count",
-            "gene_high_quality_count",
-            "gene_disease_diversity",
-            "gene_clinical_utility_score",
-            "gene_annotation_score",
-            "gene_omim_variants",
-            "gene_mondo_variants",
-            "gene_well_annotated_variants"
-        ),
-        col("gene_name") == col("gene_name_utility"),
-        "left"
-    )
-    .drop("gene_name_utility")
-    
-    # Gene prioritization tiers
-    .withColumn("gene_priority_tier",
-                when(coalesce(col("gene_clinical_utility_score"), lit(0)) >= 200, lit("Tier_1_Critical"))
-                .when(coalesce(col("gene_clinical_utility_score"), lit(0)) >= 100, lit("Tier_2_High"))
-                .when(coalesce(col("gene_clinical_utility_score"), lit(0)) >= 50, lit("Tier_3_Moderate"))
-                .when(coalesce(col("gene_clinical_utility_score"), lit(0)) >= 10, lit("Tier_4_Low"))
-                .otherwise(lit("Tier_5_Minimal")))
-    
-    # Clinical actionability assessment
-    .withColumn("is_clinically_actionable",
-                (coalesce(col("gene_pathogenic_count"), lit(0)) >= 5) &
-                (coalesce(col("gene_high_quality_count"), lit(0)) >= 3) &
-                col("is_disease_associated") &
-                col("is_omim_gene"))
-    
-    .withColumn("is_research_candidate",
-                (coalesce(col("gene_disease_diversity"), lit(0)) >= 2) &
-                (coalesce(col("gene_total_variants"), lit(0)) >= 50) &
-                ~col("is_clinically_actionable"))
-    
-    # Drug development potential
-    .withColumn("has_drug_development_potential",
-            col("is_disease_associated") &
-            (coalesce(col("gene_pathogenic_count"), lit(0)) >= 3) &
-            (coalesce(col("gene_disease_diversity"), lit(0)) >= 1))
-    
-    # Annotation quality-based prioritization
-    .withColumn("has_excellent_annotation",
-                coalesce(col("gene_annotation_score"), lit(0)) >= 100)
-    
-    .withColumn("annotation_priority_level",
-                when(col("has_excellent_annotation"), lit("Excellent_Annotation"))
-                .when(coalesce(col("gene_annotation_score"), lit(0)) >= 50, lit("Good_Annotation"))
-                .when(coalesce(col("gene_annotation_score"), lit(0)) >= 10, lit("Fair_Annotation"))
-                .otherwise(lit("Poor_Annotation")))
+    .join(gene_stats, "gene_name", "left")
+    .fillna({
+        "gene_total_variants": 0,
+        "gene_pathogenic_count": 0,
+        "gene_benign_count": 0,
+        "gene_high_quality_count": 0,
+        "gene_disease_diversity": 0,
+        "gene_clinical_utility_score": 0,
+        "is_clinically_actionable": False,
+        "is_research_candidate": False,
+        "has_drug_development_potential": False,
+        "gene_annotation_score": 0,
+        "has_excellent_annotation": False,
+        "gene_omim_variants": 0,
+        "gene_mondo_variants": 0,
+        "gene_well_annotated_variants": 0
+    })
+    .fillna("Tier_5_Minimal", ["gene_priority_tier"])
+    .fillna("Poor", ["annotation_priority_level"])
 )
 
 print("Gene prioritization features created")
 
 # COMMAND ----------
 
-# DBTITLE 1,ENHANCEMENT - Add Gene Description Features
-print("\nENHANCEMENT: ADDING GENE DESCRIPTION FEATURES")
+# DBTITLE 1,Enrich with Expression Data
+print("\nENRICHING WITH EXPRESSION DATA")
 print("="*80)
 
-if has_description_features:
-    # Join gene description features
-    df_disease = (
-        df_disease
-        .join(
-            df_genes.select(
-                col("gene_name").alias("gene_name_desc"),
-                "primary_description",
-                "gene_importance_score",
-                "gene_annotation_quality",
-                "primary_gene_category",
-                
-                # Disease keywords
-                "has_cancer_keyword",
-                "has_syndrome_keyword",
-                "has_neurological_keyword",
-                "has_cardiovascular_keyword",
-                "has_metabolic_keyword",
-                "has_immune_keyword",
-                "has_rare_disease_keyword",
-                "is_disease_related_gene",
-                
-                # Clinical keywords
-                "has_drug_target_in_desc",
-                "has_biomarker_in_desc",
-                "has_essential_in_desc",
-                "clinical_importance_score",
-                
-                # Function
-                "is_well_characterized",
-                "function_keyword_count"
-            ),
-            col("gene_name") == col("gene_name_desc"),
-            "left"
-        )
-        .drop("gene_name_desc")
-        
-        # Disease-gene relevance score (ENHANCED)
-        .withColumn("disease_gene_relevance_score",
-                    coalesce(col("gene_clinical_utility_score"), lit(0)) +
-                    (coalesce(col("gene_importance_score"), lit(0)) * 5) +
-                    (when(col("is_disease_related_gene"), 20).otherwise(0)) +
-                    (when(col("has_drug_target_in_desc"), 15).otherwise(0)) +
-                    (when(col("has_biomarker_in_desc"), 10).otherwise(0)) +
-                    (when(col("has_essential_in_desc"), 10).otherwise(0)))
-        
-        # Enhanced gene priority tier
-        .withColumn("enhanced_gene_priority_tier",
-                    when(col("disease_gene_relevance_score") >= 300, lit("Tier_1_Critical"))
-                    .when(col("disease_gene_relevance_score") >= 150, lit("Tier_2_High"))
-                    .when(col("disease_gene_relevance_score") >= 75, lit("Tier_3_Moderate"))
-                    .when(col("disease_gene_relevance_score") >= 25, lit("Tier_4_Low"))
-                    .otherwise(lit("Tier_5_Minimal")))
-        
-        # Disease-specific gene flags
-        .withColumn("is_cancer_gene_variant",
-                    col("has_cancer_keyword") == True)
-        
-        .withColumn("is_neurological_gene_variant",
-                    col("has_neurological_keyword") == True)
-        
-        .withColumn("is_cardiovascular_gene_variant",
-                    col("has_cardiovascular_keyword") == True)
-        
-        .withColumn("is_metabolic_gene_variant",
-                    col("has_metabolic_keyword") == True)
-        
-        .withColumn("is_rare_disease_gene_variant",
-                    col("has_rare_disease_keyword") == True)
-        
-        # Drug development potential
-        .withColumn("has_drug_development_potential",
-                    (col("has_drug_target_in_desc") == True) |
-                    (col("has_biomarker_in_desc") == True))
-        
-        # Enhanced clinical actionability
-        .withColumn("is_highly_actionable",
-                    (coalesce(col("gene_pathogenic_count"), lit(0)) >= 3) &
-                    (col("disease_gene_relevance_score") >= 25) &
-                    ((col("has_drug_target_in_desc") == True) |
-                     (col("has_biomarker_in_desc") == True) |
-                     (col("is_pharmacogene") == True)))
+# Gene expression breadth
+gene_expression = (
+    df_gtex
+    .filter(col("median_tpm") > 1.0)
+    .groupBy("gene_symbol")
+    .agg(
+        countDistinct("tissue_type").alias("tissues_expressed_count"),
+        spark_max("median_tpm").alias("max_expression_tpm")
     )
+    .withColumn("is_broadly_expressed",
+                col("tissues_expressed_count") >= 10)
+)
+
+df_disease = (
+    df_disease
+    .join(
+        gene_expression.select(
+            col("gene_symbol").alias("gene_name"),
+            "tissues_expressed_count",
+            "is_broadly_expressed"
+        ),
+        "gene_name",
+        "left"
+    )
+    .fillna({
+        "tissues_expressed_count": 0,
+        "is_broadly_expressed": False
+    })
+)
+
+print("Expression data enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Enrich with Cancer Context
+print("\nENRICHING WITH CANCER CONTEXT")
+print("="*80)
+
+cancer_genes = (
+    df_cancer
+    .groupBy(col("gene_symbol").alias("gene_name"))
+    .agg(
+        count("*").alias("cancer_mutation_count")
+    )
+    .withColumn("is_cancer_hotspot_gene",
+                col("cancer_mutation_count") >= 100)
+)
+
+df_disease = (
+    df_disease
+    .join(cancer_genes, "gene_name", "left")
+    .fillna({
+        "cancer_mutation_count": 0,
+        "is_cancer_hotspot_gene": False
+    })
+)
+
+print("Cancer context enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Enrich with Conservation Scores
+print("\nENRICHING WITH CONSERVATION SCORES")
+print("="*80)
+
+# Variant-level conservation
+df_disease = (
+    df_disease
+    .join(
+        df_conservation.select(
+            "variant_id",
+            "phylop_score",
+            "cadd_phred",
+            "is_highly_conserved"
+        ),
+        "variant_id",
+        "left"
+    )
+    .fillna({
+        "phylop_score": 0.0,
+        "cadd_phred": 0.0,
+        "is_highly_conserved": False
+    })
     
-    print(" Gene description features integrated")
-else:
-    # Add placeholder columns if description features not available
-    df_disease = df_disease.withColumn("disease_gene_relevance_score", lit(None).cast("integer"))
-    df_disease = df_disease.withColumn("enhanced_gene_priority_tier", lit("Not_Available"))
-    df_disease = df_disease.withColumn("is_cancer_gene_variant", lit(False))
-    df_disease = df_disease.withColumn("is_neurological_gene_variant", lit(False))
-    df_disease = df_disease.withColumn("is_cardiovascular_gene_variant", lit(False))
-    df_disease = df_disease.withColumn("is_metabolic_gene_variant", lit(False))
-    df_disease = df_disease.withColumn("is_rare_disease_gene_variant", lit(False))
-    df_disease = df_disease.withColumn("has_drug_development_potential", lit(False))
-    df_disease = df_disease.withColumn("is_highly_actionable", lit(False))
-    
-    print(" Placeholder columns added (16_gene_description_enrichmment for full enhancement)")
+    .withColumn("has_high_conservation",
+                (col("phylop_score") > 2.7) | (col("cadd_phred") > 20))
+)
+
+print("Conservation enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Enrich with Protein Domain Data
+print("\nENRICHING WITH PROTEIN DOMAIN DATA")
+print("="*80)
+
+# Gene-level domain complexity
+gene_domains = (
+    df_protein_domains
+    .groupBy(col("protein_id").alias("gene_name"))
+    .agg(
+        spark_max("domain_count").alias("gene_domain_count"),
+        spark_max("has_kinase_domain").cast("int").alias("has_kinase_domain_int")
+    )
+    .withColumn("is_complex_protein",
+                col("gene_domain_count") >= 5)
+)
+
+df_disease = (
+    df_disease
+    .join(gene_domains, "gene_name", "left")
+    .fillna({
+        "gene_domain_count": 0,
+        "is_complex_protein": False
+    })
+)
+
+print("Protein domain enrichment complete")
 
 # COMMAND ----------
 
@@ -563,8 +476,7 @@ else:
 print("\nCREATING DISEASE ML FEATURES")
 print("="*80)
 
-# Build feature list dynamically based on available columns
-base_features = [
+disease_features = df_disease.select(
     # IDs
     "variant_id", "gene_name", "chromosome", "position",
     
@@ -617,71 +529,34 @@ base_features = [
     "gene_priority_tier",
     "is_clinically_actionable",
     "is_research_candidate",
-    "has_drug_development_potential",
     "gene_annotation_score",
     "has_excellent_annotation",
     "annotation_priority_level",
     "gene_omim_variants",
     "gene_mondo_variants",
-    "gene_well_annotated_variants"
-]
-
-# Add enhanced features
-enhanced_features = [
-    "disease_gene_relevance_score",
-    "enhanced_gene_priority_tier",
-    "is_cancer_gene_variant",
-    "is_neurological_gene_variant",
-    "is_cardiovascular_gene_variant",
-    "is_metabolic_gene_variant",
-    "is_rare_disease_gene_variant",
-    "is_highly_actionable"
-]
-
-# Add description features if available
-if has_description_features:
-    description_features = [
-        "primary_description",
-        "gene_importance_score",
-        "gene_annotation_quality",
-        "primary_gene_category",
-        "has_cancer_keyword",
-        "has_syndrome_keyword",
-        "has_neurological_keyword",
-        "has_cardiovascular_keyword",
-        "has_metabolic_keyword",
-        "has_immune_keyword",
-        "has_rare_disease_keyword",
-        "is_disease_related_gene",
-        "has_drug_target_in_desc",
-        "has_biomarker_in_desc",
-        "has_essential_in_desc",
-        "clinical_importance_score",
-        "is_well_characterized",
-        "function_keyword_count"
-    ]
-    all_features = base_features + enhanced_features + description_features
-else:
-    all_features = base_features + enhanced_features
-
-# CRITICAL: Filter to only columns that actually exist on df_disease
-existing_cols = set(df_disease.columns)
-missing = [f for f in all_features if f not in existing_cols]
-valid_features = [f for f in all_features if f in existing_cols]
-
-if missing:
-    print(f"\nWARNING: {len(missing)} columns missing from df_disease:")
-    for m in missing:
-        print(f"  MISSING: {m}")
-
-print(f"\nSelecting {len(valid_features)} of {len(all_features)} features")
-
-# Select only existing columns
-disease_features = df_disease.select(*valid_features)
+    "gene_well_annotated_variants",
+    
+    # Expression context
+    "tissues_expressed_count",
+    "is_broadly_expressed",
+    
+    # Cancer context
+    "cancer_mutation_count",
+    "is_cancer_hotspot_gene",
+    
+    # Conservation scores
+    "phylop_score",
+    "cadd_phred",
+    "is_highly_conserved",
+    "has_high_conservation",
+    
+    # Protein domain data
+    "gene_domain_count",
+    "is_complex_protein"
+)
 
 feature_count = disease_features.count()
 print(f"Disease ML features: {feature_count:,} variants")
-print(f"Feature columns: {len(valid_features)}")
 
 # COMMAND ----------
 
@@ -713,26 +588,14 @@ print(f"Saved: {catalog_name}.gold.disease_ml_features")
 print("\nFEATURE STATISTICS")
 print("="*80)
 
-total = disease_features.count()
-
-print(f"\nDisease Association (Use Case 4):")
-disease_features.groupBy("disease_count_category").count().show()
+print("\nDisease Association (Use Case 4):")
+disease_features.groupBy("disease_count_category").count().orderBy("count", ascending=False).show()
 
 print("\nPolygenic Risk (Use Case 5):")
-disease_features.groupBy("disease_complexity").count().show()
+disease_features.groupBy("disease_complexity").count().orderBy("count", ascending=False).show()
 
 print("\nGene Prioritization (Use Case 6):")
-disease_features.groupBy("gene_priority_tier").count().show()
-
-if has_description_features:
-    print("\nENHANCED: Priority tiers (with description features):")
-    disease_features.groupBy("enhanced_gene_priority_tier").count().show()
-    
-    print("\nENHANCED: Disease-specific genes:")
-    print(f"  Cancer genes: {disease_features.filter(col('is_cancer_gene_variant')).count():,}")
-    print(f"  Neurological genes: {disease_features.filter(col('is_neurological_gene_variant')).count():,}")
-    print(f"  Cardiovascular genes: {disease_features.filter(col('is_cardiovascular_gene_variant')).count():,}")
-    print(f"  Highly actionable: {disease_features.filter(col('is_highly_actionable')).count():,}")
+disease_features.groupBy("gene_priority_tier").count().orderBy("count", ascending=False).show()
 
 # COMMAND ----------
 
@@ -740,23 +603,13 @@ if has_description_features:
 print("DISEASE FEATURE ENGINEERING COMPLETE")
 print("="*80)
 
-print(f"\nTotal variants: {total:,}")
-print(f"Total features: {len(all_features)}")
+print(f"\nTotal features created: {after_count:,}")
+print(f"Total columns: {len(disease_features.columns)}")
 
-if has_description_features:
-    print("\nFeature categories (ENHANCED):")
-    print("  - Disease Association (Use Case 4): 20 features")
-    print("  - Polygenic Risk (Use Case 5): 11 features")
-    print("  - Gene Prioritization (Use Case 6): 16 features")
-    print("  - Gene Description Enhancement: 27 features")
-    print("  Total: 74 features")
-else:
-    print("\nFeature categories (BASE):")
-    print("  - Disease Association (Use Case 4): 20 features")
-    print("  - Polygenic Risk (Use Case 5): 11 features")
-    print("  - Gene Prioritization (Use Case 6): 16 features")
-    print("  Total: 47 features")
-    print("\n  Run 16_gene_description_enrichmment first for 27 additional description features!")
+print("\nUse Cases Covered:")
+print("  - Disease Association (Use Case 4): 20 features")
+print("  - Polygenic Risk (Use Case 5): 11 features")
+print("  - Gene Prioritization (Use Case 6): 15 features")
 
-print(f"\nTable created:")
+print("\nTable created:")
 print(f"  {catalog_name}.gold.disease_ml_features")

@@ -1,23 +1,19 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### FEATURE ENGINEERING - DRUG RESPONSE ANALYSIS
-# MAGIC ##### Module: Drug Response Variant-Level Features
+# MAGIC #### FEATURE ENGINEERING - DRUG RESPONSE ANALYSIS (FULLY ENHANCED)
+# MAGIC ##### Module: Comprehensive Variant-Level Drug Response Features
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** February 19, 2026
+# MAGIC **Date:** February 22, 2026
+# MAGIC
+# MAGIC **ENHANCED:** Uses all available silver tables for comprehensive drug response profiling
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 9: Pharmacogenomic Guidance
 # MAGIC - Use Case 11: Treatment Response Prediction
 # MAGIC
-# MAGIC **Input:**
-# MAGIC - silver.pharmgkb_variants
-# MAGIC - silver.pharmgkb_relationships
-# MAGIC - silver.variant_protein_impact
-# MAGIC - silver.variants_ultra_enriched
-# MAGIC
-# MAGIC **Output:** gold.drug_response_ml_features
+# MAGIC **Creates:** gold.variant_drug_response_ml_features
 
 # COMMAND ----------
 
@@ -25,7 +21,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, count, countDistinct, sum as spark_sum, max as spark_max,
-    when, lit, trim, upper, lower, coalesce, split, size, array_contains, row_number
+    when, lit, trim, upper, lower, coalesce, split, size, array_contains, row_number, avg
 )
 from pyspark.sql.window import Window
 
@@ -33,12 +29,10 @@ from pyspark.sql.window import Window
 
 # DBTITLE 1,Initialize Spark
 spark = SparkSession.builder.getOrCreate()
-
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GOLD DRUG RESPONSE FEATURES")
-print("Variant-level drug response feature engineering")
+print("GOLD DRUG RESPONSE FEATURES (FULLY ENHANCED)")
 print("="*80)
 
 # COMMAND ----------
@@ -47,21 +41,28 @@ print("="*80)
 print("\nLOADING SOURCE TABLES")
 print("="*80)
 
+# Core pharmacogene tables
 df_pharmgkb_variants = spark.table(f"{catalog_name}.silver.pharmgkb_variants")
 df_relationships = spark.table(f"{catalog_name}.silver.pharmgkb_relationships")
 df_variant_impact = spark.table(f"{catalog_name}.silver.variant_protein_impact")
 df_variants = spark.table(f"{catalog_name}.silver.variants_ultra_enriched")
 
+# Additional enrichment tables
+df_gtex = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
+df_population = spark.table(f"{catalog_name}.silver.population_frequencies")
+df_gene_disease = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
+df_cancer = spark.table(f"{catalog_name}.silver.cancer_mutations")
+df_genes = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
+
 print(f"PharmGKB variants: {df_pharmgkb_variants.count():,}")
 print(f"PharmGKB relationships: {df_relationships.count():,}")
 print(f"Variant protein impact: {df_variant_impact.count():,}")
 print(f"Variants ultra enriched: {df_variants.count():,}")
-
-print("\nPharmGKB variants schema:")
-df_pharmgkb_variants.printSchema()
-
-print("\nSample PharmGKB variants:")
-df_pharmgkb_variants.show(5, truncate=60)
+print(f"GTEx expression: {df_gtex.count():,}")
+print(f"Population frequencies: {df_population.count():,}")
+print(f"Gene-disease: {df_gene_disease.count():,}")
+print(f"Cancer mutations: {df_cancer.count():,}")
+print(f"Genes (enriched): {df_genes.count():,}")
 
 # COMMAND ----------
 
@@ -81,19 +82,6 @@ df_variant_relationships = (
     )
 )
 
-print(f"Variant relationships: {df_variant_relationships.count():,}")
-print("\nRelationship type distribution:")
-df_variant_relationships.groupBy("related_entity_type").count().orderBy("related_entity_type").show()
-
-print("\nSample relationships:")
-df_variant_relationships.show(5, truncate=60)
-
-# COMMAND ----------
-
-# DBTITLE 1,Calculate Variant Drug Interaction Counts
-print("\nCALCULATING VARIANT DRUG INTERACTION COUNTS")
-print("="*80)
-
 df_variant_drug_counts = (
     df_variant_relationships
     .groupBy("variant_pharmgkb_id")
@@ -107,8 +95,6 @@ df_variant_drug_counts = (
 )
 
 print(f"Variants with interactions: {df_variant_drug_counts.count():,}")
-print("\nTop variants by interaction count:")
-df_variant_drug_counts.orderBy(col("total_interactions").desc()).show(10, truncate=False)
 
 # COMMAND ----------
 
@@ -116,7 +102,6 @@ df_variant_drug_counts.orderBy(col("total_interactions").desc()).show(10, trunca
 print("\nPROCESSING PHARMGKB VARIANT ANNOTATIONS")
 print("="*80)
 
-# PharmGKB variants already have annotation counts - use them directly
 df_pharmgkb_features = (
     df_pharmgkb_variants
     .select(
@@ -129,8 +114,6 @@ df_pharmgkb_features = (
 )
 
 print(f"PharmGKB variant features: {df_pharmgkb_features.count():,}")
-print("\nSample features:")
-df_pharmgkb_features.show(5, truncate=60)
 
 # COMMAND ----------
 
@@ -138,7 +121,6 @@ df_pharmgkb_features.show(5, truncate=60)
 print("\nJOINING WITH VARIANT PROTEIN IMPACT")
 print("="*80)
 
-# Prepare variant impact data
 df_variant_impact_prep = (
     df_variant_impact
     .select(
@@ -157,30 +139,20 @@ df_variant_impact_prep = (
         col("affects_functional_domain"),
         col("phylop_score"),
         col("cadd_phred"),
-        col("conservation_level")
+        col("conservation_level"),
+        col("pathogenicity_score"),
+        col("mutation_severity_score")
     )
 )
 
-# RIGHT JOIN to keep all ClinVar variants + add PharmGKB annotations where available
+# RIGHT JOIN to keep all ClinVar variants + add PharmGKB annotations
 df_with_impact = (
     df_pharmgkb_features
-    .join(
-        df_variant_impact_prep,
-        on="gene_symbol",
-        how="right"
-    )
+    .join(df_variant_impact_prep, on="gene_symbol", how="right")
 )
 
-print(f"Variants with impact (before dedup): {df_with_impact.count():,}")
-
-# Deduplicate by variant_id (ClinVar), keeping best PharmGKB annotation
-from pyspark.sql.window import Window
-from pyspark.sql.functions import row_number
-
-window_spec = Window.partitionBy("variant_id").orderBy(
-    col("variant_pharmgkb_id").desc_nulls_last()
-)
-
+# Deduplicate by variant_id, keeping best PharmGKB annotation
+window_spec = Window.partitionBy("variant_id").orderBy(col("variant_pharmgkb_id").desc_nulls_last())
 df_with_impact = (
     df_with_impact
     .withColumn("row_num", row_number().over(window_spec))
@@ -188,14 +160,184 @@ df_with_impact = (
     .drop("row_num")
 )
 
-print(f"Variants with impact (after dedup): {df_with_impact.count():,}")
-print("\nSample with impact:")
-df_with_impact.show(5, truncate=60)
+print(f"Variants with impact: {df_with_impact.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Drug Response Classification Flags
-print("\nADDING DRUG RESPONSE CLASSIFICATION FLAGS")
+# DBTITLE 1,Enrich with Expression Data (Tissue-Specific Drug Effects)
+print("\nENRICHING WITH EXPRESSION DATA")
+print("="*80)
+
+# Gene-level expression for tissue-specific drug metabolism
+gene_expression = (
+    df_gtex
+    .filter(col("median_tpm") > 1.0)
+    .groupBy(col("gene_symbol"))
+    .agg(
+        countDistinct("tissue_type").alias("tissues_expressed_count"),
+        spark_max("median_tpm").alias("max_expression_tpm")
+    )
+    # Check liver and kidney expression
+    .join(
+        df_gtex.filter((col("tissue_type") == "Liver") & (col("median_tpm") > 1.0))
+               .select(col("gene_symbol").alias("liver_gene"), lit(True).alias("is_liver_expressed")),
+        col("gene_symbol") == col("liver_gene"),
+        "left"
+    )
+    .drop("liver_gene")
+    .fillna({"is_liver_expressed": False})
+    .withColumn("expression_breadth",
+                when(col("tissues_expressed_count") >= 15, lit("Ubiquitous"))
+                .when(col("tissues_expressed_count") >= 5, lit("Broad"))
+                .otherwise(lit("Tissue_Specific")))
+)
+
+df_with_impact = (
+    df_with_impact
+    .join(gene_expression, "gene_symbol", "left")
+    .fillna({
+        "tissues_expressed_count": 0,
+        "max_expression_tpm": 0.0,
+        "is_liver_expressed": False,
+        "expression_breadth": "Unknown"
+    })
+)
+
+print("Expression data enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Enrich with Population Frequencies
+print("\nENRICHING WITH POPULATION FREQUENCIES")
+print("="*80)
+
+df_with_impact = (
+    df_with_impact
+    .join(
+        df_population.select(
+            "variant_id",
+            col("global_af").alias("allele_frequency"),
+            col("is_common").alias("is_common_variant"),
+            col("is_rare").alias("is_rare_variant")
+        ),
+        "variant_id",
+        "left"
+    )
+    .fillna({
+        "allele_frequency": 0.0,
+        "is_common_variant": False,
+        "is_rare_variant": False
+    })
+    
+    # Drug response frequency context
+    .withColumn("drug_response_frequency_context",
+                when(col("is_common_variant"), lit("Common_Drug_Response"))
+                .when(col("is_rare_variant"), lit("Rare_Drug_Response"))
+                .otherwise(lit("Standard_Frequency")))
+)
+
+print("Population frequency enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Enrich with Disease Associations (Drug Indications)
+print("\nENRICHING WITH DISEASE ASSOCIATIONS")
+print("="*80)
+
+df_with_impact = (
+    df_with_impact
+    .join(
+        df_gene_disease.select(
+            upper(trim(col("gene_name"))).alias("gene_symbol"),
+            col("total_disease_count"),
+            col("has_cancer_disease"),
+            col("has_cardiovascular_disease"),
+            col("has_neurological_disease")
+        ),
+        "gene_symbol",
+        "left"
+    )
+    .fillna({
+        "total_disease_count": 0,
+        "has_cancer_disease": False,
+        "has_cardiovascular_disease": False,
+        "has_neurological_disease": False
+    })
+    
+    # Primary indication
+    .withColumn("primary_indication_category",
+                when(col("has_cancer_disease"), lit("Oncology"))
+                .when(col("has_cardiovascular_disease"), lit("Cardiology"))
+                .when(col("has_neurological_disease"), lit("Neurology"))
+                .otherwise(lit("Other")))
+)
+
+print("Disease association enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Enrich with Cancer Context (Drug Resistance)
+print("\nENRICHING WITH CANCER CONTEXT")
+print("="*80)
+
+# Check if variant's gene is a cancer gene (potential resistance variants)
+cancer_genes = (
+    df_cancer
+    .groupBy(upper(trim(col("gene_symbol"))).alias("gene_symbol"))
+    .agg(
+        count("*").alias("cancer_mutation_count")
+    )
+    .withColumn("is_cancer_gene",
+                col("cancer_mutation_count") >= 10)
+)
+
+df_with_impact = (
+    df_with_impact
+    .join(cancer_genes, "gene_symbol", "left")
+    .fillna({
+        "cancer_mutation_count": 0,
+        "is_cancer_gene": False
+    })
+    
+    .withColumn("is_potential_resistance_variant",
+                col("is_cancer_gene") & col("is_missense_variant"))
+)
+
+print("Cancer context enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Enrich with Gene Context
+print("\nENRICHING WITH GENE CONTEXT")
+print("="*80)
+
+df_with_impact = (
+    df_with_impact
+    .join(
+        df_genes.select(
+            upper(trim(col("official_symbol"))).alias("gene_symbol"),
+            col("is_pharmacogene"),
+            col("druggability_score"),
+            col("pharmacogene_category"),
+            col("drug_metabolism_role")
+        ),
+        "gene_symbol",
+        "left"
+    )
+    .fillna({
+        "is_pharmacogene": False,
+        "druggability_score": 0.0,
+        "pharmacogene_category": "Unknown",
+        "drug_metabolism_role": "Unknown"
+    })
+)
+
+print("Gene context enrichment complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Add Enhanced Classification Flags
+print("\nADDING ENHANCED CLASSIFICATION FLAGS")
 print("="*80)
 
 df_classified = (
@@ -216,86 +358,108 @@ df_classified = (
     
     .withColumn("is_high_impact_variant",
                 when((col("is_pathogenic")) & (col("has_pharmgkb_annotation")), True).otherwise(False))
+    
+    # Enhanced: Tissue-specific drug metabolism
+    .withColumn("is_hepatic_drug_metabolism_variant",
+                col("is_liver_expressed") & col("affects_drug_metabolism"))
+    
+    # Enhanced: Population-specific drug response
+    .withColumn("is_common_pharmacogene_variant",
+                col("is_common_variant") & col("has_pharmgkb_annotation"))
 )
 
-print("Added classification flags")
-print("\nPharmGKB annotation distribution:")
-df_classified.groupBy("has_pharmgkb_annotation").count().show()
-
-print("\nHigh impact distribution:")
-df_classified.groupBy("is_high_impact_variant").count().show()
+print("Enhanced classification flags added")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Drug Response Scores
-print("\nCALCULATING DRUG RESPONSE SCORES")
+# DBTITLE 1,Calculate Comprehensive Scores
+print("\nCALCULATING COMPREHENSIVE SCORES")
 print("="*80)
 
 df_scored = (
     df_classified
+    # Base pharmacogene annotation score
     .withColumn("pharmacogene_annotation_score",
                 when(col("has_pharmgkb_annotation"), 10).otherwise(0))
     
+    # Functional impact score (enhanced with conservation)
     .withColumn("functional_impact_score",
                 when(col("affects_functional_domain"), 5).otherwise(0) +
                 when(col("is_missense_variant"), 3).otherwise(0) +
                 when(col("is_nonsense_variant"), 5).otherwise(0) +
                 when(col("is_frameshift_variant"), 5).otherwise(0) +
-                (coalesce(col("conservation_level"), lit(0))))
+                coalesce(col("conservation_level"), lit(0)) +
+                coalesce(col("mutation_severity_score"), lit(0)))
     
+    # Pathogenicity score
     .withColumn("pathogenicity_score",
                 when(col("is_pathogenic"), 10)
                 .when(col("is_benign"), -5)
                 .when(col("is_vus"), 0)
                 .otherwise(0))
     
+    # Enhanced: Population-adjusted score
+    .withColumn("population_adjusted_score",
+                when(col("is_common_pharmacogene_variant"), 10).otherwise(0) +
+                when(col("is_rare_variant") & col("has_pharmgkb_annotation"), 7).otherwise(0))
+    
+    # Enhanced: Tissue-specific response score
+    .withColumn("tissue_specific_response_score",
+                when(col("is_hepatic_drug_metabolism_variant"), 10).otherwise(0) +
+                when(col("is_liver_expressed") & col("has_pharmgkb_annotation"), 5).otherwise(0))
+    
+    # Drug response priority score (enhanced formula)
     .withColumn("drug_response_priority_score",
-                col("pharmacogene_annotation_score") * 0.5 +
-                col("functional_impact_score") * 0.3 +
-                col("pathogenicity_score") * 0.2)
+                col("pharmacogene_annotation_score") * 0.4 +
+                col("functional_impact_score") * 0.2 +
+                col("pathogenicity_score") * 0.1 +
+                col("population_adjusted_score") * 0.15 +
+                col("tissue_specific_response_score") * 0.15)
 )
 
-print("Added response scores")
-print("\nScore distribution:")
-df_scored.select("pharmacogene_annotation_score", "functional_impact_score", "pathogenicity_score", "drug_response_priority_score").describe().show()
+print("Comprehensive scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Drug Response Priority Classification
-print("\nADDING DRUG RESPONSE PRIORITY CLASSIFICATION")
+# DBTITLE 1,Add Enhanced Priority Classification
+print("\nADDING ENHANCED PRIORITY CLASSIFICATION")
 print("="*80)
 
 df_priority = (
     df_scored
     .withColumn("drug_response_priority",
-                when(col("drug_response_priority_score") >= 15, "high")
-                .when(col("drug_response_priority_score") >= 8, "medium")
-                .otherwise("low"))
+                when(col("drug_response_priority_score") >= 20, lit("critical"))
+                .when(col("drug_response_priority_score") >= 15, lit("high"))
+                .when(col("drug_response_priority_score") >= 8, lit("medium"))
+                .otherwise(lit("low")))
     
     .withColumn("is_actionable_pharmacogene_variant",
                 when(col("has_pharmgkb_annotation"), True).otherwise(False))
     
     .withColumn("drug_response_category",
-                when(col("affects_drug_metabolism"), "metabolism")
-                .when(col("affects_drug_efficacy"), "efficacy")
-                .when(col("has_pharmgkb_annotation"), "pharmacogene_variant")
-                .otherwise("unknown"))
+                when(col("is_hepatic_drug_metabolism_variant"), lit("hepatic_metabolism"))
+                .when(col("affects_drug_metabolism"), lit("metabolism"))
+                .when(col("affects_drug_efficacy"), lit("efficacy"))
+                .when(col("is_potential_resistance_variant"), lit("resistance"))
+                .when(col("has_pharmgkb_annotation"), lit("pharmacogene_variant"))
+                .otherwise(lit("unknown")))
     
     .withColumn("clinical_actionability",
-                when((col("is_pathogenic")) & (col("has_pharmgkb_annotation")), "high_evidence")
-                .when(col("has_pharmgkb_annotation"), "pharmgkb_annotated")
-                .otherwise("research_only"))
+                when((col("is_pathogenic")) & (col("has_pharmgkb_annotation")) & (col("is_pharmacogene")),
+                     lit("tier_1_actionable"))
+                .when((col("has_pharmgkb_annotation")) & (col("is_pharmacogene")),
+                     lit("tier_2_high_evidence"))
+                .when(col("has_pharmgkb_annotation"),
+                     lit("tier_3_pharmgkb_annotated"))
+                .otherwise(lit("tier_4_research_only")))
+    
+    # Enhanced: Indication-specific actionability
+    .withColumn("indication_specific_actionability",
+                when(col("primary_indication_category") != "Other", 
+                     lit(True)).otherwise(lit(False)))
 )
 
-print("Added priority classification")
-print("\nPriority distribution:")
-df_priority.groupBy("drug_response_priority").count().orderBy("drug_response_priority").show()
-
-print("\nActionability distribution:")
-df_priority.groupBy("clinical_actionability").count().orderBy("clinical_actionability").show()
-
-print("\nCategory distribution:")
-df_priority.groupBy("drug_response_category").count().orderBy("drug_response_category").show()
+print("Enhanced priority classification added")
 
 # COMMAND ----------
 
@@ -306,82 +470,99 @@ print("="*80)
 df_final = (
     df_priority
     .select(
+        # Identifiers
         col("variant_pharmgkb_id"),
         coalesce(col("variant_name"), col("clinvar_variant_name")).alias("variant_name"),
         col("variant_id"),
         col("gene_symbol"),
         col("variant_location"),
         
+        # Clinical significance
         col("clinical_significance_simple"),
         col("is_pathogenic"),
         col("is_benign"),
         col("is_vus"),
         
+        # Variant types
         col("is_missense_variant"),
         col("is_frameshift_variant"),
         col("is_nonsense_variant"),
         col("is_splice_variant"),
         
+        # Functional impact
         col("has_functional_domain"),
         col("affects_functional_domain"),
+        col("phylop_score"),
+        col("cadd_phred"),
+        col("conservation_level"),
+        col("pathogenicity_score"),
+        col("mutation_severity_score"),
         
-        coalesce(col("phylop_score"), lit(0.0)).alias("phylop_score"),
-        coalesce(col("cadd_phred"), lit(0.0)).alias("cadd_phred"),
-        coalesce(col("conservation_level"), lit(0)).alias("conservation_level"),
-        
+        # PharmGKB flags
         col("has_pharmgkb_annotation"),
         col("has_high_conservation"),
         col("affects_drug_metabolism"),
         col("affects_drug_efficacy"),
         col("is_high_impact_variant"),
         
+        # Enhanced flags
+        col("is_hepatic_drug_metabolism_variant"),
+        col("is_common_pharmacogene_variant"),
+        col("is_potential_resistance_variant"),
+        
+        # Expression context
+        col("tissues_expressed_count"),
+        col("max_expression_tpm"),
+        col("is_liver_expressed"),
+        col("expression_breadth"),
+        
+        # Population context
+        col("allele_frequency"),
+        col("is_common_variant"),
+        col("is_rare_variant"),
+        col("drug_response_frequency_context"),
+        
+        # Disease context
+        col("total_disease_count"),
+        col("has_cancer_disease"),
+        col("has_cardiovascular_disease"),
+        col("has_neurological_disease"),
+        col("primary_indication_category"),
+        
+        # Cancer context
+        col("cancer_mutation_count"),
+        col("is_cancer_gene"),
+        
+        # Gene context
+        col("is_pharmacogene"),
+        col("druggability_score"),
+        col("pharmacogene_category"),
+        col("drug_metabolism_role"),
+        
+        # Scores
         col("pharmacogene_annotation_score"),
         col("functional_impact_score"),
-        col("pathogenicity_score"),
+        col("population_adjusted_score"),
+        col("tissue_specific_response_score"),
         col("drug_response_priority_score"),
         
+        # Classifications
         col("drug_response_priority"),
         col("is_actionable_pharmacogene_variant"),
         col("drug_response_category"),
-        col("clinical_actionability")
+        col("clinical_actionability"),
+        col("indication_specific_actionability")
     )
 )
 
 final_count = df_final.count()
 print(f"Final features: {final_count:,} variants")
-
-print("\nFeature columns:")
-for col_name in df_final.columns:
-    print(f"  - {col_name}")
-
-print("\nSample final features:")
-df_final.show(5, truncate=60)
+print(f"Total columns: {len(df_final.columns)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Validate Feature Quality
-print("\nVALIDATING FEATURE QUALITY")
-print("="*80)
-
-print("\nNull counts:")
-null_counts = df_final.select([
-    count(when(col(c).isNull(), c)).alias(c) 
-    for c in ["variant_pharmgkb_id", "gene_symbol", "drug_response_priority"]
-])
-null_counts.show(vertical=True)
-
-print("\nActionable variants:")
-actionable = df_final.filter(col("is_actionable_pharmacogene_variant")).count()
-print(f"  Count: {actionable:,}")
-
-print("\nTop 10 variants by priority score:")
-df_final.orderBy(col("drug_response_priority_score").desc()).show(10, truncate=False)
-
-# COMMAND ----------
-
-# DBTITLE 1,Deduplicate by Variant PharmGKB ID
 # DBTITLE 1,Deduplicate by Variant ID
-print("\nFINAL DEDUPLICATION BY VARIANT_ID")
+print("\nDEDUPLICATING BY VARIANT_ID")
 print("="*80)
 
 before_count = df_final.count()
@@ -401,37 +582,43 @@ print("="*80)
 df_final.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.gold.drug_response_ml_features")
+    .saveAsTable(f"{catalog_name}.gold.variant_drug_response_ml_features")
 
-print(f"Saved: {catalog_name}.gold.drug_response_ml_features")
+print(f"Saved: {catalog_name}.gold.variant_drug_response_ml_features")
 
 # COMMAND ----------
 
 # DBTITLE 1,Final Summary
-print("\nDRUG RESPONSE FEATURES COMPLETE")
+print("\nDRUG RESPONSE FEATURES COMPLETE (FULLY ENHANCED)")
 print("="*80)
 
-result_count = spark.table(f"{catalog_name}.gold.drug_response_ml_features").count()
-print(f"\nTable created:")
-print(f"  gold.drug_response_ml_features: {result_count:,} variants")
+result_count = spark.table(f"{catalog_name}.gold.variant_drug_response_ml_features").count()
+print(f"\nTable created: {result_count:,} variants")
+print(f"Total columns: {len(df_final.columns)}")
+
+print("\nFeature categories:")
+print("  - Base pharmacogene: 10 features")
+print("  - Expression context: 4 features")
+print("  - Population context: 4 features")
+print("  - Disease associations: 6 features")
+print("  - Cancer context: 2 features")
+print("  - Gene context: 4 features")
+print("  - Enhanced scores: 5 features")
+print("  - Classifications: 5 features")
+print(f"  Total: {len(df_final.columns)} features")
 
 print("\nPriority breakdown:")
-spark.table(f"{catalog_name}.gold.drug_response_ml_features") \
+spark.table(f"{catalog_name}.gold.variant_drug_response_ml_features") \
     .groupBy("drug_response_priority") \
     .count() \
     .orderBy("drug_response_priority") \
     .show()
 
-print("\nActionability breakdown:")
-spark.table(f"{catalog_name}.gold.drug_response_ml_features") \
+print("\nClinical actionability:")
+spark.table(f"{catalog_name}.gold.variant_drug_response_ml_features") \
     .groupBy("clinical_actionability") \
     .count() \
     .orderBy("clinical_actionability") \
     .show()
-
-print("\nActionable variants:")
-actionable_final = spark.table(f"{catalog_name}.gold.drug_response_ml_features") \
-    .filter(col("is_actionable_pharmacogene_variant")).count()
-print(f"  Actionable: {actionable_final:,}")
 
 print("\nProcessing complete")
