@@ -37,7 +37,7 @@ print("SPARK INITIALIZED FOR FINAL COORDINATE PUSH - LAST 1,500 GENES")
 print("\nEXTRACTING REMAINING GENES WITH IDs")
 print("="*80)
 
-df_genes = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes = spark.table(f"{catalog_name}.silver.genes_with_ensembl_coords")
 
 # Get missing genes that have Ensembl IDs
 missing_with_ensembl = (
@@ -105,7 +105,7 @@ if len(missing_with_ensembl) > 0:
             if result['success']:
                 ensembl_results.append(result)
             
-            if (i + 1) % 50 == 0:
+            if (i + 1) % 500 == 0:
                 print(f"  Processed: {i+1}/{len(missing_with_ensembl)} | Success: {len(ensembl_results)}")
     
     print(f"Ensembl results: {len(ensembl_results):,} successful")
@@ -164,7 +164,7 @@ if len(missing_with_hgnc) > 0:
             if result['success']:
                 hgnc_results.append(result)
             
-            if (i + 1) % 50 == 0:
+            if (i + 1) % 500 == 0:
                 print(f"  Processed: {i+1}/{len(missing_with_hgnc)} | Success: {len(hgnc_results)}")
     
     print(f"HGNC results: {len(hgnc_results):,} successful")
@@ -198,19 +198,21 @@ if len(all_results) > 0:
                 col("gene_name").alias("gene_name_final"),
                 col("start_position").alias("final_start"),
                 col("end_position").alias("final_end"),
-                "source"
+                col("source").alias("coord_source")
             ),
             col("gene_name") == col("gene_name_final"),
             "left"
         )
         .drop("gene_name_final")
         
+        # Update coordinates
         .withColumn("start_position",
                     coalesce(col("start_position"), col("final_start")))
         
         .withColumn("end_position",
                     coalesce(col("end_position"), col("final_end")))
         
+        # Update gene_length
         .withColumn("gene_length",
                     when(col("gene_length").isNull() & 
                          col("start_position").isNotNull() & 
@@ -218,20 +220,21 @@ if len(all_results) > 0:
                          col("end_position") - col("start_position"))
                     .otherwise(col("gene_length")))
         
-        .withColumn("coordinate_source",
-                    when(col("coordinate_source") == "missing",
-                         when(col("source").isNotNull(), col("source"))
-                         .otherwise(lit("missing")))
-                    .otherwise(col("coordinate_source")))
+        # Add coordinate source (NEW column - create fresh)
+        .withColumn("merged_coordinates_added",
+                    col("coord_source").isNotNull())
         
-        .drop("final_start", "final_end", "source")
+        .withColumn("merged_coord_source",
+                    coalesce(col("coord_source"), lit("none")))
+        
+        .drop("final_start", "final_end", "coord_source")
     )
     
     # Save
     df_genes_updated.write \
         .mode("overwrite") \
         .option("overwriteSchema", "true") \
-        .saveAsTable(f"{catalog_name}.silver.genes_ultra_enriched")
+        .saveAsTable(f"{catalog_name}.silver.genes_with_merged_coords")
     
     print("Final coordinates merged")
 
@@ -241,7 +244,7 @@ if len(all_results) > 0:
 print("\nFINAL STATISTICS")
 print("="*80)
 
-df_genes_final = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes_final = spark.table(f"{catalog_name}.silver.genes_with_merged_coords")
 
 total = df_genes_final.count()
 with_coords = df_genes_final.filter(
@@ -256,9 +259,6 @@ print(f"\nImprovement from final push:")
 print(f"  Before: 59,413 (30.7%)")
 print(f"  After: {with_coords:,} ({with_coords/total*100:.1f}%)")
 print(f"  Added: {with_coords - 59413:,} genes")
-
-print("\nCoordinate sources:")
-df_genes_final.groupBy("coordinate_source").count().orderBy("count", ascending=False).show()
 
 print("\nBreakdown of missing genes:")
 missing = df_genes_final.filter(col("start_position").isNull())

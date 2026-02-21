@@ -3,7 +3,7 @@
 # MAGIC #### EXTRACT PROTEIN DOMAINS FROM UNIPROT
 # MAGIC ##### Add Pfam domains and functional features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
+# MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** January 27, 2026
 # MAGIC
