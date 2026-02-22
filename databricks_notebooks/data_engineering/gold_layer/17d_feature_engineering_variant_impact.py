@@ -140,7 +140,6 @@ df_impact = (
         "has_cadd_score",
         "is_deleterious_by_cadd"
     )
-    
     # Enhanced domain impact features
     .withColumn("domain_impact_severity",
                 when(col("affects_functional_domain") & col("is_loss_of_function"),
@@ -151,8 +150,7 @@ df_impact = (
                      lit("Moderate"))
                 .when(col("has_functional_domain"),
                      lit("Low"))
-                .otherwise(lit("None")))
-    
+                .otherwise(lit("Unknown")).cast("string"))
     .withColumn("domain_type_count",
                 when(col("has_zinc_finger"), 1).otherwise(0) +
                 when(col("has_kinase_domain"), 1).otherwise(0) +
@@ -160,10 +158,8 @@ df_impact = (
                 when(col("has_sh2_domain"), 1).otherwise(0) +
                 when(col("has_sh3_domain"), 1).otherwise(0) +
                 when(col("has_ph_domain"), 1).otherwise(0))
-    
     .withColumn("has_multiple_domain_types",
                 col("domain_type_count") > 1)
-    
     # Conservation-based impact classification
     .withColumn("conservation_impact_class",
                 when((col("phylop_score") > 2.7) & (col("cadd_phred") > 20),
@@ -174,8 +170,7 @@ df_impact = (
                      lit("High_Deleteriousness"))
                 .when(col("phylop_score").isNotNull() | col("cadd_phred").isNotNull(),
                      lit("Low_Conservation"))
-                .otherwise(lit("No_Conservation_Data")))
-    
+                .otherwise(lit("No_Conservation_Data")).cast("string"))
     # Combined impact score (0-15 scale)
     .withColumn("combined_impact_score",
                 coalesce(col("mutation_severity_score"), lit(0)) +
@@ -183,19 +178,16 @@ df_impact = (
                 when(col("affects_functional_domain"), 3).otherwise(0) +
                 when(col("is_deleterious_by_cadd"), 2).otherwise(0) +
                 when(col("is_highly_conserved"), 1).otherwise(0))
-    
     # Impact tier classification
     .withColumn("variant_impact_tier",
                 when(col("combined_impact_score") >= 12, lit("Tier_1_Critical"))
                 .when(col("combined_impact_score") >= 9, lit("Tier_2_High"))
                 .when(col("combined_impact_score") >= 6, lit("Tier_3_Moderate"))
                 .when(col("combined_impact_score") >= 3, lit("Tier_4_Low"))
-                .otherwise(lit("Tier_5_Minimal")))
-    
+                .otherwise(lit("Tier_5_Minimal")).cast("string"))
     # Splice-specific features
     .withColumn("is_splice_site_variant",
                 col("is_splice_variant") | col("is_splice_affecting"))
-    
     .withColumn("splice_impact_severity",
                 when(col("is_splice_affecting") & col("is_pathogenic"),
                      lit("High_Splice_Impact"))
@@ -203,15 +195,14 @@ df_impact = (
                      lit("Moderate_Splice_Impact"))
                 .when(col("is_splice_site_variant"),
                      lit("Low_Splice_Impact"))
-                .otherwise(lit("No_Splice_Impact")))
-    
+                .otherwise(lit("No_Splice_Impact")).cast("string"))
     # Loss-of-function categories
     .withColumn("lof_category",
                 when(col("is_nonsense_variant"), lit("Nonsense_Mediated"))
                 .when(col("is_frameshift_variant"), lit("Frameshift"))
                 .when(col("is_splice_affecting"), lit("Splice_Disruption"))
                 .when(col("is_loss_of_function"), lit("Other_LoF"))
-                .otherwise(lit("Not_LoF")))
+                .otherwise(lit("Not_LoF")).cast("string"))
 )
 
 print("Variant impact features created")
@@ -271,12 +262,12 @@ print("="*80)
 # Calculate gene expression breadth
 gene_expression = (
     df_gtex
-    .filter(col("median_tpm") > 1.0)  # Expressed
-    .groupBy("gene_symbol")
+    .filter(col("max_tpm") > 1.0)  # Expressed
+    .groupBy("gene_name")
     .agg(
         countDistinct("tissue_type").alias("tissues_expressed_count"),
-        spark_max("median_tpm").alias("max_expression_tpm"),
-        avg("median_tpm").alias("avg_expression_tpm")
+        spark_max("max_tpm").alias("max_expression_tpm"),
+        avg("max_tpm").alias("avg_expression_tpm")
     )
     .withColumn("is_broadly_expressed",
                 col("tissues_expressed_count") >= 10)
@@ -288,7 +279,7 @@ df_impact = (
     df_impact
     .join(
         gene_expression.select(
-            col("gene_symbol").alias("gene_name"),
+            "gene_name",
             "tissues_expressed_count",
             "max_expression_tpm",
             "is_broadly_expressed",
@@ -627,9 +618,7 @@ print(f"Duplicates removed: {before_count - after_count:,}")
 variant_impact_features.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.gold.variant_impact_ml_features")
-
-print(f"Saved: {catalog_name}.gold.variant_impact_ml_features")
+    .saveAsTable(f"{catalog_name}.gold.variant_impact_ml_features")  
 
 # COMMAND ----------
 

@@ -241,12 +241,12 @@ print("="*80)
 # Calculate gene expression breadth
 gene_expression = (
     df_gtex
-    .filter(col("median_tpm") > 1.0)
-    .groupBy("gene_symbol")
+    .filter(col("max_tpm") > 1.0)
+    .groupBy("gene_name")
     .agg(
         countDistinct("tissue_type").alias("tissues_expressed_count"),
-        spark_max("median_tpm").alias("max_expression_tpm"),
-        avg("median_tpm").alias("avg_expression_tpm")
+        spark_max("max_tpm").alias("max_expression_tpm"),
+        avg("max_tpm").alias("avg_expression_tpm")
     )
     .withColumn("is_broadly_expressed",
                 col("tissues_expressed_count") >= 10)
@@ -258,7 +258,7 @@ df_clinical = (
     df_clinical
     .join(
         gene_expression.select(
-            col("gene_symbol").alias("gene_name"),
+            "gene_name",
             "tissues_expressed_count",
             "max_expression_tpm",
             "is_broadly_expressed",
@@ -331,7 +331,7 @@ df_clinical = (
     .join(
         df_population.select(
             col("variant_id"),
-            col("global_af").alias("population_allele_frequency"),
+            col("allele_frequency_global").alias("population_allele_frequency"),
             col("is_common").alias("is_common_in_population"),
             col("is_rare").alias("is_rare_in_population")
         ),

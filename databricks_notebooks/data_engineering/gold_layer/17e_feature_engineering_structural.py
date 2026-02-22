@@ -336,14 +336,14 @@ print("="*80)
 # Get broadly expressed genes
 broad_expression = (
     df_gtex
-    .filter(col("median_tpm") > 1.0)
-    .groupBy("gene_symbol")
+    .filter(col("max_tpm") > 1.0)
+    .groupBy("gene_name")
     .agg(
         countDistinct("tissue_type").alias("tissues_expressed")
     )
     .filter(col("tissues_expressed") >= 10)
     .select(
-        col("gene_symbol").alias("gene_name"),
+        col("gene_name"),
         col("tissues_expressed")
     )
 )

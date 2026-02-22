@@ -19,8 +19,8 @@
 # DBTITLE 1,Import Libraries
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    col, when, lit, coalesce, count, sum as spark_sum, avg,
-    countDistinct, concat_ws, length
+    col, when, lit, coalesce, count, sum as spark_sum, avg, max as spark_max, min as spark_min,
+    countDistinct, concat_ws, length, collect_list, array_contains
 )
 
 # COMMAND ----------
@@ -289,11 +289,11 @@ print("="*80)
 # Gene expression for tissue-specific drug metabolism
 gene_expression = (
     df_gtex
-    .filter(col("median_tpm") > 1.0)
-    .groupBy("gene_symbol")
+    .filter(col("max_tpm") > 1.0)
+    .groupBy("gene_name")
     .agg(
         countDistinct("tissue_type").alias("tissues_expressed_count"),
-        spark_max("median_tpm").alias("max_expression_tpm"),
+        spark_max("max_tpm").alias("max_expression_tpm"),
         collect_list("tissue_type").alias("expressed_tissues")
     )
     .withColumn("is_liver_expressed",
@@ -310,7 +310,7 @@ df_pharma = (
     df_pharma
     .join(
         gene_expression.select(
-            col("gene_symbol").alias("gene_name"),
+            "gene_name",
             "tissues_expressed_count",
             "is_liver_expressed",
             "is_kidney_expressed",
@@ -381,7 +381,7 @@ df_pharma = (
     .join(
         df_population.select(
             "variant_id",
-            col("global_af").alias("allele_frequency"),
+            col("allele_frequency_global").alias("allele_frequency"),
             col("is_common").alias("is_common_variant"),
             col("is_rare").alias("is_rare_variant")
         ),

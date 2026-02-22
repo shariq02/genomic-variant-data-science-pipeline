@@ -158,22 +158,22 @@ df_genes_with_disease = (
     df_gene_disease_comp
     .select(
         "gene_name",
-        col("total_disease_count").alias("disease_count"),
+        col("total_disease_count").alias("gene_disease_count"),
         "omim_disease_count"
     )
     .withColumn("disease_count_category",
-                when(col("disease_count") >= 10, lit("Highly_Associated"))
-                .when(col("disease_count") >= 5, lit("Moderately_Associated"))
-                .when(col("disease_count") >= 2, lit("Associated"))
-                .when(col("disease_count") == 1, lit("Single_Disease"))
+                when(col("gene_disease_count") >= 10, lit("Highly_Associated"))
+                .when(col("gene_disease_count") >= 5, lit("Moderately_Associated"))
+                .when(col("gene_disease_count") >= 2, lit("Associated"))
+                .when(col("gene_disease_count") == 1, lit("Single_Disease"))
                 .otherwise(lit("Not_Associated")))
-    .withColumn("is_disease_associated", col("disease_count") >= 1)
-    .withColumn("is_multi_disease_gene", col("disease_count") >= 3)
+    .withColumn("is_disease_associated", col("gene_disease_count") >= 1)
+    .withColumn("is_multi_disease_gene", col("gene_disease_count") >= 3)
     .withColumn("disease_association_strength",
-                when(col("disease_count") >= 10, 5)
-                .when(col("disease_count") >= 5, 4)
-                .when(col("disease_count") >= 2, 3)
-                .when(col("disease_count") == 1, 2)
+                when(col("gene_disease_count") >= 10, 5)
+                .when(col("gene_disease_count") >= 5, 4)
+                .when(col("gene_disease_count") >= 2, 3)
+                .when(col("gene_disease_count") == 1, 2)
                 .otherwise(1))
     .withColumn("is_omim_gene", col("omim_disease_count") >= 1)
 )
@@ -332,7 +332,6 @@ df_disease = (
         "gene_clinical_utility_score": 0,
         "is_clinically_actionable": False,
         "is_research_candidate": False,
-        "has_drug_development_potential": False,
         "gene_annotation_score": 0,
         "has_excellent_annotation": False,
         "gene_omim_variants": 0,
@@ -354,11 +353,11 @@ print("="*80)
 # Gene expression breadth
 gene_expression = (
     df_gtex
-    .filter(col("median_tpm") > 1.0)
-    .groupBy("gene_symbol")
+    .filter(col("max_tpm") > 1.0)
+    .groupBy("gene_name")
     .agg(
         countDistinct("tissue_type").alias("tissues_expressed_count"),
-        spark_max("median_tpm").alias("max_expression_tpm")
+        spark_max("max_tpm").alias("max_expression_tpm")
     )
     .withColumn("is_broadly_expressed",
                 col("tissues_expressed_count") >= 10)
@@ -368,7 +367,7 @@ df_disease = (
     df_disease
     .join(
         gene_expression.select(
-            col("gene_symbol").alias("gene_name"),
+            "gene_name",
             "tissues_expressed_count",
             "is_broadly_expressed"
         ),
@@ -450,7 +449,7 @@ print("="*80)
 # Gene-level domain complexity
 gene_domains = (
     df_protein_domains
-    .groupBy(col("protein_id").alias("gene_name"))
+    .groupBy(col("protein_name").alias("gene_name"))
     .agg(
         spark_max("domain_count").alias("gene_domain_count"),
         spark_max("has_kinase_domain").cast("int").alias("has_kinase_domain_int")
