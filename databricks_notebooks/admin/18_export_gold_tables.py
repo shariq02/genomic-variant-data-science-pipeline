@@ -11,7 +11,8 @@
 
 # DBTITLE 1,Import Libraries
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, array_join
+from pyspark.sql.types import ArrayType
 import json
 
 # COMMAND ----------
@@ -46,11 +47,20 @@ print("="*80)
 
 tables = spark.sql(f"SHOW TABLES IN {catalog_name}.{SCHEMA_NAME}").collect()
 
+# Tables to permanently exclude from export
+SKIP_TABLES = {
+    "temp_df_impact",  # leftover intermediate table - 69M rows, should not exist in gold
+}
+
 TABLES_TO_MONITOR = {}
 for table in tables:
     table_name = table.tableName
-    if not table_name.endswith("_exports"):
-        TABLES_TO_MONITOR[table_name] = SCHEMA_NAME
+    if table_name.endswith("_exports"):
+        continue
+    if table_name in SKIP_TABLES:
+        print(f"  SKIPPING: {table_name} (excluded - delete this table from gold schema)")
+        continue
+    TABLES_TO_MONITOR[table_name] = SCHEMA_NAME
 
 print(f"Found {len(TABLES_TO_MONITOR)} tables to monitor:")
 for table_name in sorted(TABLES_TO_MONITOR.keys()):
@@ -151,6 +161,14 @@ for table_name in tables_to_export:
         print(f"  Rows: {current_states[table_name]['rows']:,}")
         print(f"  Columns: {current_states[table_name]['columns']}")
         print(f"  Exporting to: {output_path}")
+        
+        # Cast ARRAY columns to pipe-delimited STRING before CSV export
+        # CSV format does not support ARRAY<STRING> type
+        array_cols = [f.name for f in df.schema.fields if isinstance(f.dataType, ArrayType)]
+        if array_cols:
+            print(f"  Converting ARRAY columns to STRING: {array_cols}")
+            for arr_col in array_cols:
+                df = df.withColumn(arr_col, array_join(col(arr_col), "|"))
         
         df.coalesce(1).write.mode("overwrite").option("header", "true").csv(output_path)
         
