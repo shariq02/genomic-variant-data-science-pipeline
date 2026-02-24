@@ -3,8 +3,8 @@
 # MAGIC #### ML DATASET - GENETIC TEST AVAILABILITY
 # MAGIC ##### Module: Prepare Gene Test Availability ML Dataset
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**  
-# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **DNA Gene Mapping Project**
+# MAGIC **Author:** Sharique Mohammad
 # MAGIC **Date:** February 23, 2026
 # MAGIC
 # MAGIC **Use Cases:**
@@ -53,47 +53,52 @@ print("=" * 80)
 
 df_ml = df.select(
     "gene_symbol",
-    "gene_full_name",
+    "gene_name",
+    "description",
     "chromosome",
-    "total_gene_variants",
-    "pathogenic_variants",
-    "vus_variants",
-    "benign_variants",
-    "lof_variants",
-    "has_pathogenic_variants",
-    "pathogenic_variant_burden",
-    "gene_is_omim_disease_gene",
-    "gene_omim_disease_count",
-    "gene_has_rare_disease",
-    "gene_has_cancer_disease",
-    "gene_has_cardiovascular_disease",
-    "gene_has_neurological_disease",
-    "gene_disease_diversity",
-    "gene_clinical_actionability",
-    "is_pharmacogene",
-    "druggability_score",
-    "is_high_priority_pharmacogene",
-    "is_validated_cancer_target",
-    "cancer_mutation_count",
-    "is_cancer_gene",
-    "tissues_expressed_count",
-    "max_expression_tpm",
-    "is_broadly_expressed",
-    "total_domains",
-    "has_kinase_domain",
     "is_kinase",
     "is_receptor",
     "is_enzyme",
-    "avg_conservation_level",
-    "is_highly_conserved_gene",
-    "test_utility_score",
-    "clinical_actionability_score",
-    "disease_burden_score",
-    "pharmacogenomic_relevance_score",
-    "test_priority_tier",
+    "is_pharmacogene",
+    "total_test_count",
+    "unique_test_count",
+    "disease_count",
+    "genetic_test_count",
+    "tests_with_gene_info",
+    "tests_with_disease_info",
+    "complete_test_count",
+    "frequent_test_count",
+    "has_clinical_test",
+    "has_multiple_tests",
+    "has_comprehensive_testing",
+    "is_well_tested_gene",
+    "test_availability_category",
+    "test_accessibility_score",
+    "clinical_utility_score",
+    "test_quality_score",
+    "total_disease_count",
+    "has_cancer_disease",
+    "has_cardiovascular_disease",
+    "has_neurological_disease",
+    "disease_test_correlation",
+    "multi_disease_testing",
+    "pathogenic_variants_in_tested_gene",
+    "test_covered_variants",
+    "variant_test_coverage_level",
+    "cancer_mutation_count",
+    "cancer_samples",
+    "is_cancer_panel_gene",
+    "hereditary_cancer_testing",
+    "rare_pathogenic_variants",
+    "carrier_screening_relevant",
+    "population_test_priority",
+    "clinical_test_utility_score",
+    "variant_test_coverage_score",
+    "population_test_relevance_score",
+    "test_priority",
     "is_high_priority_test_gene",
-    "test_recommendation",
-    "clinical_test_category"
+    "primary_test_type",
+    "test_recommendation_tier"
 )
 
 print(f"Features selected: {len(df_ml.columns)}")
@@ -108,14 +113,17 @@ print("=" * 80)
 print("is_high_priority_test_gene:")
 df_ml.groupBy("is_high_priority_test_gene").count().orderBy("is_high_priority_test_gene").show()
 
-print("test_priority_tier:")
-df_ml.groupBy("test_priority_tier").count().orderBy("test_priority_tier").show()
+print("test_priority:")
+df_ml.groupBy("test_priority").count().orderBy("test_priority").show()
 
-print("test_recommendation:")
-df_ml.groupBy("test_recommendation").count().orderBy("test_recommendation").show()
+print("test_recommendation_tier:")
+df_ml.groupBy("test_recommendation_tier").count().orderBy("test_recommendation_tier").show()
 
-print("clinical_test_category:")
-df_ml.groupBy("clinical_test_category").count().orderBy("clinical_test_category").show()
+print("test_availability_category:")
+df_ml.groupBy("test_availability_category").count().orderBy("test_availability_category").show()
+
+print("primary_test_type:")
+df_ml.groupBy("primary_test_type").count().orderBy("primary_test_type").show()
 
 # COMMAND ----------
 
@@ -124,28 +132,34 @@ print("\nHANDLING MISSING VALUES")
 print("=" * 80)
 
 df_ml = df_ml.fillna({
-    "total_gene_variants": 0,
-    "pathogenic_variants": 0,
-    "vus_variants": 0,
-    "benign_variants": 0,
-    "lof_variants": 0,
-    "gene_omim_disease_count": 0,
-    "gene_disease_diversity": 0,
-    "druggability_score": 0.0,
+    "total_test_count": 0,
+    "unique_test_count": 0,
+    "disease_count": 0,
+    "genetic_test_count": 0,
+    "tests_with_gene_info": 0,
+    "tests_with_disease_info": 0,
+    "complete_test_count": 0,
+    "frequent_test_count": 0,
+    "test_accessibility_score": 0,
+    "clinical_utility_score": 0,
+    "test_quality_score": 0,
+    "total_disease_count": 0,
+    "pathogenic_variants_in_tested_gene": 0,
+    "test_covered_variants": 0,
     "cancer_mutation_count": 0,
-    "tissues_expressed_count": 0,
-    "max_expression_tpm": 0.0,
-    "total_domains": 0,
-    "avg_conservation_level": 0.0,
-    "test_utility_score": 0,
-    "clinical_actionability_score": 0,
-    "disease_burden_score": 0,
-    "pharmacogenomic_relevance_score": 0,
-    "pathogenic_variant_burden": "none",
-    "gene_clinical_actionability": "unknown",
-    "test_priority_tier": "low",
-    "test_recommendation": "not_recommended",
-    "clinical_test_category": "unknown"
+    "cancer_samples": 0,
+    "rare_pathogenic_variants": 0,
+    "clinical_test_utility_score": 0,
+    "variant_test_coverage_score": 0,
+    "population_test_relevance_score": 0,
+    "test_availability_category": "unknown",
+    "disease_test_correlation": "unknown",
+    "variant_test_coverage_level": "unknown",
+    "population_test_priority": "unknown",
+    "test_priority": "low",
+    "primary_test_type": "unknown",
+    "test_recommendation_tier": "unknown",
+    "description": "unknown"
 })
 
 print("Missing values filled")
@@ -208,13 +222,13 @@ print("\nTrain target distribution:")
 spark.table(f"{catalog_name}.gold.ml_dataset_gene_test_train") \
     .groupBy("is_high_priority_test_gene").count().show()
 
-print("\nTrain test priority tier distribution:")
+print("\nTrain test priority distribution:")
 spark.table(f"{catalog_name}.gold.ml_dataset_gene_test_train") \
-    .groupBy("test_priority_tier").count().orderBy("test_priority_tier").show()
+    .groupBy("test_priority").count().orderBy("test_priority").show()
 
-print("\nTrain test recommendation distribution:")
+print("\nTrain test recommendation tier distribution:")
 spark.table(f"{catalog_name}.gold.ml_dataset_gene_test_train") \
-    .groupBy("test_recommendation").count().orderBy("test_recommendation").show()
+    .groupBy("test_recommendation_tier").count().orderBy("test_recommendation_tier").show()
 
 # COMMAND ----------
 

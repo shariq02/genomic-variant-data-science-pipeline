@@ -3,8 +3,8 @@
 # MAGIC #### ML DATASET - PROTEIN FAMILY CONSERVATION
 # MAGIC ##### Module: Prepare Protein Family ML Dataset
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**  
-# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **DNA Gene Mapping Project**
+# MAGIC **Author:** Sharique Mohammad
 # MAGIC **Date:** February 23, 2026
 # MAGIC
 # MAGIC **Use Cases:**
@@ -55,58 +55,61 @@ print("=" * 80)
 df_ml = df.select(
     "gene_symbol",
     "gene_name",
+    "description",
     "chromosome",
-    "total_domains",
-    "unique_domain_types",
-    "has_kinase_domain",
-    "has_receptor_domain",
-    "has_sh2_domain",
-    "has_sh3_domain",
-    "has_ph_domain",
-    "has_zinc_finger",
-    "has_dna_binding",
-    "has_atp_binding",
-    "has_multiple_domain_types",
-    "domain_complexity_score",
+    "protein_family",
     "is_kinase",
     "is_receptor",
     "is_enzyme",
-    "is_transcription_factor",
-    "is_transporter",
-    "protein_family_category",
-    "is_druggable_family",
-    "family_druggability_tier",
-    "total_gene_variants",
-    "pathogenic_variants",
-    "domain_affecting_variants",
-    "has_pathogenic_domain_variants",
-    "variant_domain_impact_score",
-    "druggability_score",
-    "enhanced_druggability_score",
     "is_pharmacogene",
-    "is_high_priority_pharmacogene",
+    "druggability_score",
+    "protein_count",
+    "max_domain_count",
+    "proteins_with_kinase",
+    "proteins_with_receptor",
+    "proteins_with_zinc_finger",
+    "proteins_with_sh2",
+    "proteins_with_sh3",
+    "proteins_with_ph",
+    "proteins_with_death",
+    "proteins_with_leucine_zipper",
+    "proteins_with_helix_loop",
+    "proteins_with_ig",
+    "proteins_with_functional_domain",
+    "has_signaling_domain",
+    "has_dna_binding_domain",
+    "has_membrane_domain",
+    "has_apoptosis_domain",
+    "has_immune_domain",
+    "is_multi_domain_protein",
+    "domain_diversity_score",
+    "functional_complexity_score",
+    "druggability_potential_score",
+    "domain_affecting_variants",
+    "domain_pathogenic_variants",
+    "critical_domain_variants",
+    "has_domain_variants",
+    "protein_family_expression_breadth",
+    "protein_max_expression",
+    "tissue_specific_protein_expression",
+    "cancer_missense_mutations",
+    "cancer_truncating_mutations",
+    "cancer_samples_affected",
+    "cancer_relevant_protein_family",
+    "oncogenic_domain_alterations",
     "total_disease_count",
     "has_cancer_disease",
     "has_neurological_disease",
-    "has_cardiovascular_disease",
-    "cancer_mutation_count",
-    "is_cancer_gene",
-    "tissues_expressed_count",
-    "max_expression_tpm",
-    "is_broadly_expressed",
-    "is_highly_expressed",
-    "avg_conservation_level",
-    "max_conservation_level",
-    "highly_conserved_domain_count",
-    "is_highly_conserved_gene",
-    "conservation_clinical_relevance",
-    "domain_clinical_relevance_score",
-    "family_clinical_impact_score",
-    "conservation_druggability_score",
+    "disease_associated_protein_family",
+    "disease_specific_domains",
+    "variant_domain_impact_score",
+    "cancer_protein_family_score",
+    "disease_protein_family_score",
     "protein_family_priority",
     "is_high_value_protein_family",
-    "family_therapeutic_potential",
-    "conservation_significance"
+    "protein_functional_category",
+    "variant_disease_domain_correlation",
+    "cancer_protein_classification"
 )
 
 print(f"Features selected: {len(df_ml.columns)}")
@@ -121,14 +124,14 @@ print("=" * 80)
 print("is_high_value_protein_family:")
 df_ml.groupBy("is_high_value_protein_family").count().orderBy("is_high_value_protein_family").show()
 
-print("protein_family_category:")
-df_ml.groupBy("protein_family_category").count().orderBy("protein_family_category").show()
-
 print("protein_family_priority:")
 df_ml.groupBy("protein_family_priority").count().orderBy("protein_family_priority").show()
 
-print("family_therapeutic_potential:")
-df_ml.groupBy("family_therapeutic_potential").count().orderBy("family_therapeutic_potential").show()
+print("protein_functional_category:")
+df_ml.groupBy("protein_functional_category").count().orderBy("protein_functional_category").show()
+
+print("cancer_protein_classification:")
+df_ml.groupBy("cancer_protein_classification").count().orderBy("cancer_protein_classification").show()
 
 # COMMAND ----------
 
@@ -137,31 +140,43 @@ print("\nHANDLING MISSING VALUES")
 print("=" * 80)
 
 df_ml = df_ml.fillna({
-    "total_domains": 0,
-    "unique_domain_types": 0,
-    "domain_complexity_score": 0,
-    "total_gene_variants": 0,
-    "pathogenic_variants": 0,
+    "protein_count": 0,
+    "max_domain_count": 0,
+    "proteins_with_kinase": 0,
+    "proteins_with_receptor": 0,
+    "proteins_with_zinc_finger": 0,
+    "proteins_with_sh2": 0,
+    "proteins_with_sh3": 0,
+    "proteins_with_ph": 0,
+    "proteins_with_death": 0,
+    "proteins_with_leucine_zipper": 0,
+    "proteins_with_helix_loop": 0,
+    "proteins_with_ig": 0,
+    "proteins_with_functional_domain": 0,
+    "domain_diversity_score": 0,
+    "functional_complexity_score": 0,
+    "druggability_potential_score": 0,
     "domain_affecting_variants": 0,
+    "domain_pathogenic_variants": 0,
+    "critical_domain_variants": 0,
     "variant_domain_impact_score": 0,
-    "druggability_score": 0.0,
-    "enhanced_druggability_score": 0.0,
+    "protein_family_expression_breadth": 0,
+    "protein_max_expression": 0.0,
+    "cancer_missense_mutations": 0,
+    "cancer_truncating_mutations": 0,
+    "cancer_samples_affected": 0,
     "total_disease_count": 0,
-    "cancer_mutation_count": 0,
-    "tissues_expressed_count": 0,
-    "max_expression_tpm": 0.0,
-    "avg_conservation_level": 0.0,
-    "max_conservation_level": 0,
-    "highly_conserved_domain_count": 0,
-    "domain_clinical_relevance_score": 0,
-    "family_clinical_impact_score": 0,
-    "conservation_druggability_score": 0,
-    "protein_family_category": "unknown",
-    "family_druggability_tier": "unknown",
+    "cancer_protein_family_score": 0.0,
+    "disease_protein_family_score": 0.0,
+    "druggability_score": 0.0,
+    "protein_family": "unknown",
     "protein_family_priority": "low",
-    "family_therapeutic_potential": "unknown",
-    "conservation_significance": "unknown",
-    "conservation_clinical_relevance": "unknown"
+    "protein_functional_category": "unknown",
+    "oncogenic_domain_alterations": "unknown",
+    "disease_specific_domains": "unknown",
+    "variant_disease_domain_correlation": "unknown",
+    "cancer_protein_classification": "unknown",
+    "description": "unknown"
 })
 
 print("Missing values filled")
@@ -224,9 +239,13 @@ print("\nTrain target distribution:")
 spark.table(f"{catalog_name}.gold.ml_dataset_protein_family_train") \
     .groupBy("is_high_value_protein_family").count().show()
 
-print("\nTrain protein family category distribution:")
+print("\nTrain protein family priority distribution:")
 spark.table(f"{catalog_name}.gold.ml_dataset_protein_family_train") \
-    .groupBy("protein_family_category").count().orderBy("protein_family_category").show()
+    .groupBy("protein_family_priority").count().orderBy("protein_family_priority").show()
+
+print("\nTrain protein functional category distribution:")
+spark.table(f"{catalog_name}.gold.ml_dataset_protein_family_train") \
+    .groupBy("protein_functional_category").count().orderBy("protein_functional_category").show()
 
 # COMMAND ----------
 

@@ -3,8 +3,8 @@
 # MAGIC #### ML DATASET - STRUCTURAL VARIANT IMPACT
 # MAGIC ##### Module: Prepare Structural Variant ML Dataset
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**  
-# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **DNA Gene Mapping Project**
+# MAGIC **Author:** Sharique Mohammad
 # MAGIC **Date:** February 23, 2026
 # MAGIC
 # MAGIC **Use Cases:**
@@ -17,7 +17,7 @@
 # MAGIC - gold.ml_dataset_structural_variant_validation
 # MAGIC - gold.ml_dataset_structural_variant_test
 # MAGIC
-# MAGIC **Target:** is_high_risk_sv
+# MAGIC **Target:** sv_classification / sv_impact_tier
 
 # COMMAND ----------
 
@@ -67,28 +67,37 @@ print("=" * 80)
 df_ml = df.select(
     "sv_id",
     "study_id",
+    "variant_name",
     "chromosome",
     "start_pos",
     "end_pos",
+    "assembly",
     "variant_type",
     "sv_type_class",
     "sv_size",
     "sv_size_category",
+    "sv_pathogenicity_risk",
     "genes_overlapped",
-    "affected_gene_count",
-    "complete_overlap_genes",
-    "major_overlap_genes",
-    "is_multi_gene_sv",
-    "affects_pharmacogenes",
-    "affects_omim_genes",
+    "gene_list",
+    "gene_count_category",
     "pharmacogenes_affected",
-    "gene_impact_severity",
-    "size_impact_score",
-    "type_impact_score",
-    "gene_impact_score",
-    "sv_pathogenicity_score",
-    "predicted_sv_pathogenicity",
-    "is_high_risk_sv"
+    "omim_genes_affected",
+    "kinase_genes_affected",
+    "receptor_genes_affected",
+    "max_gene_disruption_fraction",
+    "avg_druggability_affected_genes",
+    "has_critical_gene_disruption",
+    "total_disease_associations",
+    "cancer_genes_affected",
+    "neuro_genes_affected",
+    "has_disease_associated_genes",
+    "disease_sv_priority",
+    "broadly_expressed_genes_affected",
+    "affects_essential_genes",
+    "sv_clinical_priority",
+    "sv_combined_impact_score",
+    "sv_impact_tier",
+    "sv_classification"
 )
 
 print(f"Features selected: {len(df_ml.columns)}")
@@ -100,17 +109,20 @@ print(f"Records: {df_ml.count():,}")
 print("\nTARGET DISTRIBUTION")
 print("=" * 80)
 
-print("is_high_risk_sv:")
-df_ml.groupBy("is_high_risk_sv").count().orderBy("is_high_risk_sv").show()
+print("sv_classification:")
+df_ml.groupBy("sv_classification").count().orderBy("sv_classification").show()
+
+print("sv_impact_tier:")
+df_ml.groupBy("sv_impact_tier").count().orderBy("sv_impact_tier").show()
 
 print("sv_type_class:")
 df_ml.groupBy("sv_type_class").count().orderBy("sv_type_class").show()
 
-print("sv_size_category:")
-df_ml.groupBy("sv_size_category").count().orderBy("sv_size_category").show()
+print("sv_pathogenicity_risk:")
+df_ml.groupBy("sv_pathogenicity_risk").count().orderBy("sv_pathogenicity_risk").show()
 
-print("predicted_sv_pathogenicity:")
-df_ml.groupBy("predicted_sv_pathogenicity").count().orderBy("predicted_sv_pathogenicity").show()
+print("sv_clinical_priority:")
+df_ml.groupBy("sv_clinical_priority").count().orderBy("sv_clinical_priority").show()
 
 # COMMAND ----------
 
@@ -120,19 +132,30 @@ print("=" * 80)
 
 df_ml = df_ml.fillna({
     "sv_size": 0,
-    "affected_gene_count": 0,
-    "complete_overlap_genes": 0,
-    "major_overlap_genes": 0,
+    "genes_overlapped": 0,
     "pharmacogenes_affected": 0,
-    "size_impact_score": 0,
-    "type_impact_score": 0,
-    "gene_impact_score": 0,
-    "sv_pathogenicity_score": 0,
+    "omim_genes_affected": 0,
+    "kinase_genes_affected": 0,
+    "receptor_genes_affected": 0,
+    "max_gene_disruption_fraction": 0.0,
+    "avg_druggability_affected_genes": 0.0,
+    "total_disease_associations": 0,
+    "cancer_genes_affected": 0,
+    "neuro_genes_affected": 0,
+    "broadly_expressed_genes_affected": 0,
+    "sv_combined_impact_score": 0,
     "sv_type_class": "unknown",
     "sv_size_category": "unknown",
-    "gene_impact_severity": "unknown",
-    "predicted_sv_pathogenicity": "unknown",
-    "study_id": "unknown"
+    "sv_pathogenicity_risk": "unknown",
+    "gene_count_category": "unknown",
+    "disease_sv_priority": "unknown",
+    "sv_clinical_priority": "unknown",
+    "sv_impact_tier": "unknown",
+    "sv_classification": "unknown",
+    "study_id": "unknown",
+    "variant_name": "unknown",
+    "assembly": "unknown",
+    "gene_list": "unknown"
 })
 
 print("Missing values filled")
@@ -193,11 +216,11 @@ print(f"Total:      {total:,}")
 
 print("\nTrain target distribution:")
 spark.table(f"{catalog_name}.gold.ml_dataset_structural_variant_train") \
-    .groupBy("is_high_risk_sv").count().show()
+    .groupBy("sv_classification").count().orderBy("sv_classification").show()
 
-print("\nTrain sv_type_class distribution:")
+print("\nTrain sv_impact_tier distribution:")
 spark.table(f"{catalog_name}.gold.ml_dataset_structural_variant_train") \
-    .groupBy("sv_type_class").count().orderBy("sv_type_class").show()
+    .groupBy("sv_impact_tier").count().orderBy("sv_impact_tier").show()
 
 # COMMAND ----------
 
