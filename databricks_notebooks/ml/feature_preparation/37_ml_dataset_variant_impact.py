@@ -3,8 +3,8 @@
 # MAGIC #### ML DATASET - VARIANT IMPACT PREDICTION
 # MAGIC ##### Module: Prepare Variant Impact ML Dataset
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 23, 2026
 # MAGIC
 # MAGIC **Use Cases:**

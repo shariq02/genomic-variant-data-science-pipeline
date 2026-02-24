@@ -3,9 +3,9 @@
 # MAGIC #### ML DATASET - CANCER VARIANT CLASSIFICATION
 # MAGIC ##### Module: Prepare Cancer Driver/Passenger ML Dataset
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
-# MAGIC **Date:** February 23, 2026
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **Date:** February 23, 2026 
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 12: Cancer Variant Classification

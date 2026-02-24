@@ -3,8 +3,8 @@
 # MAGIC #### ML DATASET - PROTEIN FAMILY CONSERVATION
 # MAGIC ##### Module: Prepare Protein Family ML Dataset
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 23, 2026
 # MAGIC
 # MAGIC **Use Cases:**
@@ -54,7 +54,7 @@ print("=" * 80)
 
 df_ml = df.select(
     "gene_symbol",
-    "gene_full_name",
+    "gene_name",
     "chromosome",
     "total_domains",
     "unique_domain_types",

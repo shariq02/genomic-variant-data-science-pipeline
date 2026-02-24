@@ -3,8 +3,8 @@
 # MAGIC #### ML DATASET - STRUCTURAL VARIANT IMPACT
 # MAGIC ##### Module: Prepare Structural Variant ML Dataset
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 23, 2026
 # MAGIC
 # MAGIC **Use Cases:**
@@ -74,7 +74,7 @@ df_ml = df.select(
     "sv_type_class",
     "sv_size",
     "sv_size_category",
-    "has_gene_overlap",
+    "genes_overlapped",
     "affected_gene_count",
     "complete_overlap_genes",
     "major_overlap_genes",

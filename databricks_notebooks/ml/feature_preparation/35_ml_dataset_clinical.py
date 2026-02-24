@@ -3,8 +3,8 @@
 # MAGIC #### ML DATASET - CLINICAL VARIANT INTERPRETATION
 # MAGIC ##### Module: Prepare Clinical Pathogenicity ML Dataset
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 23, 2026
 # MAGIC
 # MAGIC **Use Cases:**

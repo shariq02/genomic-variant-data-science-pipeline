@@ -3,9 +3,9 @@
 # MAGIC #### ML DATASET - PHARMACOGENE PRIORITY PREDICTION
 # MAGIC ##### Module: Prepare Pharmacogene ML Dataset
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
-# MAGIC **Date:** February 23, 2026
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **Date:** February 23, 2026  
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 9: Pharmacogenomic Guidance
