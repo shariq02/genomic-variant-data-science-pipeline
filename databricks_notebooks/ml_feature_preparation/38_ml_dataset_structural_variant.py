@@ -154,11 +154,11 @@ df_ml = df_ml.fillna({
     "sv_classification": "unknown",
     "study_id": "unknown",
     "variant_name": "unknown",
-    "assembly": "unknown",
-    "gene_list": "unknown"
+    "assembly": "unknown"
 })
 
 print("Missing values filled")
+print(f"Records: {df_ml.count():,}")
 
 # COMMAND ----------
 
