@@ -20,7 +20,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, count, countDistinct, sum as spark_sum, avg,
-    when, lit, trim, upper, lower, coalesce, concat_ws
+    when, lit, trim, upper, lower, coalesce, concat_ws, max as spark_max
 )
 
 # COMMAND ----------
@@ -271,11 +271,11 @@ print("="*80)
 
 tissue_expression = (
     df_gtex
-    .filter(col("median_tpm") > 1.0)
-    .groupBy(col("gene_symbol"))
+    .filter(col("max_tpm") > 1.0)
+    .groupBy(col("gene_name"))
     .agg(
         countDistinct("tissue_type").alias("tissue_expression_in_tumors"),
-        spark_max("median_tpm").alias("max_tumor_expression")
+        spark_max("max_tpm").alias("max_tumor_expression")
     )
     .withColumn("expression_change_relevance",
                 when(col("tissue_expression_in_tumors") >= 20, lit("Ubiquitous"))
@@ -285,14 +285,15 @@ tissue_expression = (
 
 df_combined = (
     df_combined
-    .join(tissue_expression, "gene_symbol", "left")
+    .join(tissue_expression, col("gene_symbol") == tissue_expression["gene_name"], "left")
+    .drop(tissue_expression["gene_name"])
     .fillna({
         "tissue_expression_in_tumors": 0,
         "max_tumor_expression": 0.0,
         "expression_change_relevance": "Unknown"
     })
 )
-
+print(f"Countfeatures: {df_combined.count():,}")
 print("Expression context enrichment complete")
 
 # COMMAND ----------
@@ -361,11 +362,11 @@ germline_frequency = (
     .select(
         concat_ws(":", col("chromosome"), col("position"),
                  col("reference_allele"), col("alternate_allele")).alias("variant_key"),
-        col("global_af").alias("germline_variant_frequency"),
+        col("allele_frequency_global").alias("germline_variant_frequency"),
         col("is_rare")
     )
     .withColumn("somatic_vs_germline_classification",
-                when(col("global_af") > 0.01, lit("Likely_Germline"))
+                when(col("germline_variant_frequency") > 0.01, lit("Likely_Germline"))
                 .when(col("is_rare"), lit("Rare_Germline"))
                 .otherwise(lit("Likely_Somatic")))
 )
@@ -380,6 +381,7 @@ df_combined = (
     })
 )
 
+print(f"Population context enrichment features: {df_combined.count():,}")
 print("Population context enrichment complete")
 
 # COMMAND ----------

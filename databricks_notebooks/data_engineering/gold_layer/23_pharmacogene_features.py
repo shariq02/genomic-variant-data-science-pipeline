@@ -132,25 +132,25 @@ print("="*80)
 # Calculate tissue expression for drug metabolism context
 gene_expression = (
     df_gtex
-    .filter(col("median_tpm") > 1.0)
-    .groupBy(col("gene_symbol"))
+    .filter(col("max_tpm") > 1.0)
+    .groupBy(col("gene_name"))
     .agg(
         countDistinct("tissue_type").alias("tissues_expressed_count"),
-        spark_max("median_tpm").alias("max_expression_tpm"),
-        avg("median_tpm").alias("avg_expression_tpm")
+        spark_max("max_tpm").alias("max_expression_tpm"),
+        avg("max_tpm").alias("avg_expression_tpm")
     )
     # Liver and kidney are critical for drug metabolism
     .join(
-        df_gtex.filter((col("tissue_type") == "Liver") & (col("median_tpm") > 1.0))
-               .select(col("gene_symbol").alias("liver_gene"), lit(True).alias("is_liver_expressed")),
-        col("gene_symbol") == col("liver_gene"),
+        df_gtex.filter((col("tissue_type") == "Liver") & (col("max_tpm") > 1.0))
+               .select(col("gene_name").alias("liver_gene"), lit(True).alias("is_liver_expressed")),
+        col("gene_name") == col("liver_gene"),
         "left"
     )
     .drop("liver_gene")
     .join(
-        df_gtex.filter((col("tissue_type") == "Kidney") & (col("median_tpm") > 1.0))
-               .select(col("gene_symbol").alias("kidney_gene"), lit(True).alias("is_kidney_expressed")),
-        col("gene_symbol") == col("kidney_gene"),
+        df_gtex.filter((col("tissue_type") == "Kidney") & (col("max_tpm") > 1.0))
+               .select(col("gene_name").alias("kidney_gene"), lit(True).alias("is_kidney_expressed")),
+        col("gene_name") == col("kidney_gene"),
         "left"
     )
     .drop("kidney_gene")
@@ -248,14 +248,14 @@ df_pharmgkb_features = (
     .select(
         upper(trim(col("gene_symbol"))).alias("gene_symbol"),
         col("gene_name").alias("pharmgkb_name"),
-        col("pharmgkb_gene_id")
+        col("source_count")
     )
     .join(df_relationship_counts, on="gene_symbol", how="left")
 )
 
 # Filter to genes with PharmGKB data AND relationships
 df_pharmgkb_with_data = df_pharmgkb_features.filter(
-    (col("pharmgkb_gene_id").isNotNull()) & 
+    (col("source_count").isNotNull()) & 
     (col("total_relationships").isNotNull()) &
     (col("total_relationships") > 0)
 )
@@ -289,10 +289,13 @@ df_gene_pharmacogene = (
     
     # Join all enrichment tables
     .join(gene_variant_stats, on="gene_symbol", how="left")
-    .join(gene_expression, on="gene_symbol", how="left")
+    .join(gene_expression, col("gene_symbol") == gene_expression["gene_name"], how="left")
     .join(cancer_genes, on="gene_symbol", how="left")
     .join(disease_genes, on="gene_symbol", how="left")
     .join(protein_complexity, on="gene_symbol", how="left")
+
+    .drop(gene_expression["gene_name"])
+    .drop(disease_genes["gene_symbol"])
     
     # Fill nulls
     .fillna({
@@ -338,7 +341,7 @@ print("="*80)
 df_classified = (
     df_gene_pharmacogene
     .withColumn("has_pharmgkb_annotation",
-                when(col("pharmgkb_gene_id").isNotNull(), True).otherwise(False))
+                when(col("source_count").isNotNull(), True).otherwise(False))
     
     .withColumn("is_drug_metabolizer",
                 when(col("is_metabolic") & (col("drug_relationships") > 0), True).otherwise(False))
@@ -466,7 +469,7 @@ df_final = (
         col("pharmgkb_name"),
         col("description"),
         col("chromosome"),
-        col("pharmgkb_gene_id"),
+        col("source_count"),
         
         # Basic pharmacogene flags
         col("has_pharmgkb_annotation"),

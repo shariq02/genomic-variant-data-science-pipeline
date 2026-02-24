@@ -2,17 +2,17 @@
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - POPULATION FREQUENCY ANALYSIS (FULLY ENHANCED)
 # MAGIC ##### Module: Comprehensive Variant-Level Population Frequency Features
-# MAGIC 
+# MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 22, 2026
-# MAGIC 
+# MAGIC
 # MAGIC **ENHANCED:** Uses all available silver tables for comprehensive population frequency profiling
-# MAGIC 
+# MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 10: Population Carrier Screening
 # MAGIC - Use Case 19: Ancestry-Specific Risk
-# MAGIC 
+# MAGIC
 # MAGIC **Creates:** gold.variant_population_ml_features
 
 # COMMAND ----------
@@ -315,8 +315,8 @@ print("="*80)
 
 expression_frequency = (
     df_gtex
-    .filter(col("median_tpm") > 1.0)
-    .groupBy(col("gene_symbol"))
+    .filter(col("max_tpm") > 1.0)
+    .groupBy(col("gene_name"))
     .agg(
         countDistinct("tissue_type").alias("expression_tissues")
     )
@@ -328,7 +328,8 @@ expression_frequency = (
 
 df_with_variants = (
     df_with_variants
-    .join(expression_frequency, "gene_symbol", "left")
+    .join(expression_frequency, col("gene_symbol") == expression_frequency["gene_name"], "left")
+    .drop(expression_frequency["gene_name"])
     .fillna({
         "expression_tissues": 0,
         "expression_frequency_correlation": "Unknown"
@@ -338,6 +339,7 @@ df_with_variants = (
                 col("expression_frequency_correlation") == "Tissue_Specific_Expression")
 )
 
+print(f"Count frequency: {df_with_variants.count():,}")
 print("Expression context enrichment complete")
 
 # COMMAND ----------

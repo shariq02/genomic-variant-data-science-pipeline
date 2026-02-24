@@ -2,17 +2,17 @@
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - PROTEIN FAMILY ANALYSIS (FULLY ENHANCED)
 # MAGIC ##### Module: Comprehensive Gene-Level Protein Family Features
-# MAGIC 
+# MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 22, 2026
-# MAGIC 
+# MAGIC
 # MAGIC **ENHANCED:** Uses all available silver tables for comprehensive protein family profiling
-# MAGIC 
+# MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 4: Protein Domain Analysis
 # MAGIC - Use Case 7: Protein Family Conservation
-# MAGIC 
+# MAGIC
 # MAGIC **Creates:** gold.gene_protein_family_ml_features
 
 # COMMAND ----------
@@ -177,11 +177,11 @@ print("="*80)
 
 protein_family_expression = (
     df_gtex
-    .filter(col("median_tpm") > 1.0)
-    .groupBy(col("gene_symbol"))
+    .filter(col("max_tpm") > 1.0)
+    .groupBy(col("gene_name"))
     .agg(
         countDistinct("tissue_type").alias("protein_family_expression_breadth"),
-        spark_max("median_tpm").alias("protein_max_expression")
+        spark_max("max_tpm").alias("protein_max_expression")
     )
     .withColumn("tissue_specific_protein_expression",
                 when(col("protein_family_expression_breadth") <= 5, True).otherwise(False))
@@ -264,7 +264,8 @@ df_with_genes = (
     
     # Join all enrichment tables
     .join(variant_domain_impact, on="gene_symbol", how="left")
-    .join(protein_family_expression, on="gene_symbol", how="left")
+    .join(protein_family_expression, col("gene_symbol") == protein_family_expression["gene_name"], how="left")
+    .drop(protein_family_expression["gene_name"])
     .join(cancer_protein_family, on="gene_symbol", how="left")
     .join(disease_protein_family, on="gene_symbol", how="left")
     

@@ -199,10 +199,10 @@ protein_expression = (
     .agg(
         spark_max("domain_count").alias("max_domain_count"),
         spark_sum(when(col("has_kinase_domain"), 1).otherwise(0)).alias("has_kinase_domain_count"),
-        spark_sum(when(col("has_signaling_domain"), 1).otherwise(0)).alias("has_signaling_domain_count")
+        spark_sum(when(col("has_functional_domain"), 1).otherwise(0)).alias("has_functional_domain_count")
     )
-    .withColumn("has_signaling_domain",
-                col("has_signaling_domain_count") > 0)
+    .withColumn("has_functional_domain",
+                col("has_functional_domain_count") > 0)
     .withColumn("domain_expression_correlation",
                 when(col("max_domain_count") >= 5, lit("Complex"))
                 .otherwise(lit("Simple")))
@@ -292,7 +292,7 @@ df_with_genes = (
         "cancer_expression_relevance": "None",
         "max_domain_count": 0,
         "has_kinase_domain_count": 0,
-        "has_signaling_domain": False,
+        "has_functional_domain": False,
         "domain_expression_correlation": "Unknown",
         "total_gene_variants": 0,
         "splice_variants": 0,
@@ -324,7 +324,7 @@ df_enhanced_scores = (
     
     # Functional expression score
     .withColumn("functional_expression_score",
-                when(col("has_signaling_domain") & col("is_highly_expressed"), 8).otherwise(0) +
+                when(col("has_functional_domain") & col("is_highly_expressed"), 8).otherwise(0) +
                 when(col("has_expression_variants"), 5).otherwise(0) +
                 when(col("is_pharmacogene") & col("is_highly_expressed"), 7).otherwise(0))
 )
@@ -428,7 +428,7 @@ df_final = (
         # Protein domain context
         col("max_domain_count"),
         col("has_kinase_domain_count"),
-        col("has_signaling_domain"),
+        col("has_functional_domain"),
         col("domain_expression_correlation"),
         
         # Variant context

@@ -205,7 +205,7 @@ df_impact = (
                 .otherwise(lit("Not_LoF")).cast("string"))
 )
 
-print("Variant impact features created")
+print("Base impact features created")
 
 # COMMAND ----------
 
@@ -240,15 +240,15 @@ df_impact = (
     
     # Enhanced impact based on gene context
     .withColumn("clinical_impact_priority",
-                when(col("is_pharmacogene") & col("is_pathogenic") & col("domain_impact_severity") == "Critical",
-                     lit("Top_Priority"))
+                when(col("is_pharmacogene") & col("is_pathogenic") & col("domain_impact_severity").eqNullSafe("Critical"),
+                     lit("Top_Priority").cast("string"))
                 .when((col("is_druggable_gene") | col("is_pharmacogene")) & col("is_pathogenic"),
-                     lit("High_Priority"))
+                     lit("High_Priority").cast("string"))
                 .when(col("is_key_protein_type") & col("is_pathogenic"),
-                     lit("Medium_Priority"))
+                     lit("Medium_Priority").cast("string"))
                 .when(col("is_pathogenic"),
-                     lit("Standard_Priority"))
-                .otherwise(lit("Low_Priority")))
+                     lit("Standard_Priority").cast("string"))
+                .otherwise(lit("Low_Priority")).cast("string"))
 )
 
 print("Gene-level enrichment complete")
@@ -305,7 +305,7 @@ df_impact = (
                      lit("Ubiquitous_Expression"))
                 .when(col("tissues_expressed_count") > 0,
                      lit("Tissue_Specific"))
-                .otherwise(lit("Low_Expression")))
+                .otherwise(lit("Low_Expression")).cast("string"))
 )
 
 print("Expression data enrichment complete")
@@ -352,7 +352,7 @@ df_impact = (
                      lit("Cancer_Medium_Priority"))
                 .when(col("is_cancer_relevant_variant"),
                      lit("Cancer_Research_Candidate"))
-                .otherwise(lit("Not_Cancer_Priority")))
+                .otherwise(lit("Not_Cancer_Priority")).cast("string"))
 )
 
 print("Cancer context enrichment complete")
@@ -393,7 +393,7 @@ df_impact = (
                 when(col("disease_count") >= 10, lit("Highly_Disease_Associated"))
                 .when(col("disease_count") >= 5, lit("Disease_Associated"))
                 .when(col("disease_count") >= 1, lit("Single_Disease"))
-                .otherwise(lit("Not_Disease_Associated")))
+                .otherwise(lit("Not_Disease_Associated")).cast("string"))
     
     .withColumn("disease_specific_priority",
                 when(col("has_cancer_disease") & col("is_high_impact"),
@@ -404,7 +404,7 @@ df_impact = (
                      lit("Cardiovascular_Disease_Priority"))
                 .when(col("has_metabolic_disease") & col("is_high_impact"),
                      lit("Metabolic_Disease_Priority"))
-                .otherwise(lit("No_Specific_Disease_Priority")))
+                .otherwise(lit("No_Specific_Disease_Priority")).cast("string"))
 )
 
 print("Disease association enrichment complete")
@@ -433,13 +433,13 @@ gene_impact_stats = (
                 .when(col("gene_high_impact_count") >= 50, lit("High_Burden"))
                 .when(col("gene_high_impact_count") >= 10, lit("Moderate_Burden"))
                 .when(col("gene_high_impact_count") >= 1, lit("Low_Burden"))
-                .otherwise(lit("No_Burden")))
+                .otherwise(lit("No_Burden")).cast("string"))
     
     .withColumn("gene_lof_tolerance",
                 when(col("gene_lof_count") >= 50, lit("LoF_Tolerant"))
                 .when(col("gene_lof_count") >= 10, lit("LoF_Moderate"))
                 .when(col("gene_lof_count") >= 1, lit("LoF_Sensitive"))
-                .otherwise(lit("No_LoF_Variants")))
+                .otherwise(lit("No_LoF_Variants")).cast("string"))
 )
 
 df_impact = (
@@ -455,7 +455,7 @@ df_impact = (
                      lit("High_Impact_Gene"))
                 .when(col("is_very_high_impact"),
                      lit("Critical_Variant_Standard_Gene"))
-                .otherwise(lit("Standard_Priority")))
+                .otherwise(lit("Standard_Priority")).cast("string"))
 )
 
 print("Gene-level impact statistics calculated")
@@ -619,6 +619,8 @@ variant_impact_features.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
     .saveAsTable(f"{catalog_name}.gold.variant_impact_ml_features")  
+
+print(f"Saved: {catalog_name}.gold.variant_impact_ml_features")
 
 # COMMAND ----------
 

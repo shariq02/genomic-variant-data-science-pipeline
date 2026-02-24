@@ -24,6 +24,7 @@ from pyspark.sql.functions import (
     when, lit, trim, upper, lower, coalesce, split, size, array_contains, row_number, avg
 )
 from pyspark.sql.window import Window
+from pyspark.sql.types import StringType
 
 # COMMAND ----------
 
@@ -168,23 +169,25 @@ print(f"Variants with impact: {df_with_impact.count():,}")
 print("\nENRICHING WITH EXPRESSION DATA")
 print("="*80)
 
-# Gene-level expression for tissue-specific drug metabolism
+# Get liver expression separately
+liver_genes = (
+    df_gtex
+    .filter((col("tissue_type") == "Liver") & (col("max_tpm") > 1.0))
+    .select(col("gene_name"))
+    .distinct()
+    .withColumn("is_liver_expressed", lit(True))
+)
+
+# Gene-level expression
 gene_expression = (
     df_gtex
-    .filter(col("median_tpm") > 1.0)
-    .groupBy(col("gene_symbol"))
+    .filter(col("max_tpm") > 1.0)
+    .groupBy("gene_name")
     .agg(
         countDistinct("tissue_type").alias("tissues_expressed_count"),
-        spark_max("median_tpm").alias("max_expression_tpm")
+        spark_max("max_tpm").alias("max_expression_tpm")
     )
-    # Check liver and kidney expression
-    .join(
-        df_gtex.filter((col("tissue_type") == "Liver") & (col("median_tpm") > 1.0))
-               .select(col("gene_symbol").alias("liver_gene"), lit(True).alias("is_liver_expressed")),
-        col("gene_symbol") == col("liver_gene"),
-        "left"
-    )
-    .drop("liver_gene")
+    .join(liver_genes, "gene_name", "left")
     .fillna({"is_liver_expressed": False})
     .withColumn("expression_breadth",
                 when(col("tissues_expressed_count") >= 15, lit("Ubiquitous"))
@@ -192,9 +195,15 @@ gene_expression = (
                 .otherwise(lit("Tissue_Specific")))
 )
 
+print(f"Gene expression stats: {gene_expression.count():,}")
+
+# Join with df_with_impact - gene_symbol = gene_name
 df_with_impact = (
     df_with_impact
-    .join(gene_expression, "gene_symbol", "left")
+    .join(gene_expression, 
+          df_with_impact["gene_symbol"] == gene_expression["gene_name"],  
+          "left")
+    .drop(gene_expression["gene_name"])  # Drop duplicate to avoid ambiguity
     .fillna({
         "tissues_expressed_count": 0,
         "max_expression_tpm": 0.0,
@@ -203,6 +212,7 @@ df_with_impact = (
     })
 )
 
+print(f"df_with_impact after expression join: {df_with_impact.count():,}")
 print("Expression data enrichment complete")
 
 # COMMAND ----------
@@ -216,7 +226,7 @@ df_with_impact = (
     .join(
         df_population.select(
             "variant_id",
-            col("global_af").alias("allele_frequency"),
+            col("allele_frequency_global").alias("allele_frequency"),
             col("is_common").alias("is_common_variant"),
             col("is_rare").alias("is_rare_variant")
         ),
@@ -233,9 +243,10 @@ df_with_impact = (
     .withColumn("drug_response_frequency_context",
                 when(col("is_common_variant"), lit("Common_Drug_Response"))
                 .when(col("is_rare_variant"), lit("Rare_Drug_Response"))
-                .otherwise(lit("Standard_Frequency")))
+                .otherwise(lit("Standard_Frequency")).cast(StringType()))  
 )
 
+print(f"df_with_impact after population join: {df_with_impact.count():,}")
 print("Population frequency enrichment complete")
 
 # COMMAND ----------
