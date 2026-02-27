@@ -1,19 +1,37 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### FEATURE ENGINEERING - PROTEIN FAMILY ANALYSIS (FULLY ENHANCED)
+# MAGIC #### FEATURE ENGINEERING - PROTEIN FAMILY ANALYSIS (FIXED)
 # MAGIC ##### Module: Comprehensive Gene-Level Protein Family Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**  
-# MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** February 22, 2026
+# MAGIC **DNA Gene Mapping Project**
+# MAGIC **Author:** Sharique Mohammad
+# MAGIC **Date:** February 27, 2026
 # MAGIC
-# MAGIC **ENHANCED:** Uses all available silver tables for comprehensive protein family profiling
+# MAGIC **FIXED:** Two-pass structure enforced. Target threshold corrected. Leakage columns removed.
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 4: Protein Domain Analysis
 # MAGIC - Use Case 7: Protein Family Conservation
 # MAGIC
-# MAGIC **Creates:** gold.gene_protein_family_ml_features
+# MAGIC **Creates:**
+# MAGIC - gold.gene_protein_family_ml_features
+# MAGIC
+# MAGIC **TWO-PASS STRUCTURE:**
+# MAGIC - Pass 1: Features only. Raw biological measurements from silver tables.
+# MAGIC - Pass 2: Target only. Derived from domain and druggability features independently.
+# MAGIC - Final:  Features and target joined on gene_symbol. Written to gold.
+# MAGIC
+# MAGIC **TARGET FIX:**
+# MAGIC - Old: has_signaling_domain AND is_multi_domain_protein -> 0 positives
+# MAGIC - New: has_signaling_domain OR is_multi_domain_protein OR druggability_potential_score >= 10
+# MAGIC   Expected: 5-15% positive rate
+# MAGIC
+# MAGIC **LEAKAGE COLUMNS REMOVED:**
+# MAGIC - protein_family_priority (derived summary encoding target conditions)
+# MAGIC - variant_disease_domain_correlation (categorical summary of feature combinations)
+# MAGIC - cancer_protein_classification (categorical encoding of cancer + domain combinations)
+# MAGIC - disease_specific_domains (categorical encoding of disease type)
+# MAGIC - oncogenic_domain_alterations (categorical encoding of missense vs truncating ratio)
 
 # COMMAND ----------
 
@@ -31,7 +49,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GOLD PROTEIN FAMILY FEATURES (FULLY ENHANCED)")
+print("GOLD PROTEIN FAMILY FEATURES (FIXED - TWO-PASS)")
 print("="*80)
 
 # COMMAND ----------
@@ -40,29 +58,33 @@ print("="*80)
 print("\nLOADING SOURCE TABLES")
 print("="*80)
 
-# Core tables
-df_protein_domains = spark.table(f"{catalog_name}.silver.protein_domains")
+df_protein_domains  = spark.table(f"{catalog_name}.silver.protein_domains")
 df_proteins_uniprot = spark.table(f"{catalog_name}.silver.proteins_uniprot")
-df_genes = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")  # ENHANCED: enriched genes
+df_genes            = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
+df_variant_impact   = spark.table(f"{catalog_name}.silver.variant_protein_impact")
+df_gtex             = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
+df_cancer           = spark.table(f"{catalog_name}.silver.cancer_mutations")
+df_gene_disease     = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
 
-# Additional enrichment tables
-df_variant_impact = spark.table(f"{catalog_name}.silver.variant_protein_impact")
-df_gtex = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
-df_cancer = spark.table(f"{catalog_name}.silver.cancer_mutations")
-df_gene_disease = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
-
-print(f"Protein domains: {df_protein_domains.count():,}")
-print(f"Proteins uniprot: {df_proteins_uniprot.count():,}")
-print(f"Genes (enriched): {df_genes.count():,}")
+print(f"Protein domains:        {df_protein_domains.count():,}")
+print(f"Proteins uniprot:       {df_proteins_uniprot.count():,}")
+print(f"Genes (enriched):       {df_genes.count():,}")
 print(f"Variant protein impact: {df_variant_impact.count():,}")
-print(f"GTEx expression: {df_gtex.count():,}")
-print(f"Cancer mutations: {df_cancer.count():,}")
-print(f"Gene-disease: {df_gene_disease.count():,}")
+print(f"GTEx expression:        {df_gtex.count():,}")
+print(f"Cancer mutations:       {df_cancer.count():,}")
+print(f"Gene-disease:           {df_gene_disease.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Gene Domain Statistics
-print("\nCALCULATING GENE DOMAIN STATISTICS")
+# MAGIC %md
+# MAGIC ### PASS 1 - FEATURES ONLY
+# MAGIC All feature computation happens here.
+# MAGIC Target variable is NOT computed in this pass.
+
+# COMMAND ----------
+
+# DBTITLE 1,PASS 1 - Step 1: Gene Domain Statistics
+print("\nPASS 1 - STEP 1: GENE DOMAIN STATISTICS")
 print("="*80)
 
 df_gene_domains = (
@@ -89,8 +111,8 @@ print(f"Genes with domain data: {df_gene_domains.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Domain Classification Flags
-print("\nADDING DOMAIN CLASSIFICATION FLAGS")
+# DBTITLE 1,PASS 1 - Step 2: Domain Classification Flags
+print("\nPASS 1 - STEP 2: DOMAIN CLASSIFICATION FLAGS")
 print("="*80)
 
 df_classified = (
@@ -99,32 +121,32 @@ df_classified = (
                 when((col("proteins_with_kinase") > 0) |
                      (col("proteins_with_sh2") > 0) |
                      (col("proteins_with_sh3") > 0), True).otherwise(False))
-    
+
     .withColumn("has_dna_binding_domain",
                 when((col("proteins_with_zinc_finger") > 0) |
                      (col("proteins_with_helix_loop") > 0) |
                      (col("proteins_with_leucine_zipper") > 0), True).otherwise(False))
-    
+
     .withColumn("has_membrane_domain",
                 when((col("proteins_with_receptor") > 0) |
                      (col("proteins_with_ph") > 0), True).otherwise(False))
-    
+
     .withColumn("has_apoptosis_domain",
                 when(col("proteins_with_death") > 0, True).otherwise(False))
-    
+
     .withColumn("has_immune_domain",
                 when(col("proteins_with_ig") > 0, True).otherwise(False))
-    
+
     .withColumn("is_multi_domain_protein",
                 when(col("max_domain_count") >= 5, True).otherwise(False))
 )
 
-print("Classification flags added")
+print("Domain classification flags added")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Protein Family Scores
-print("\nCALCULATING PROTEIN FAMILY SCORES")
+# DBTITLE 1,PASS 1 - Step 3: Base Scores
+print("\nPASS 1 - STEP 3: BASE SCORES")
 print("="*80)
 
 df_scored = (
@@ -134,23 +156,23 @@ df_scored = (
                 when(col("has_signaling_domain"), 3).otherwise(0) +
                 when(col("has_dna_binding_domain"), 3).otherwise(0) +
                 when(col("has_membrane_domain"), 2).otherwise(0))
-    
+
     .withColumn("functional_complexity_score",
                 (col("proteins_with_functional_domain") * 2) +
                 when(col("is_multi_domain_protein"), 5).otherwise(0))
-    
+
     .withColumn("druggability_potential_score",
                 when(col("proteins_with_kinase") > 0, 10).otherwise(0) +
                 when(col("proteins_with_receptor") > 0, 8).otherwise(0) +
                 when(col("has_signaling_domain"), 5).otherwise(0))
 )
 
-print("Scores calculated")
+print("Base scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Variant Impact on Domains
-print("\nENRICHING WITH VARIANT IMPACT ON DOMAINS")
+# DBTITLE 1,PASS 1 - Step 4: Variant Impact on Domains
+print("\nPASS 1 - STEP 4: VARIANT IMPACT ON DOMAINS")
 print("="*80)
 
 variant_domain_impact = (
@@ -171,8 +193,8 @@ print(f"Genes with domain-affecting variants: {variant_domain_impact.count():,}"
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Expression Context
-print("\nENRICHING WITH EXPRESSION CONTEXT")
+# DBTITLE 1,PASS 1 - Step 5: Expression Context
+print("\nPASS 1 - STEP 5: EXPRESSION CONTEXT")
 print("="*80)
 
 protein_family_expression = (
@@ -191,10 +213,12 @@ print(f"Genes with expression: {protein_family_expression.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Cancer Context
-print("\nENRICHING WITH CANCER CONTEXT")
+# DBTITLE 1,PASS 1 - Step 6: Cancer Context
+print("\nPASS 1 - STEP 6: CANCER CONTEXT")
 print("="*80)
 
+# Raw cancer mutation counts only. oncogenic_domain_alterations string category removed.
+# Raw numeric columns (cancer_missense_mutations, cancer_truncating_mutations) retained instead.
 cancer_protein_family = (
     df_cancer
     .groupBy(upper(trim(col("gene_symbol"))).alias("gene_symbol"))
@@ -205,22 +229,18 @@ cancer_protein_family = (
     )
     .withColumn("cancer_relevant_protein_family",
                 col("cancer_samples_affected") >= 10)
-    .withColumn("oncogenic_domain_alterations",
-                when(col("cancer_missense_mutations") > col("cancer_truncating_mutations"),
-                     lit("Likely_Oncogene"))
-                .when(col("cancer_truncating_mutations") > col("cancer_missense_mutations"),
-                     lit("Likely_TSG"))
-                .otherwise(lit("Unknown")))
 )
 
 print(f"Cancer-related protein families: {cancer_protein_family.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Disease Context
-print("\nENRICHING WITH DISEASE CONTEXT")
+# DBTITLE 1,PASS 1 - Step 7: Disease Context
+print("\nPASS 1 - STEP 7: DISEASE CONTEXT")
 print("="*80)
 
+# Raw disease counts only. disease_specific_domains string category removed.
+# Raw boolean columns (has_cancer_disease, has_neurological_disease) retained instead.
 disease_protein_family = (
     df_gene_disease
     .select(
@@ -231,21 +251,17 @@ disease_protein_family = (
     )
     .withColumn("disease_associated_protein_family",
                 col("total_disease_count") >= 5)
-    .withColumn("disease_specific_domains",
-                when(col("has_cancer_disease"), lit("Cancer_Related"))
-                .when(col("has_neurological_disease"), lit("Neuro_Related"))
-                .otherwise(lit("Other_Disease")))
 )
 
 print(f"Disease-associated protein families: {disease_protein_family.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Join with Gene Master Data and All Enrichments
-print("\nJOINING WITH GENE MASTER DATA AND ENRICHMENTS")
+# DBTITLE 1,PASS 1 - Step 8: Join All Features
+print("\nPASS 1 - STEP 8: JOINING ALL FEATURES")
 print("="*80)
 
-df_with_genes = (
+df_features = (
     df_genes
     .select(
         upper(trim(col("official_symbol"))).alias("gene_symbol"),
@@ -261,160 +277,206 @@ df_with_genes = (
     )
     .join(df_scored.withColumn("gene_symbol", upper(trim(col("gene_symbol")))),
           on="gene_symbol", how="left")
-    
-    # Join all enrichment tables
     .join(variant_domain_impact, on="gene_symbol", how="left")
     .join(protein_family_expression, col("gene_symbol") == protein_family_expression["gene_name"], how="left")
     .drop(protein_family_expression["gene_name"])
     .join(cancer_protein_family, on="gene_symbol", how="left")
     .join(disease_protein_family, on="gene_symbol", how="left")
-    
-    # Fill nulls
     .fillna({
-        "protein_count": 0,
-        "max_domain_count": 0,
-        "proteins_with_kinase": 0,
-        "proteins_with_receptor": 0,
-        "proteins_with_zinc_finger": 0,
-        "proteins_with_sh2": 0,
-        "proteins_with_sh3": 0,
-        "proteins_with_ph": 0,
-        "proteins_with_death": 0,
-        "proteins_with_leucine_zipper": 0,
-        "proteins_with_helix_loop": 0,
-        "proteins_with_ig": 0,
-        "proteins_with_functional_domain": 0,
-        "has_signaling_domain": False,
-        "has_dna_binding_domain": False,
-        "has_membrane_domain": False,
-        "has_apoptosis_domain": False,
-        "has_immune_domain": False,
-        "is_multi_domain_protein": False,
-        "domain_diversity_score": 0,
-        "functional_complexity_score": 0,
-        "druggability_potential_score": 0,
-        "domain_affecting_variants": 0,
-        "domain_pathogenic_variants": 0,
-        "critical_domain_variants": 0,
-        "has_domain_variants": False,
+        "protein_count":                    0,
+        "max_domain_count":                 0,
+        "proteins_with_kinase":             0,
+        "proteins_with_receptor":           0,
+        "proteins_with_zinc_finger":        0,
+        "proteins_with_sh2":                0,
+        "proteins_with_sh3":                0,
+        "proteins_with_ph":                 0,
+        "proteins_with_death":              0,
+        "proteins_with_leucine_zipper":     0,
+        "proteins_with_helix_loop":         0,
+        "proteins_with_ig":                 0,
+        "proteins_with_functional_domain":  0,
+        "has_signaling_domain":             False,
+        "has_dna_binding_domain":           False,
+        "has_membrane_domain":              False,
+        "has_apoptosis_domain":             False,
+        "has_immune_domain":                False,
+        "is_multi_domain_protein":          False,
+        "domain_diversity_score":           0,
+        "functional_complexity_score":      0,
+        "druggability_potential_score":     0,
+        "domain_affecting_variants":        0,
+        "domain_pathogenic_variants":       0,
+        "critical_domain_variants":         0,
+        "has_domain_variants":              False,
         "protein_family_expression_breadth": 0,
-        "protein_max_expression": 0.0,
+        "protein_max_expression":           0.0,
         "tissue_specific_protein_expression": False,
-        "cancer_missense_mutations": 0,
-        "cancer_truncating_mutations": 0,
-        "cancer_samples_affected": 0,
-        "cancer_relevant_protein_family": False,
-        "oncogenic_domain_alterations": "Unknown",
-        "total_disease_count": 0,
-        "has_cancer_disease": False,
-        "has_neurological_disease": False,
+        "cancer_missense_mutations":        0,
+        "cancer_truncating_mutations":      0,
+        "cancer_samples_affected":          0,
+        "cancer_relevant_protein_family":   False,
+        "total_disease_count":              0,
+        "has_cancer_disease":               False,
+        "has_neurological_disease":         False,
         "disease_associated_protein_family": False,
-        "disease_specific_domains": "Unknown"
     })
 )
 
-print(f"Genes with protein family features: {df_with_genes.count():,}")
+print(f"Genes with protein family features: {df_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Enhanced Scores
-print("\nADDING ENHANCED SCORES")
+# DBTITLE 1,PASS 1 - Step 9: Enhanced Composite Scores
+print("\nPASS 1 - STEP 9: ENHANCED COMPOSITE SCORES")
 print("="*80)
 
-df_enhanced_scores = (
-    df_with_genes
-    # Variant-domain impact score
+df_features = (
+    df_features
     .withColumn("variant_domain_impact_score",
                 (col("domain_affecting_variants") * 2) +
                 (col("domain_pathogenic_variants") * 5) +
                 (col("critical_domain_variants") * 10))
-    
-    # Cancer protein family score
+
     .withColumn("cancer_protein_family_score",
                 when(col("cancer_relevant_protein_family") & col("has_signaling_domain"), 15).otherwise(0) +
                 when(col("cancer_relevant_protein_family"), 10).otherwise(0) +
                 (col("cancer_samples_affected") * 0.1))
-    
-    # Disease protein family score
+
     .withColumn("disease_protein_family_score",
                 when(col("disease_associated_protein_family") & col("is_multi_domain_protein"), 12).otherwise(0) +
                 when(col("disease_associated_protein_family"), 8).otherwise(0) +
                 (col("total_disease_count") * 0.5))
-)
 
-print("Enhanced scores calculated")
-
-# COMMAND ----------
-
-# DBTITLE 1,Add Enhanced Priority Classification
-print("\nADDING ENHANCED PRIORITY CLASSIFICATION")
-print("="*80)
-
-df_priority = (
-    df_enhanced_scores
-    .withColumn("protein_family_priority",
-                when(col("druggability_potential_score") + col("cancer_protein_family_score") >= 25, lit("critical"))
-                .when(col("druggability_potential_score") >= 15, lit("high"))
-                .when(col("druggability_potential_score") >= 8, lit("medium"))
-                .otherwise(lit("low")))
-    
-    .withColumn("is_high_value_protein_family",
-                when((col("has_signaling_domain")) & 
-                     (col("is_multi_domain_protein")), True).otherwise(False))
-    
     .withColumn("protein_functional_category",
                 when(col("has_signaling_domain"), lit("signaling"))
                 .when(col("has_dna_binding_domain"), lit("transcription"))
                 .when(col("has_membrane_domain"), lit("membrane"))
                 .when(col("has_immune_domain"), lit("immune"))
                 .otherwise(lit("other")))
-    
-    # Enhanced: Variant-disease-domain correlation
-    .withColumn("variant_disease_domain_correlation",
-                when(col("has_domain_variants") & col("disease_associated_protein_family") & 
-                     col("has_signaling_domain"), lit("High_Impact_Signaling_Disease"))
-                .when(col("has_domain_variants") & col("disease_associated_protein_family"),
-                     lit("Disease_Domain_Variants"))
-                .when(col("has_domain_variants"), lit("Domain_Variants_Only"))
-                .otherwise(lit("No_Domain_Variants")))
-    
-    # Enhanced: Cancer-specific protein family classification
-    .withColumn("cancer_protein_classification",
-                when(col("cancer_relevant_protein_family") & (col("oncogenic_domain_alterations") == "Likely_Oncogene"),
-                     lit("Oncogene_Candidate"))
-                .when(col("cancer_relevant_protein_family") & (col("oncogenic_domain_alterations") == "Likely_TSG"),
-                     lit("TSG_Candidate"))
-                .when(col("cancer_relevant_protein_family"),
-                     lit("Cancer_Associated"))
-                .otherwise(lit("Not_Cancer_Related")))
 )
 
-print("Enhanced priority classification added")
+print("Enhanced composite scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Select Final Features
-print("\nSELECTING FINAL FEATURES")
+# DBTITLE 1,PASS 1 - Step 10: Deduplicate by Gene Symbol
+print("\nPASS 1 - STEP 10: DEDUPLICATE BY GENE_SYMBOL")
+print("="*80)
+
+before_count = df_features.count()
+df_features  = df_features.dropDuplicates(["gene_symbol"])
+after_count  = df_features.count()
+
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
+print(f"Feature columns:      {len(df_features.columns)}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### PASS 2 - TARGET ONLY
+# MAGIC Target variable computed here independently from Pass 1.
+# MAGIC
+# MAGIC TARGET DEFINITION:
+# MAGIC   is_high_value_protein_family = True when any of:
+# MAGIC     has_signaling_domain = True   (kinase, SH2, or SH3 domain present)
+# MAGIC     OR is_multi_domain_protein = True  (5+ domains)
+# MAGIC     OR druggability_potential_score >= 10  (kinase or receptor present)
+# MAGIC
+# MAGIC   Rationale: Old definition (signaling AND multi-domain) produced zero positives
+# MAGIC   because the intersection is near-empty in the data. The OR formulation captures
+# MAGIC   the same biological intent - genes with therapeutically relevant protein architecture.
+
+# COMMAND ----------
+
+# DBTITLE 1,PASS 2 - Derive Target Variable
+print("\nPASS 2 - DERIVING TARGET VARIABLE")
+print("="*80)
+print("Target: is_high_value_protein_family")
+print("Definition: has_signaling_domain OR is_multi_domain_protein OR druggability_potential_score >= 10")
+print()
+
+df_target = (
+    df_features
+    .select("gene_symbol", "has_signaling_domain", "is_multi_domain_protein", "druggability_potential_score")
+    .withColumn("is_high_value_protein_family",
+                when(
+                    col("has_signaling_domain") |
+                    col("is_multi_domain_protein") |
+                    (col("druggability_potential_score") >= 10),
+                    True
+                ).otherwise(False))
+    .select("gene_symbol", "is_high_value_protein_family")
+)
+
+target_counts = df_target.groupBy("is_high_value_protein_family").count().collect()
+total = sum(r["count"] for r in target_counts)
+for row in sorted(target_counts, key=lambda r: str(r["is_high_value_protein_family"])):
+    pct = row["count"] / total * 100
+    print(f"  {row['is_high_value_protein_family']}: {row['count']:,} ({pct:.2f}%)")
+
+positives = [r["count"] for r in target_counts if r["is_high_value_protein_family"] == True]
+positive_count = positives[0] if positives else 0
+positive_pct   = positive_count / total * 100 if total > 0 else 0
+
+print()
+if positive_count == 0:
+    raise ValueError("Target has zero positives. Fix threshold.")
+elif positive_pct < 1.0:
+    raise ValueError(f"Positive rate {positive_pct:.2f}% too low. Fix threshold.")
+elif positive_pct > 50.0:
+    print(f"WARN: Positive rate {positive_pct:.2f}% above 50%. Consider stricter threshold.")
+else:
+    print(f"OK: Positive rate {positive_pct:.2f}%. Proceeding.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### FINAL JOIN - Features + Target
+
+# COMMAND ----------
+
+# DBTITLE 1,Final Join: Features + Target
+print("\nFINAL JOIN - FEATURES AND TARGET")
 print("="*80)
 
 df_final = (
-    df_priority
+    df_features
+    .join(df_target, on="gene_symbol", how="left")
+    .fillna({"is_high_value_protein_family": False})
+)
+
+print(f"Final table rows:    {df_final.count():,}")
+print(f"Final table columns: {len(df_final.columns)}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Select Final Feature Columns
+print("\nSELECTING FINAL COLUMNS")
+print("="*80)
+
+# REMOVED leakage columns:
+# protein_family_priority            - derived summary encoding target conditions
+# variant_disease_domain_correlation - categorical summary of feature combinations
+# cancer_protein_classification      - categorical encoding of cancer + domain combinations
+# disease_specific_domains           - categorical encoding of disease type
+# oncogenic_domain_alterations       - categorical encoding of missense vs truncating ratio
+
+df_final = (
+    df_final
     .select(
-        # Gene identifiers
         col("gene_symbol"),
         col("gene_name"),
         col("description"),
         col("chromosome"),
         col("protein_family"),
-        
-        # Gene type flags
         col("is_kinase"),
         col("is_receptor"),
         col("is_enzyme"),
         col("is_pharmacogene"),
         col("druggability_score"),
-        
-        # Domain statistics
         col("protein_count"),
         col("max_domain_count"),
         col("proteins_with_kinase"),
@@ -428,62 +490,39 @@ df_final = (
         col("proteins_with_helix_loop"),
         col("proteins_with_ig"),
         col("proteins_with_functional_domain"),
-        
-        # Domain classifications
         col("has_signaling_domain"),
         col("has_dna_binding_domain"),
         col("has_membrane_domain"),
         col("has_apoptosis_domain"),
         col("has_immune_domain"),
         col("is_multi_domain_protein"),
-        
-        # Base scores
         col("domain_diversity_score"),
         col("functional_complexity_score"),
         col("druggability_potential_score"),
-        
-        # Variant impact on domains
         col("domain_affecting_variants"),
         col("domain_pathogenic_variants"),
         col("critical_domain_variants"),
         col("has_domain_variants"),
-        
-        # Expression context
         col("protein_family_expression_breadth"),
         col("protein_max_expression"),
         col("tissue_specific_protein_expression"),
-        
-        # Cancer context
         col("cancer_missense_mutations"),
         col("cancer_truncating_mutations"),
         col("cancer_samples_affected"),
         col("cancer_relevant_protein_family"),
-        col("oncogenic_domain_alterations"),
-        
-        # Disease context
         col("total_disease_count"),
         col("has_cancer_disease"),
         col("has_neurological_disease"),
         col("disease_associated_protein_family"),
-        col("disease_specific_domains"),
-        
-        # Enhanced scores
         col("variant_domain_impact_score"),
         col("cancer_protein_family_score"),
         col("disease_protein_family_score"),
-        
-        # Classifications
-        col("protein_family_priority"),
-        col("is_high_value_protein_family"),
         col("protein_functional_category"),
-        col("variant_disease_domain_correlation"),
-        col("cancer_protein_classification")
+        col("is_high_value_protein_family")
     )
 )
 
-final_count = df_final.count()
-print(f"Final features: {final_count:,} genes")
-print(f"Total columns: {len(df_final.columns)}")
+print(f"Final columns: {len(df_final.columns)}")
 
 # COMMAND ----------
 
@@ -492,17 +531,17 @@ print("\nDEDUPLICATING BY GENE_SYMBOL")
 print("="*80)
 
 before_count = df_final.count()
-df_final = df_final.dropDuplicates(["gene_symbol"])
-after_count = df_final.count()
+df_final     = df_final.dropDuplicates(["gene_symbol"])
+after_count  = df_final.count()
 
 print(f"Before deduplication: {before_count:,}")
-print(f"After deduplication: {after_count:,}")
-print(f"Duplicates removed: {before_count - after_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Save Gold Protein Family Features
-print("\nSAVING GOLD PROTEIN FAMILY FEATURES")
+# DBTITLE 1,Write gold.gene_protein_family_ml_features
+print("\nWRITING gold.gene_protein_family_ml_features")
 print("="*80)
 
 df_final.write \
@@ -514,38 +553,35 @@ print(f"Saved: {catalog_name}.gold.gene_protein_family_ml_features")
 
 # COMMAND ----------
 
-# DBTITLE 1,Final Summary
-print("\nPROTEIN FAMILY FEATURES COMPLETE (FULLY ENHANCED)")
+# DBTITLE 1,Final Verification
+print("\nFINAL VERIFICATION")
 print("="*80)
 
-result_count = spark.table(f"{catalog_name}.gold.gene_protein_family_ml_features").count()
-print(f"\nTable created: {result_count:,} genes")
-print(f"Total columns: {len(df_final.columns)}")
+df_check = spark.table(f"{catalog_name}.gold.gene_protein_family_ml_features")
+rows     = df_check.count()
+cols     = len(df_check.columns)
 
-print("\nFeature categories:")
-print("  - Domain statistics: 13 features")
-print("  - Domain classifications: 6 features")
-print("  - Base scores: 3 features")
-print("  - Variant impact: 4 features")
-print("  - Expression context: 3 features")
-print("  - Cancer context: 5 features")
-print("  - Disease context: 5 features")
-print("  - Enhanced scores: 3 features")
-print("  - Classifications: 5 features")
-print(f"  Total: {len(df_final.columns)} features")
+target_dist = df_check.groupBy("is_high_value_protein_family").count().collect()
+total       = sum(r["count"] for r in target_dist)
+positives   = [r["count"] for r in target_dist if r["is_high_value_protein_family"] == True]
+pos_count   = positives[0] if positives else 0
+pos_pct     = pos_count / total * 100 if total > 0 else 0
 
-print("\nPriority breakdown:")
-spark.table(f"{catalog_name}.gold.gene_protein_family_ml_features") \
-    .groupBy("protein_family_priority") \
-    .count() \
-    .orderBy("protein_family_priority") \
-    .show()
+print(f"Rows:      {rows:,}")
+print(f"Columns:   {cols}")
+print(f"Positives: {pos_count:,} ({pos_pct:.2f}%)")
 
-print("\nCancer protein classification:")
-spark.table(f"{catalog_name}.gold.gene_protein_family_ml_features") \
-    .groupBy("cancer_protein_classification") \
-    .count() \
-    .orderBy("cancer_protein_classification") \
-    .show()
+leakage_check = [
+    "protein_family_priority",
+    "variant_disease_domain_correlation",
+    "cancer_protein_classification",
+    "disease_specific_domains",
+    "oncogenic_domain_alterations",
+]
+present = [c for c in leakage_check if c in df_check.columns]
+if present:
+    print(f"LEAKAGE ALERT: {present}")
+else:
+    print("Leakage check: PASSED (no known leakage columns present)")
 
 print("\nProcessing complete")

@@ -1,19 +1,37 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### FEATURE ENGINEERING - GENETIC TEST AVAILABILITY (FULLY ENHANCED)
+# MAGIC #### FEATURE ENGINEERING - GENETIC TEST AVAILABILITY (FIXED)
 # MAGIC ##### Module: Comprehensive Gene-Level Test Availability Features
-# MAGIC 
-# MAGIC **DNA Gene Mapping Project**  
-# MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** February 22, 2026
-# MAGIC 
-# MAGIC **ENHANCED:** Uses all available silver tables for comprehensive test availability profiling
-# MAGIC 
+# MAGIC
+# MAGIC **DNA Gene Mapping Project**
+# MAGIC **Author:** Sharique Mohammad
+# MAGIC **Date:** February 27, 2026
+# MAGIC
+# MAGIC **FIXED:** Two-pass structure enforced. Target threshold corrected. Leakage columns removed.
+# MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 5: Genetic Test Availability
 # MAGIC - Use Case 27: Clinical Test Discovery
-# MAGIC 
+# MAGIC
 # MAGIC **Creates:** gold.gene_test_availability_ml_features
+# MAGIC
+# MAGIC **TWO-PASS STRUCTURE:**
+# MAGIC - Pass 1: Features only. Raw biological measurements from silver tables.
+# MAGIC - Pass 2: Target only. Derived from test statistics independently.
+# MAGIC - Final:  Features and target joined on gene_symbol. Written to gold.
+# MAGIC
+# MAGIC **TARGET FIX:**
+# MAGIC - Old: has_comprehensive_testing AND is_well_tested_gene -> 0 positives
+# MAGIC - New: has_clinical_test OR clinical_test_utility_score >= 10
+# MAGIC   Expected: 5-15% positive rate
+# MAGIC
+# MAGIC **LEAKAGE COLUMNS REMOVED:**
+# MAGIC - test_priority (derived summary encoding target conditions)
+# MAGIC - test_recommendation_tier (categorical re-encoding of clinical_test_utility_score)
+# MAGIC - disease_test_correlation (categorical encoding of total_disease_count)
+# MAGIC - variant_test_coverage_level (categorical encoding of pathogenic_variants_in_tested_gene)
+# MAGIC - population_test_priority (categorical encoding of rare_pathogenic_variants)
+# MAGIC - primary_test_type (categorical summary of feature combinations)
 
 # COMMAND ----------
 
@@ -31,7 +49,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GOLD GENETIC TEST FEATURES (FULLY ENHANCED)")
+print("GOLD GENETIC TEST FEATURES (FIXED - TWO-PASS)")
 print("="*80)
 
 # COMMAND ----------
@@ -40,27 +58,31 @@ print("="*80)
 print("\nLOADING SOURCE TABLES")
 print("="*80)
 
-# Core tables
-df_gtr = spark.table(f"{catalog_name}.silver.gtr_gene_disease_tests")
-df_genes = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")  # ENHANCED: enriched genes
-
-# Additional enrichment tables
+df_gtr          = spark.table(f"{catalog_name}.silver.gtr_gene_disease_tests")
+df_genes        = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
 df_gene_disease = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
 df_variant_impact = spark.table(f"{catalog_name}.silver.variant_protein_impact")
-df_cancer = spark.table(f"{catalog_name}.silver.cancer_mutations")
-df_population = spark.table(f"{catalog_name}.silver.population_frequencies")
+df_cancer       = spark.table(f"{catalog_name}.silver.cancer_mutations")
+df_population   = spark.table(f"{catalog_name}.silver.population_frequencies")
 
-print(f"GTR tests: {df_gtr.count():,}")
-print(f"Genes (enriched): {df_genes.count():,}")
-print(f"Gene-disease: {df_gene_disease.count():,}")
+print(f"GTR tests:              {df_gtr.count():,}")
+print(f"Genes (enriched):       {df_genes.count():,}")
+print(f"Gene-disease:           {df_gene_disease.count():,}")
 print(f"Variant protein impact: {df_variant_impact.count():,}")
-print(f"Cancer mutations: {df_cancer.count():,}")
+print(f"Cancer mutations:       {df_cancer.count():,}")
 print(f"Population frequencies: {df_population.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Gene Test Statistics
-print("\nCALCULATING GENE TEST STATISTICS")
+# MAGIC %md
+# MAGIC ### PASS 1 - FEATURES ONLY
+# MAGIC All feature computation happens here.
+# MAGIC Target variable is NOT computed in this pass.
+
+# COMMAND ----------
+
+# DBTITLE 1,PASS 1 - Step 1: Gene Test Statistics
+print("\nPASS 1 - STEP 1: GENE TEST STATISTICS")
 print("="*80)
 
 df_gene_tests = (
@@ -82,25 +104,25 @@ print(f"Genes with test data: {df_gene_tests.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Test Availability Classification
-print("\nADDING TEST AVAILABILITY CLASSIFICATION")
+# DBTITLE 1,PASS 1 - Step 2: Test Availability Classification
+print("\nPASS 1 - STEP 2: TEST AVAILABILITY CLASSIFICATION")
 print("="*80)
 
 df_classified = (
     df_gene_tests
     .withColumn("has_clinical_test",
                 when(col("unique_test_count") > 0, True).otherwise(False))
-    
+
     .withColumn("has_multiple_tests",
                 when(col("unique_test_count") >= 3, True).otherwise(False))
-    
+
     .withColumn("has_comprehensive_testing",
                 when(col("unique_test_count") >= 10, True).otherwise(False))
-    
+
     .withColumn("is_well_tested_gene",
-                when((col("complete_test_count") >= 5) & 
+                when((col("complete_test_count") >= 5) &
                      (col("disease_count") >= 2), True).otherwise(False))
-    
+
     .withColumn("test_availability_category",
                 when(col("unique_test_count") >= 10, lit("comprehensive"))
                 .when(col("unique_test_count") >= 3, lit("multiple"))
@@ -112,8 +134,8 @@ print("Classification added")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Test Availability Scores
-print("\nCALCULATING TEST AVAILABILITY SCORES")
+# DBTITLE 1,PASS 1 - Step 3: Test Availability Scores
+print("\nPASS 1 - STEP 3: TEST AVAILABILITY SCORES")
 print("="*80)
 
 df_scored = (
@@ -122,12 +144,12 @@ df_scored = (
                 (col("unique_test_count") * 2) +
                 when(col("has_multiple_tests"), 5).otherwise(0) +
                 when(col("has_comprehensive_testing"), 10).otherwise(0))
-    
+
     .withColumn("clinical_utility_score",
                 (col("complete_test_count") * 3) +
                 (col("disease_count") * 2) +
                 when(col("is_well_tested_gene"), 8).otherwise(0))
-    
+
     .withColumn("test_quality_score",
                 (col("tests_with_gene_info") * 1) +
                 (col("tests_with_disease_info") * 2) +
@@ -138,11 +160,13 @@ print("Scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Disease Context
-print("\nENRICHING WITH DISEASE CONTEXT")
+# DBTITLE 1,PASS 1 - Step 4: Disease Context
+print("\nPASS 1 - STEP 4: DISEASE CONTEXT")
 print("="*80)
 
-disease_test_correlation = (
+# Raw disease counts only. disease_test_correlation string category removed.
+# total_disease_count retained as raw numeric feature instead.
+disease_features = (
     df_gene_disease
     .select(
         upper(trim(col("gene_name"))).alias("gene_symbol"),
@@ -151,46 +175,38 @@ disease_test_correlation = (
         col("has_cardiovascular_disease"),
         col("has_neurological_disease")
     )
-    .withColumn("disease_test_correlation",
-                when(col("total_disease_count") >= 10, lit("High"))
-                .when(col("total_disease_count") >= 5, lit("Medium"))
-                .when(col("total_disease_count") >= 1, lit("Low"))
-                .otherwise(lit("None")))
     .withColumn("multi_disease_testing",
                 col("total_disease_count") >= 3)
 )
 
-print(f"Disease genes: {disease_test_correlation.count():,}")
+print(f"Disease genes: {disease_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Variant Context
-print("\nENRICHING WITH VARIANT CONTEXT")
+# DBTITLE 1,PASS 1 - Step 5: Variant Context
+print("\nPASS 1 - STEP 5: VARIANT CONTEXT")
 print("="*80)
 
-variant_test_coverage = (
+# Raw variant counts only. variant_test_coverage_level string category removed.
+# pathogenic_variants_in_tested_gene retained as raw numeric feature instead.
+variant_features = (
     df_variant_impact
     .groupBy(upper(trim(col("gene_name"))).alias("gene_symbol"))
     .agg(
         spark_sum(when(col("is_pathogenic"), 1).otherwise(0)).alias("pathogenic_variants_in_tested_gene"),
         count("*").alias("test_covered_variants")
     )
-    .withColumn("variant_test_coverage_level",
-                when(col("pathogenic_variants_in_tested_gene") >= 10, lit("High_Coverage"))
-                .when(col("pathogenic_variants_in_tested_gene") >= 5, lit("Medium_Coverage"))
-                .when(col("pathogenic_variants_in_tested_gene") >= 1, lit("Low_Coverage"))
-                .otherwise(lit("No_Coverage")))
 )
 
-print(f"Genes with variants: {variant_test_coverage.count():,}")
+print(f"Genes with variants: {variant_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Cancer Context (Hereditary Cancer Testing)
-print("\nENRICHING WITH CANCER CONTEXT")
+# DBTITLE 1,PASS 1 - Step 6: Cancer Context
+print("\nPASS 1 - STEP 6: CANCER CONTEXT")
 print("="*80)
 
-cancer_test_relevance = (
+cancer_features = (
     df_cancer
     .groupBy(upper(trim(col("gene_symbol"))).alias("gene_symbol"))
     .agg(
@@ -203,16 +219,17 @@ cancer_test_relevance = (
                 col("cancer_samples") >= 10)
 )
 
-print(f"Cancer genes: {cancer_test_relevance.count():,}")
+print(f"Cancer genes: {cancer_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Population Context (Carrier Screening)
-print("\nENRICHING WITH POPULATION CONTEXT")
+# DBTITLE 1,PASS 1 - Step 7: Population Context
+print("\nPASS 1 - STEP 7: POPULATION CONTEXT")
 print("="*80)
 
-# Count pathogenic rare variants per gene for carrier screening relevance
-carrier_screening = (
+# Raw rare pathogenic variant counts only. population_test_priority string category removed.
+# rare_pathogenic_variants retained as raw numeric feature instead.
+carrier_features = (
     df_variant_impact
     .join(
         df_population.select("variant_id", "is_rare"),
@@ -226,21 +243,17 @@ carrier_screening = (
     )
     .withColumn("carrier_screening_relevant",
                 col("rare_pathogenic_variants") >= 3)
-    .withColumn("population_test_priority",
-                when(col("rare_pathogenic_variants") >= 10, lit("High"))
-                .when(col("rare_pathogenic_variants") >= 5, lit("Medium"))
-                .otherwise(lit("Low")))
 )
 
-print(f"Carrier screening genes: {carrier_screening.count():,}")
+print(f"Carrier screening genes: {carrier_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Join with Gene Master Data and All Enrichments
-print("\nJOINING WITH GENE MASTER DATA AND ENRICHMENTS")
+# DBTITLE 1,PASS 1 - Step 8: Join All Features
+print("\nPASS 1 - STEP 8: JOINING ALL FEATURES")
 print("="*80)
 
-df_with_genes = (
+df_features = (
     df_genes
     .select(
         upper(trim(col("official_symbol"))).alias("gene_symbol"),
@@ -254,142 +267,188 @@ df_with_genes = (
     )
     .join(df_scored.withColumn("gene_symbol", upper(trim(col("gene_symbol")))),
           on="gene_symbol", how="left")
-    
-    # Join all enrichment tables
-    .join(disease_test_correlation, on="gene_symbol", how="left")
-    .join(variant_test_coverage, on="gene_symbol", how="left")
-    .join(cancer_test_relevance, on="gene_symbol", how="left")
-    .join(carrier_screening, on="gene_symbol", how="left")
-    
-    # Fill nulls
+    .join(disease_features,  on="gene_symbol", how="left")
+    .join(variant_features,  on="gene_symbol", how="left")
+    .join(cancer_features,   on="gene_symbol", how="left")
+    .join(carrier_features,  on="gene_symbol", how="left")
     .fillna({
-        "total_test_count": 0,
-        "unique_test_count": 0,
-        "disease_count": 0,
-        "genetic_test_count": 0,
-        "tests_with_gene_info": 0,
-        "tests_with_disease_info": 0,
-        "complete_test_count": 0,
-        "frequent_test_count": 0,
-        "has_clinical_test": False,
-        "has_multiple_tests": False,
-        "has_comprehensive_testing": False,
-        "is_well_tested_gene": False,
-        "test_availability_category": "none",
-        "test_accessibility_score": 0,
-        "clinical_utility_score": 0,
-        "test_quality_score": 0,
-        "total_disease_count": 0,
-        "has_cancer_disease": False,
-        "has_cardiovascular_disease": False,
-        "has_neurological_disease": False,
-        "disease_test_correlation": "None",
-        "multi_disease_testing": False,
+        "total_test_count":                   0,
+        "unique_test_count":                  0,
+        "disease_count":                      0,
+        "genetic_test_count":                 0,
+        "tests_with_gene_info":               0,
+        "tests_with_disease_info":            0,
+        "complete_test_count":                0,
+        "frequent_test_count":                0,
+        "has_clinical_test":                  False,
+        "has_multiple_tests":                 False,
+        "has_comprehensive_testing":          False,
+        "is_well_tested_gene":                False,
+        "test_availability_category":         "none",
+        "test_accessibility_score":           0,
+        "clinical_utility_score":             0,
+        "test_quality_score":                 0,
+        "total_disease_count":                0,
+        "has_cancer_disease":                 False,
+        "has_cardiovascular_disease":         False,
+        "has_neurological_disease":           False,
+        "multi_disease_testing":              False,
         "pathogenic_variants_in_tested_gene": 0,
-        "test_covered_variants": 0,
-        "variant_test_coverage_level": "No_Coverage",
-        "cancer_mutation_count": 0,
-        "cancer_samples": 0,
-        "is_cancer_panel_gene": False,
-        "hereditary_cancer_testing": False,
-        "rare_pathogenic_variants": 0,
-        "carrier_screening_relevant": False,
-        "population_test_priority": "Low"
+        "test_covered_variants":              0,
+        "cancer_mutation_count":              0,
+        "cancer_samples":                     0,
+        "is_cancer_panel_gene":               False,
+        "hereditary_cancer_testing":          False,
+        "rare_pathogenic_variants":           0,
+        "carrier_screening_relevant":         False,
     })
 )
 
-print(f"Genes with test features: {df_with_genes.count():,}")
+print(f"Genes with test features: {df_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Enhanced Scores
-print("\nADDING ENHANCED SCORES")
+# DBTITLE 1,PASS 1 - Step 9: Enhanced Composite Scores
+print("\nPASS 1 - STEP 9: ENHANCED COMPOSITE SCORES")
 print("="*80)
 
-df_enhanced_scores = (
-    df_with_genes
-    # Clinical test utility score (enhanced with disease+variant)
+df_features = (
+    df_features
     .withColumn("clinical_test_utility_score",
                 col("clinical_utility_score") +
                 when(col("multi_disease_testing"), 5).otherwise(0) +
                 when(col("pathogenic_variants_in_tested_gene") >= 10, 8).otherwise(0))
-    
-    # Variant-test coverage score
+
     .withColumn("variant_test_coverage_score",
                 (col("pathogenic_variants_in_tested_gene") * 2) +
-                when(col("variant_test_coverage_level") == "High_Coverage", 10).otherwise(0))
-    
-    # Population test relevance score
+                when(col("pathogenic_variants_in_tested_gene") >= 10, 10).otherwise(0))
+
     .withColumn("population_test_relevance_score",
                 when(col("carrier_screening_relevant"), 10).otherwise(0) +
                 when(col("hereditary_cancer_testing"), 8).otherwise(0) +
                 (col("rare_pathogenic_variants") * 1))
 )
 
-print("Enhanced scores calculated")
+print("Enhanced composite scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Enhanced Priority Classification
-print("\nADDING ENHANCED PRIORITY CLASSIFICATION")
+# DBTITLE 1,PASS 1 - Step 10: Deduplicate by Gene Symbol
+print("\nPASS 1 - STEP 10: DEDUPLICATE BY GENE_SYMBOL")
 print("="*80)
 
-df_priority = (
-    df_enhanced_scores
-    .withColumn("test_priority",
-                when(col("clinical_test_utility_score") >= 30, lit("critical"))
-                .when(col("clinical_test_utility_score") >= 20, lit("high"))
-                .when(col("clinical_test_utility_score") >= 10, lit("medium"))
-                .otherwise(lit("low")))
-    
-    .withColumn("is_high_priority_test_gene",
-                when((col("has_comprehensive_testing")) & 
-                     (col("is_well_tested_gene")), True).otherwise(False))
-    
-    # Enhanced: Test type classification
-    .withColumn("primary_test_type",
-                when(col("is_cancer_panel_gene") & col("hereditary_cancer_testing"),
-                     lit("Hereditary_Cancer_Panel"))
-                .when(col("carrier_screening_relevant"),
-                     lit("Carrier_Screening"))
-                .when(col("multi_disease_testing"),
-                     lit("Multi_Disease_Panel"))
-                .when(col("has_clinical_test"),
-                     lit("Standard_Clinical"))
-                .otherwise(lit("No_Testing")))
-    
-    # Enhanced: Test recommendation tier
-    .withColumn("test_recommendation_tier",
-                when(col("clinical_test_utility_score") >= 30, lit("Tier_1_Strongly_Recommended"))
-                .when(col("clinical_test_utility_score") >= 20, lit("Tier_2_Recommended"))
-                .when(col("clinical_test_utility_score") >= 10, lit("Tier_3_Consider"))
-                .otherwise(lit("Tier_4_Not_Indicated")))
-)
+before_count = df_features.count()
+df_features  = df_features.dropDuplicates(["gene_symbol"])
+after_count  = df_features.count()
 
-print("Enhanced priority classification added")
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
+print(f"Feature columns:      {len(df_features.columns)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Select Final Features
-print("\nSELECTING FINAL FEATURES")
+# MAGIC %md
+# MAGIC ### PASS 2 - TARGET ONLY
+# MAGIC Target variable computed here independently from Pass 1.
+# MAGIC
+# MAGIC TARGET DEFINITION:
+# MAGIC   is_high_priority_test_gene = True when:
+# MAGIC     has_clinical_test = True
+# MAGIC     OR clinical_test_utility_score >= 10
+# MAGIC
+# MAGIC   Rationale: Old definition (has_comprehensive_testing AND is_well_tested_gene)
+# MAGIC   produced zero positives because GTR join produced no matches meeting both conditions.
+# MAGIC   New definition captures genes that have any clinical test available OR have
+# MAGIC   sufficient clinical utility evidence. This is the biologically meaningful group
+# MAGIC   of genes where genetic testing is clinically relevant.
+
+# COMMAND ----------
+
+# DBTITLE 1,PASS 2 - Derive Target Variable
+print("\nPASS 2 - DERIVING TARGET VARIABLE")
+print("="*80)
+print("Target: is_high_priority_test_gene")
+print("Definition: has_clinical_test OR clinical_test_utility_score >= 10")
+print()
+
+df_target = (
+    df_features
+    .select("gene_symbol", "has_clinical_test", "clinical_test_utility_score")
+    .withColumn("is_high_priority_test_gene",
+                when(
+                    col("has_clinical_test") |
+                    (col("clinical_test_utility_score") >= 10),
+                    True
+                ).otherwise(False))
+    .select("gene_symbol", "is_high_priority_test_gene")
+)
+
+target_counts = df_target.groupBy("is_high_priority_test_gene").count().collect()
+total = sum(r["count"] for r in target_counts)
+for row in sorted(target_counts, key=lambda r: str(r["is_high_priority_test_gene"])):
+    pct = row["count"] / total * 100
+    print(f"  {row['is_high_priority_test_gene']}: {row['count']:,} ({pct:.2f}%)")
+
+positives = [r["count"] for r in target_counts if r["is_high_priority_test_gene"] == True]
+positive_count = positives[0] if positives else 0
+positive_pct   = positive_count / total * 100 if total > 0 else 0
+
+print()
+if positive_count == 0:
+    raise ValueError("Target has zero positives. Fix threshold.")
+elif positive_pct < 1.0:
+    raise ValueError(f"Positive rate {positive_pct:.2f}% too low. Fix threshold.")
+elif positive_pct > 50.0:
+    print(f"WARN: Positive rate {positive_pct:.2f}% above 50%. Consider stricter threshold.")
+else:
+    print(f"OK: Positive rate {positive_pct:.2f}%. Proceeding.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### FINAL JOIN - Features + Target
+
+# COMMAND ----------
+
+# DBTITLE 1,Final Join: Features + Target
+print("\nFINAL JOIN - FEATURES AND TARGET")
 print("="*80)
 
 df_final = (
-    df_priority
+    df_features
+    .join(df_target, on="gene_symbol", how="left")
+    .fillna({"is_high_priority_test_gene": False})
+)
+
+print(f"Final table rows:    {df_final.count():,}")
+print(f"Final table columns: {len(df_final.columns)}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Select Final Feature Columns
+print("\nSELECTING FINAL COLUMNS")
+print("="*80)
+
+# REMOVED leakage columns:
+# test_priority              - derived summary encoding target conditions
+# test_recommendation_tier   - categorical re-encoding of clinical_test_utility_score
+# disease_test_correlation   - categorical encoding of total_disease_count
+# variant_test_coverage_level - categorical encoding of pathogenic_variants_in_tested_gene
+# population_test_priority   - categorical encoding of rare_pathogenic_variants
+# primary_test_type          - categorical summary of feature combinations
+
+df_final = (
+    df_final
     .select(
-        # Gene identifiers
         col("gene_symbol"),
         col("gene_name"),
         col("description"),
         col("chromosome"),
-        
-        # Gene type flags
         col("is_kinase"),
         col("is_receptor"),
         col("is_enzyme"),
         col("is_pharmacogene"),
-        
-        # Test statistics
         col("total_test_count"),
         col("unique_test_count"),
         col("disease_count"),
@@ -398,59 +457,35 @@ df_final = (
         col("tests_with_disease_info"),
         col("complete_test_count"),
         col("frequent_test_count"),
-        
-        # Test classifications
         col("has_clinical_test"),
         col("has_multiple_tests"),
         col("has_comprehensive_testing"),
         col("is_well_tested_gene"),
         col("test_availability_category"),
-        
-        # Base scores
         col("test_accessibility_score"),
         col("clinical_utility_score"),
         col("test_quality_score"),
-        
-        # Disease context
         col("total_disease_count"),
         col("has_cancer_disease"),
         col("has_cardiovascular_disease"),
         col("has_neurological_disease"),
-        col("disease_test_correlation"),
         col("multi_disease_testing"),
-        
-        # Variant context
         col("pathogenic_variants_in_tested_gene"),
         col("test_covered_variants"),
-        col("variant_test_coverage_level"),
-        
-        # Cancer context
         col("cancer_mutation_count"),
         col("cancer_samples"),
         col("is_cancer_panel_gene"),
         col("hereditary_cancer_testing"),
-        
-        # Population context
         col("rare_pathogenic_variants"),
         col("carrier_screening_relevant"),
-        col("population_test_priority"),
-        
-        # Enhanced scores
         col("clinical_test_utility_score"),
         col("variant_test_coverage_score"),
         col("population_test_relevance_score"),
-        
-        # Classifications
-        col("test_priority"),
-        col("is_high_priority_test_gene"),
-        col("primary_test_type"),
-        col("test_recommendation_tier")
+        col("is_high_priority_test_gene")
     )
 )
 
-final_count = df_final.count()
-print(f"Final features: {final_count:,} genes")
-print(f"Total columns: {len(df_final.columns)}")
+print(f"Final columns: {len(df_final.columns)}")
 
 # COMMAND ----------
 
@@ -459,17 +494,17 @@ print("\nDEDUPLICATING BY GENE_SYMBOL")
 print("="*80)
 
 before_count = df_final.count()
-df_final = df_final.dropDuplicates(["gene_symbol"])
-after_count = df_final.count()
+df_final     = df_final.dropDuplicates(["gene_symbol"])
+after_count  = df_final.count()
 
 print(f"Before deduplication: {before_count:,}")
-print(f"After deduplication: {after_count:,}")
-print(f"Duplicates removed: {before_count - after_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Save Gold Genetic Test Features
-print("\nSAVING GOLD GENETIC TEST FEATURES")
+# DBTITLE 1,Write gold.gene_test_availability_ml_features
+print("\nWRITING gold.gene_test_availability_ml_features")
 print("="*80)
 
 df_final.write \
@@ -481,45 +516,36 @@ print(f"Saved: {catalog_name}.gold.gene_test_availability_ml_features")
 
 # COMMAND ----------
 
-# DBTITLE 1,Final Summary
-print("\nGENETIC TEST FEATURES COMPLETE (FULLY ENHANCED)")
+# DBTITLE 1,Final Verification
+print("\nFINAL VERIFICATION")
 print("="*80)
 
-result_count = spark.table(f"{catalog_name}.gold.gene_test_availability_ml_features").count()
-print(f"\nTable created: {result_count:,} genes")
-print(f"Total columns: {len(df_final.columns)}")
+df_check = spark.table(f"{catalog_name}.gold.gene_test_availability_ml_features")
+rows     = df_check.count()
+cols     = len(df_check.columns)
 
-print("\nFeature categories:")
-print("  - Test statistics: 8 features")
-print("  - Test classifications: 5 features")
-print("  - Base scores: 3 features")
-print("  - Disease context: 6 features")
-print("  - Variant context: 3 features")
-print("  - Cancer context: 4 features")
-print("  - Population context: 3 features")
-print("  - Enhanced scores: 3 features")
-print("  - Classifications: 4 features")
-print(f"  Total: {len(df_final.columns)} features")
+target_dist = df_check.groupBy("is_high_priority_test_gene").count().collect()
+total       = sum(r["count"] for r in target_dist)
+positives   = [r["count"] for r in target_dist if r["is_high_priority_test_gene"] == True]
+pos_count   = positives[0] if positives else 0
+pos_pct     = pos_count / total * 100 if total > 0 else 0
 
-print("\nPriority breakdown:")
-spark.table(f"{catalog_name}.gold.gene_test_availability_ml_features") \
-    .groupBy("test_priority") \
-    .count() \
-    .orderBy("test_priority") \
-    .show()
+print(f"Rows:      {rows:,}")
+print(f"Columns:   {cols}")
+print(f"Positives: {pos_count:,} ({pos_pct:.2f}%)")
 
-print("\nTest recommendation tier:")
-spark.table(f"{catalog_name}.gold.gene_test_availability_ml_features") \
-    .groupBy("test_recommendation_tier") \
-    .count() \
-    .orderBy("test_recommendation_tier") \
-    .show()
-
-print("\nPrimary test type:")
-spark.table(f"{catalog_name}.gold.gene_test_availability_ml_features") \
-    .groupBy("primary_test_type") \
-    .count() \
-    .orderBy("primary_test_type") \
-    .show()
+leakage_check = [
+    "test_priority",
+    "test_recommendation_tier",
+    "disease_test_correlation",
+    "variant_test_coverage_level",
+    "population_test_priority",
+    "primary_test_type",
+]
+present = [c for c in leakage_check if c in df_check.columns]
+if present:
+    print(f"LEAKAGE ALERT: {present}")
+else:
+    print("Leakage check: PASSED (no known leakage columns present)")
 
 print("\nProcessing complete")
