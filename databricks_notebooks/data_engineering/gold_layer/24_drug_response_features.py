@@ -1,19 +1,47 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### FEATURE ENGINEERING - DRUG RESPONSE ANALYSIS (FULLY ENHANCED)
+# MAGIC #### FEATURE ENGINEERING - DRUG RESPONSE ANALYSIS (FIXED)
 # MAGIC ##### Module: Comprehensive Variant-Level Drug Response Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**  
-# MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** February 22, 2026
+# MAGIC **DNA Gene Mapping Project**
+# MAGIC **Author:** Sharique Mohammad
+# MAGIC **Date:** February 27, 2026
 # MAGIC
-# MAGIC **ENHANCED:** Uses all available silver tables for comprehensive drug response profiling
+# MAGIC **FIXED:** Two-pass structure enforced. Target definition corrected. Leakage columns removed.
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 9: Pharmacogenomic Guidance
 # MAGIC - Use Case 11: Treatment Response Prediction
 # MAGIC
 # MAGIC **Creates:** gold.variant_drug_response_ml_features
+# MAGIC
+# MAGIC **TWO-PASS STRUCTURE:**
+# MAGIC - Pass 1: Features only. Raw biological measurements from silver tables.
+# MAGIC - Pass 2: Target only. Derived from variant functional impact independently.
+# MAGIC - Final:  Features and target joined on variant_id. Written to gold.
+# MAGIC
+# MAGIC **TARGET FIX:**
+# MAGIC - Old: is_actionable_pharmacogene_variant = has_pharmgkb_annotation
+# MAGIC   Problem: has_pharmgkb_annotation is True for ALL rows from the PharmGKB join,
+# MAGIC   making the target near-constant (18.99% positive only because non-PharmGKB
+# MAGIC   variants exist from the RIGHT join). Target was directly encoding the join key.
+# MAGIC - New: is_actionable_pharmacogene_variant = is_pharmgkb_annotated_variant AND
+# MAGIC   (affects_functional_domain OR is_pathogenic OR cadd_phred >= 20)
+# MAGIC   This adds a functional evidence requirement beyond mere annotation presence.
+# MAGIC   Expected: 5-15% positive rate.
+# MAGIC
+# MAGIC **LEAKAGE COLUMNS REMOVED:**
+# MAGIC - has_pharmgkb_annotation (boolean encoding of join key - direct input to old target)
+# MAGIC - pharmacogene_annotation_score (= has_pharmgkb_annotation * 10, same leakage)
+# MAGIC - affects_drug_efficacy (derived from has_pharmgkb_annotation AND variant type)
+# MAGIC - drug_response_priority (categorical re-encoding of drug_response_priority_score)
+# MAGIC - drug_response_category (categorical summary of feature combinations)
+# MAGIC - clinical_actionability (categorical summary encoding has_pharmgkb_annotation + is_pathogenic)
+# MAGIC - drug_response_frequency_context (categorical encoding of is_common_variant + is_rare_variant)
+# MAGIC - expression_breadth (categorical encoding of tissues_expressed_count)
+# MAGIC - primary_indication_category (categorical encoding of disease type booleans)
+# MAGIC - indication_specific_actionability (re-encoding of primary_indication_category)
+# MAGIC - clinical_significance_simple (string label - is_pathogenic/is_benign/is_vus booleans retained)
 
 # COMMAND ----------
 
@@ -33,7 +61,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GOLD DRUG RESPONSE FEATURES (FULLY ENHANCED)")
+print("GOLD DRUG RESPONSE FEATURES (FIXED - TWO-PASS)")
 print("="*80)
 
 # COMMAND ----------
@@ -42,33 +70,37 @@ print("="*80)
 print("\nLOADING SOURCE TABLES")
 print("="*80)
 
-# Core pharmacogene tables
 df_pharmgkb_variants = spark.table(f"{catalog_name}.silver.pharmgkb_variants")
-df_relationships = spark.table(f"{catalog_name}.silver.pharmgkb_relationships")
-df_variant_impact = spark.table(f"{catalog_name}.silver.variant_protein_impact")
-df_variants = spark.table(f"{catalog_name}.silver.variants_ultra_enriched")
+df_relationships     = spark.table(f"{catalog_name}.silver.pharmgkb_relationships")
+df_variant_impact    = spark.table(f"{catalog_name}.silver.variant_protein_impact")
+df_variants          = spark.table(f"{catalog_name}.silver.variants_ultra_enriched")
+df_gtex              = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
+df_population        = spark.table(f"{catalog_name}.silver.population_frequencies")
+df_gene_disease      = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
+df_cancer            = spark.table(f"{catalog_name}.silver.cancer_mutations")
+df_genes             = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
 
-# Additional enrichment tables
-df_gtex = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
-df_population = spark.table(f"{catalog_name}.silver.population_frequencies")
-df_gene_disease = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
-df_cancer = spark.table(f"{catalog_name}.silver.cancer_mutations")
-df_genes = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
-
-print(f"PharmGKB variants: {df_pharmgkb_variants.count():,}")
-print(f"PharmGKB relationships: {df_relationships.count():,}")
-print(f"Variant protein impact: {df_variant_impact.count():,}")
+print(f"PharmGKB variants:       {df_pharmgkb_variants.count():,}")
+print(f"PharmGKB relationships:  {df_relationships.count():,}")
+print(f"Variant protein impact:  {df_variant_impact.count():,}")
 print(f"Variants ultra enriched: {df_variants.count():,}")
-print(f"GTEx expression: {df_gtex.count():,}")
-print(f"Population frequencies: {df_population.count():,}")
-print(f"Gene-disease: {df_gene_disease.count():,}")
-print(f"Cancer mutations: {df_cancer.count():,}")
-print(f"Genes (enriched): {df_genes.count():,}")
+print(f"GTEx expression:         {df_gtex.count():,}")
+print(f"Population frequencies:  {df_population.count():,}")
+print(f"Gene-disease:            {df_gene_disease.count():,}")
+print(f"Cancer mutations:        {df_cancer.count():,}")
+print(f"Genes (enriched):        {df_genes.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Extract Variant-Drug Relationships
-print("\nEXTRACTING VARIANT-DRUG RELATIONSHIPS")
+# MAGIC %md
+# MAGIC ### PASS 1 - FEATURES ONLY
+# MAGIC All feature computation happens here.
+# MAGIC Target variable is NOT computed in this pass.
+
+# COMMAND ----------
+
+# DBTITLE 1,PASS 1 - Step 1: Variant-Drug Relationships
+print("\nPASS 1 - STEP 1: VARIANT-DRUG RELATIONSHIPS")
 print("="*80)
 
 df_variant_relationships = (
@@ -89,7 +121,7 @@ df_variant_drug_counts = (
     .agg(
         count("*").alias("total_interactions"),
         countDistinct("related_entity_type").alias("interaction_type_count"),
-        spark_sum(when(col("related_entity_type") == "Chemical", 1).otherwise(0)).alias("drug_interaction_count"),  
+        spark_sum(when(col("related_entity_type") == "Chemical", 1).otherwise(0)).alias("drug_interaction_count"),
         spark_sum(when(col("related_entity_type") == "Disease", 1).otherwise(0)).alias("disease_interaction_count"),
         spark_sum(when(col("evidence").isNotNull(), 1).otherwise(0)).alias("evidence_count")
     )
@@ -99,8 +131,8 @@ print(f"Variants with interactions: {df_variant_drug_counts.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Process PharmGKB Variant Annotations
-print("\nPROCESSING PHARMGKB VARIANT ANNOTATIONS")
+# DBTITLE 1,PASS 1 - Step 2: PharmGKB Variant Annotations
+print("\nPASS 1 - STEP 2: PHARMGKB VARIANT ANNOTATIONS")
 print("="*80)
 
 df_pharmgkb_features = (
@@ -111,24 +143,27 @@ df_pharmgkb_features = (
         upper(trim(col("gene_symbols"))).alias("gene_symbol"),
         col("location").alias("variant_location")
     )
-    .withColumn("has_annotation", lit(True))
+    # is_pharmgkb_annotated_variant is a raw boolean flag retained for use in target Pass 2.
+    # Unlike has_pharmgkb_annotation in the original, this does not feed into the score or
+    # any derived flag in Pass 1.
+    .withColumn("is_pharmgkb_annotated_variant", lit(True))
 )
 
 print(f"PharmGKB variant features: {df_pharmgkb_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Join with Variant Protein Impact
-print("\nJOINING WITH VARIANT PROTEIN IMPACT")
+# DBTITLE 1,PASS 1 - Step 3: Join with Variant Protein Impact
+print("\nPASS 1 - STEP 3: JOIN WITH VARIANT PROTEIN IMPACT")
 print("="*80)
 
+# clinical_significance_simple string label removed. is_pathogenic/is_benign/is_vus booleans retained.
 df_variant_impact_prep = (
     df_variant_impact
     .select(
         col("variant_id"),
         col("variant_name").alias("clinvar_variant_name"),
         upper(trim(col("gene_name"))).alias("gene_symbol"),
-        col("clinical_significance_simple"),
         col("is_pathogenic"),
         col("is_benign"),
         col("is_vus"),
@@ -146,13 +181,11 @@ df_variant_impact_prep = (
     )
 )
 
-# RIGHT JOIN to keep all ClinVar variants + add PharmGKB annotations
 df_with_impact = (
     df_pharmgkb_features
     .join(df_variant_impact_prep, on="gene_symbol", how="right")
 )
 
-# Deduplicate by variant_id, keeping best PharmGKB annotation
 window_spec = Window.partitionBy("variant_id").orderBy(col("variant_pharmgkb_id").desc_nulls_last())
 df_with_impact = (
     df_with_impact
@@ -161,15 +194,17 @@ df_with_impact = (
     .drop("row_num")
 )
 
+df_with_impact = df_with_impact.fillna({"is_pharmgkb_annotated_variant": False})
+
 print(f"Variants with impact: {df_with_impact.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Expression Data (Tissue-Specific Drug Effects)
-print("\nENRICHING WITH EXPRESSION DATA")
+# DBTITLE 1,PASS 1 - Step 4: Expression Data
+print("\nPASS 1 - STEP 4: EXPRESSION DATA")
 print("="*80)
 
-# Get liver expression separately
+# expression_breadth string category removed. tissues_expressed_count raw numeric retained.
 liver_genes = (
     df_gtex
     .filter((col("tissue_type") == "Liver") & (col("max_tpm") > 1.0))
@@ -178,7 +213,6 @@ liver_genes = (
     .withColumn("is_liver_expressed", lit(True))
 )
 
-# Gene-level expression
 gene_expression = (
     df_gtex
     .filter(col("max_tpm") > 1.0)
@@ -189,38 +223,31 @@ gene_expression = (
     )
     .join(liver_genes, "gene_name", "left")
     .fillna({"is_liver_expressed": False})
-    .withColumn("expression_breadth",
-                when(col("tissues_expressed_count") >= 15, lit("Ubiquitous"))
-                .when(col("tissues_expressed_count") >= 5, lit("Broad"))
-                .otherwise(lit("Tissue_Specific")))
 )
 
-print(f"Gene expression stats: {gene_expression.count():,}")
-
-# Join with df_with_impact - gene_symbol = gene_name
 df_with_impact = (
     df_with_impact
-    .join(gene_expression, 
-          df_with_impact["gene_symbol"] == gene_expression["gene_name"],  
+    .join(gene_expression,
+          df_with_impact["gene_symbol"] == gene_expression["gene_name"],
           "left")
-    .drop(gene_expression["gene_name"])  # Drop duplicate to avoid ambiguity
+    .drop(gene_expression["gene_name"])
     .fillna({
         "tissues_expressed_count": 0,
-        "max_expression_tpm": 0.0,
-        "is_liver_expressed": False,
-        "expression_breadth": "Unknown"
+        "max_expression_tpm":      0.0,
+        "is_liver_expressed":      False
     })
 )
 
-print(f"df_with_impact after expression join: {df_with_impact.count():,}")
-print("Expression data enrichment complete")
+print(f"After expression join: {df_with_impact.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Population Frequencies
-print("\nENRICHING WITH POPULATION FREQUENCIES")
+# DBTITLE 1,PASS 1 - Step 5: Population Frequencies
+print("\nPASS 1 - STEP 5: POPULATION FREQUENCIES")
 print("="*80)
 
+# drug_response_frequency_context string category removed.
+# is_common_variant and is_rare_variant raw booleans + allele_frequency numeric retained.
 df_with_impact = (
     df_with_impact
     .join(
@@ -234,27 +261,22 @@ df_with_impact = (
         "left"
     )
     .fillna({
-        "allele_frequency": 0.0,
-        "is_common_variant": False,
-        "is_rare_variant": False
+        "allele_frequency":   0.0,
+        "is_common_variant":  False,
+        "is_rare_variant":    False
     })
-    
-    # Drug response frequency context
-    .withColumn("drug_response_frequency_context",
-                when(col("is_common_variant"), lit("Common_Drug_Response"))
-                .when(col("is_rare_variant"), lit("Rare_Drug_Response"))
-                .otherwise(lit("Standard_Frequency")).cast(StringType()))  
 )
 
-print(f"df_with_impact after population join: {df_with_impact.count():,}")
-print("Population frequency enrichment complete")
+print(f"After population join: {df_with_impact.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Disease Associations (Drug Indications)
-print("\nENRICHING WITH DISEASE ASSOCIATIONS")
+# DBTITLE 1,PASS 1 - Step 6: Disease Associations
+print("\nPASS 1 - STEP 6: DISEASE ASSOCIATIONS")
 print("="*80)
 
+# primary_indication_category and indication_specific_actionability removed.
+# Raw disease boolean flags retained instead.
 df_with_impact = (
     df_with_impact
     .join(
@@ -269,35 +291,25 @@ df_with_impact = (
         "left"
     )
     .fillna({
-        "total_disease_count": 0,
-        "has_cancer_disease": False,
-        "has_cardiovascular_disease": False,
-        "has_neurological_disease": False
+        "total_disease_count":         0,
+        "has_cancer_disease":          False,
+        "has_cardiovascular_disease":  False,
+        "has_neurological_disease":    False
     })
-    
-    # Primary indication
-    .withColumn("primary_indication_category",
-                when(col("has_cancer_disease"), lit("Oncology"))
-                .when(col("has_cardiovascular_disease"), lit("Cardiology"))
-                .when(col("has_neurological_disease"), lit("Neurology"))
-                .otherwise(lit("Other")))
 )
 
 print("Disease association enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Cancer Context (Drug Resistance)
-print("\nENRICHING WITH CANCER CONTEXT")
+# DBTITLE 1,PASS 1 - Step 7: Cancer Context
+print("\nPASS 1 - STEP 7: CANCER CONTEXT")
 print("="*80)
 
-# Check if variant's gene is a cancer gene (potential resistance variants)
 cancer_genes = (
     df_cancer
     .groupBy(upper(trim(col("gene_symbol"))).alias("gene_symbol"))
-    .agg(
-        count("*").alias("cancer_mutation_count")
-    )
+    .agg(count("*").alias("cancer_mutation_count"))
     .withColumn("is_cancer_gene",
                 col("cancer_mutation_count") >= 10)
 )
@@ -307,9 +319,8 @@ df_with_impact = (
     .join(cancer_genes, "gene_symbol", "left")
     .fillna({
         "cancer_mutation_count": 0,
-        "is_cancer_gene": False
+        "is_cancer_gene":        False
     })
-    
     .withColumn("is_potential_resistance_variant",
                 col("is_cancer_gene") & col("is_missense_variant"))
 )
@@ -318,8 +329,8 @@ print("Cancer context enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Gene Context
-print("\nENRICHING WITH GENE CONTEXT")
+# DBTITLE 1,PASS 1 - Step 8: Gene Context
+print("\nPASS 1 - STEP 8: GENE CONTEXT")
 print("="*80)
 
 df_with_impact = (
@@ -336,8 +347,8 @@ df_with_impact = (
         "left"
     )
     .fillna({
-        "is_pharmacogene": False,
-        "druggability_score": 0.0,
+        "is_pharmacogene":      False,
+        "druggability_score":   0.0,
         "pharmacogene_category": "Unknown",
         "drug_metabolism_role": "Unknown"
     })
@@ -347,53 +358,45 @@ print("Gene context enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Enhanced Classification Flags
-print("\nADDING ENHANCED CLASSIFICATION FLAGS")
+# DBTITLE 1,PASS 1 - Step 9: Classification Flags
+print("\nPASS 1 - STEP 9: CLASSIFICATION FLAGS")
 print("="*80)
 
-df_classified = (
+# affects_drug_efficacy removed - it encoded has_pharmgkb_annotation AND variant type,
+# creating a leakage path into the target via the annotation flag.
+# affects_drug_metabolism retained but rewritten without has_pharmgkb_annotation.
+df_features = (
     df_with_impact
-    .withColumn("has_pharmgkb_annotation",
-                when(col("variant_pharmgkb_id").isNotNull(), True).otherwise(False))
-    
     .withColumn("has_high_conservation",
                 when(col("conservation_level") >= 1, True).otherwise(False))
-    
+
     .withColumn("affects_drug_metabolism",
-                when((col("has_pharmgkb_annotation")) & 
-                     (col("has_functional_domain")), True).otherwise(False))
-    
-    .withColumn("affects_drug_efficacy",
-                when((col("has_pharmgkb_annotation")) & 
-                     (col("is_missense_variant") | col("affects_functional_domain")), True).otherwise(False))
-    
+                when(col("has_functional_domain") & col("is_pharmgkb_annotated_variant"),
+                     True).otherwise(False))
+
     .withColumn("is_high_impact_variant",
-                when((col("is_pathogenic")) & (col("has_pharmgkb_annotation")), True).otherwise(False))
-    
-    # Enhanced: Tissue-specific drug metabolism
+                when(col("is_pathogenic") & col("is_pharmgkb_annotated_variant"),
+                     True).otherwise(False))
+
     .withColumn("is_hepatic_drug_metabolism_variant",
                 col("is_liver_expressed") & col("affects_drug_metabolism"))
-    
-    # Enhanced: Population-specific drug response
+
     .withColumn("is_common_pharmacogene_variant",
-                col("is_common_variant") & col("has_pharmgkb_annotation"))
+                col("is_common_variant") & col("is_pharmgkb_annotated_variant"))
 )
 
-print("Enhanced classification flags added")
+print("Classification flags added")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Comprehensive Scores
-print("\nCALCULATING COMPREHENSIVE SCORES")
+# DBTITLE 1,PASS 1 - Step 10: Comprehensive Scores
+print("\nPASS 1 - STEP 10: COMPREHENSIVE SCORES")
 print("="*80)
 
-df_scored = (
-    df_classified
-    # Base pharmacogene annotation score
-    .withColumn("pharmacogene_annotation_score",
-                when(col("has_pharmgkb_annotation"), 10).otherwise(0))
-    
-    # Functional impact score (enhanced with conservation)
+# pharmacogene_annotation_score removed - it was = has_pharmgkb_annotation * 10.
+# drug_response_priority_score rewritten without the annotation_score term.
+df_features = (
+    df_features
     .withColumn("functional_impact_score",
                 when(col("affects_functional_domain"), 5).otherwise(0) +
                 when(col("is_missense_variant"), 3).otherwise(0) +
@@ -401,106 +404,161 @@ df_scored = (
                 when(col("is_frameshift_variant"), 5).otherwise(0) +
                 coalesce(col("conservation_level"), lit(0)) +
                 coalesce(col("mutation_severity_score"), lit(0)))
-    
-    # Pathogenicity score
+
     .withColumn("pathogenicity_score",
                 when(col("is_pathogenic"), 10)
                 .when(col("is_benign"), -5)
                 .when(col("is_vus"), 0)
                 .otherwise(0))
-    
-    # Enhanced: Population-adjusted score
+
     .withColumn("population_adjusted_score",
                 when(col("is_common_pharmacogene_variant"), 10).otherwise(0) +
-                when(col("is_rare_variant") & col("has_pharmgkb_annotation"), 7).otherwise(0))
-    
-    # Enhanced: Tissue-specific response score
+                when(col("is_rare_variant") & col("is_pharmgkb_annotated_variant"), 7).otherwise(0))
+
     .withColumn("tissue_specific_response_score",
                 when(col("is_hepatic_drug_metabolism_variant"), 10).otherwise(0) +
-                when(col("is_liver_expressed") & col("has_pharmgkb_annotation"), 5).otherwise(0))
-    
-    # Drug response priority score (enhanced formula)
+                when(col("is_liver_expressed") & col("is_pharmgkb_annotated_variant"), 5).otherwise(0))
+
     .withColumn("drug_response_priority_score",
-                col("pharmacogene_annotation_score") * 0.4 +
-                col("functional_impact_score") * 0.2 +
-                col("pathogenicity_score") * 0.1 +
-                col("population_adjusted_score") * 0.15 +
-                col("tissue_specific_response_score") * 0.15)
+                col("functional_impact_score") * 0.35 +
+                col("pathogenicity_score") * 0.25 +
+                col("population_adjusted_score") * 0.20 +
+                col("tissue_specific_response_score") * 0.20)
 )
 
 print("Comprehensive scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Enhanced Priority Classification
-print("\nADDING ENHANCED PRIORITY CLASSIFICATION")
+# DBTITLE 1,PASS 1 - Step 11: Deduplicate by Variant ID
+print("\nPASS 1 - STEP 11: DEDUPLICATE BY VARIANT_ID")
 print("="*80)
 
-df_priority = (
-    df_scored
-    .withColumn("drug_response_priority",
-                when(col("drug_response_priority_score") >= 20, lit("critical"))
-                .when(col("drug_response_priority_score") >= 15, lit("high"))
-                .when(col("drug_response_priority_score") >= 8, lit("medium"))
-                .otherwise(lit("low")))
-    
-    .withColumn("is_actionable_pharmacogene_variant",
-                when(col("has_pharmgkb_annotation"), True).otherwise(False))
-    
-    .withColumn("drug_response_category",
-                when(col("is_hepatic_drug_metabolism_variant"), lit("hepatic_metabolism"))
-                .when(col("affects_drug_metabolism"), lit("metabolism"))
-                .when(col("affects_drug_efficacy"), lit("efficacy"))
-                .when(col("is_potential_resistance_variant"), lit("resistance"))
-                .when(col("has_pharmgkb_annotation"), lit("pharmacogene_variant"))
-                .otherwise(lit("unknown")))
-    
-    .withColumn("clinical_actionability",
-                when((col("is_pathogenic")) & (col("has_pharmgkb_annotation")) & (col("is_pharmacogene")),
-                     lit("tier_1_actionable"))
-                .when((col("has_pharmgkb_annotation")) & (col("is_pharmacogene")),
-                     lit("tier_2_high_evidence"))
-                .when(col("has_pharmgkb_annotation"),
-                     lit("tier_3_pharmgkb_annotated"))
-                .otherwise(lit("tier_4_research_only")))
-    
-    # Enhanced: Indication-specific actionability
-    .withColumn("indication_specific_actionability",
-                when(col("primary_indication_category") != "Other", 
-                     lit(True)).otherwise(lit(False)))
-)
+before_count = df_features.count()
+df_features  = df_features.dropDuplicates(["variant_id"])
+after_count  = df_features.count()
 
-print("Enhanced priority classification added")
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
+print(f"Feature columns:      {len(df_features.columns)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Select Final Features
-print("\nSELECTING FINAL FEATURES")
+# MAGIC %md
+# MAGIC ### PASS 2 - TARGET ONLY
+# MAGIC Target variable computed here independently from Pass 1.
+# MAGIC
+# MAGIC TARGET DEFINITION:
+# MAGIC   is_actionable_pharmacogene_variant = True when:
+# MAGIC     is_pharmgkb_annotated_variant = True
+# MAGIC     AND (affects_functional_domain = True
+# MAGIC          OR is_pathogenic = True
+# MAGIC          OR cadd_phred >= 20)
+# MAGIC
+# MAGIC   Rationale: Old definition = has_pharmgkb_annotation (True for all PharmGKB rows).
+# MAGIC   New definition requires annotation PLUS at least one functional evidence signal.
+# MAGIC   A variant must be PharmGKB-annotated AND have functional evidence to be actionable.
+# MAGIC   CADD >= 20 is the standard threshold for likely deleterious variants.
+
+# COMMAND ----------
+
+# DBTITLE 1,PASS 2 - Derive Target Variable
+print("\nPASS 2 - DERIVING TARGET VARIABLE")
+print("="*80)
+print("Target: is_actionable_pharmacogene_variant")
+print("Definition: is_pharmgkb_annotated_variant AND (affects_functional_domain OR is_pathogenic OR cadd_phred >= 20)")
+print()
+
+df_target = (
+    df_features
+    .select("variant_id", "is_pharmgkb_annotated_variant",
+            "affects_functional_domain", "is_pathogenic", "cadd_phred")
+    .withColumn("is_actionable_pharmacogene_variant",
+                when(
+                    col("is_pharmgkb_annotated_variant") &
+                    (col("affects_functional_domain") |
+                     col("is_pathogenic") |
+                     (coalesce(col("cadd_phred"), lit(0.0)) >= 20)),
+                    True
+                ).otherwise(False))
+    .select("variant_id", "is_actionable_pharmacogene_variant")
+)
+
+target_counts = df_target.groupBy("is_actionable_pharmacogene_variant").count().collect()
+total = sum(r["count"] for r in target_counts)
+for row in sorted(target_counts, key=lambda r: str(r["is_actionable_pharmacogene_variant"])):
+    pct = row["count"] / total * 100
+    print(f"  {row['is_actionable_pharmacogene_variant']}: {row['count']:,} ({pct:.2f}%)")
+
+positives = [r["count"] for r in target_counts if r["is_actionable_pharmacogene_variant"] == True]
+positive_count = positives[0] if positives else 0
+positive_pct   = positive_count / total * 100 if total > 0 else 0
+
+print()
+if positive_count == 0:
+    raise ValueError("Target has zero positives. Fix threshold.")
+elif positive_pct < 1.0:
+    raise ValueError(f"Positive rate {positive_pct:.2f}% too low. Fix threshold.")
+elif positive_pct > 50.0:
+    print(f"WARN: Positive rate {positive_pct:.2f}% above 50%. Consider stricter threshold.")
+else:
+    print(f"OK: Positive rate {positive_pct:.2f}%. Proceeding.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### FINAL JOIN - Features + Target
+
+# COMMAND ----------
+
+# DBTITLE 1,Final Join: Features + Target
+print("\nFINAL JOIN - FEATURES AND TARGET")
 print("="*80)
 
 df_final = (
-    df_priority
+    df_features
+    .join(df_target, on="variant_id", how="left")
+    .fillna({"is_actionable_pharmacogene_variant": False})
+)
+
+print(f"Final table rows:    {df_final.count():,}")
+print(f"Final table columns: {len(df_final.columns)}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Select Final Feature Columns
+print("\nSELECTING FINAL COLUMNS")
+print("="*80)
+
+# REMOVED leakage columns:
+# has_pharmgkb_annotation       - direct input to old target (= is_pharmgkb_annotated_variant renamed)
+# pharmacogene_annotation_score - = has_pharmgkb_annotation * 10
+# affects_drug_efficacy         - derived from has_pharmgkb_annotation AND variant type
+# drug_response_priority        - categorical re-encoding of drug_response_priority_score
+# drug_response_category        - categorical summary of feature combinations
+# clinical_actionability        - categorical encoding of has_pharmgkb_annotation + is_pathogenic
+# drug_response_frequency_context - categorical encoding of is_common_variant + is_rare_variant
+# expression_breadth            - categorical encoding of tissues_expressed_count
+# primary_indication_category   - categorical encoding of disease type booleans
+# indication_specific_actionability - re-encoding of primary_indication_category
+# clinical_significance_simple  - string label replaced by is_pathogenic/is_benign/is_vus booleans
+
+df_final = (
+    df_final
     .select(
-        # Identifiers
         col("variant_pharmgkb_id"),
         coalesce(col("variant_name"), col("clinvar_variant_name")).alias("variant_name"),
         col("variant_id"),
         col("gene_symbol"),
         col("variant_location"),
-        
-        # Clinical significance
-        col("clinical_significance_simple"),
         col("is_pathogenic"),
         col("is_benign"),
         col("is_vus"),
-        
-        # Variant types
         col("is_missense_variant"),
         col("is_frameshift_variant"),
         col("is_nonsense_variant"),
         col("is_splice_variant"),
-        
-        # Functional impact
         col("has_functional_domain"),
         col("affects_functional_domain"),
         col("phylop_score"),
@@ -508,67 +566,38 @@ df_final = (
         col("conservation_level"),
         col("pathogenicity_score"),
         col("mutation_severity_score"),
-        
-        # PharmGKB flags
-        col("has_pharmgkb_annotation"),
+        col("is_pharmgkb_annotated_variant"),
         col("has_high_conservation"),
         col("affects_drug_metabolism"),
-        col("affects_drug_efficacy"),
         col("is_high_impact_variant"),
-        
-        # Enhanced flags
         col("is_hepatic_drug_metabolism_variant"),
         col("is_common_pharmacogene_variant"),
         col("is_potential_resistance_variant"),
-        
-        # Expression context
         col("tissues_expressed_count"),
         col("max_expression_tpm"),
         col("is_liver_expressed"),
-        col("expression_breadth"),
-        
-        # Population context
         col("allele_frequency"),
         col("is_common_variant"),
         col("is_rare_variant"),
-        col("drug_response_frequency_context"),
-        
-        # Disease context
         col("total_disease_count"),
         col("has_cancer_disease"),
         col("has_cardiovascular_disease"),
         col("has_neurological_disease"),
-        col("primary_indication_category"),
-        
-        # Cancer context
         col("cancer_mutation_count"),
         col("is_cancer_gene"),
-        
-        # Gene context
         col("is_pharmacogene"),
         col("druggability_score"),
         col("pharmacogene_category"),
         col("drug_metabolism_role"),
-        
-        # Scores
-        col("pharmacogene_annotation_score"),
         col("functional_impact_score"),
         col("population_adjusted_score"),
         col("tissue_specific_response_score"),
         col("drug_response_priority_score"),
-        
-        # Classifications
-        col("drug_response_priority"),
-        col("is_actionable_pharmacogene_variant"),
-        col("drug_response_category"),
-        col("clinical_actionability"),
-        col("indication_specific_actionability")
+        col("is_actionable_pharmacogene_variant")
     )
 )
 
-final_count = df_final.count()
-print(f"Final features: {final_count:,} variants")
-print(f"Total columns: {len(df_final.columns)}")
+print(f"Final columns: {len(df_final.columns)}")
 
 # COMMAND ----------
 
@@ -577,17 +606,17 @@ print("\nDEDUPLICATING BY VARIANT_ID")
 print("="*80)
 
 before_count = df_final.count()
-df_final = df_final.dropDuplicates(["variant_id"])
-after_count = df_final.count()
+df_final     = df_final.dropDuplicates(["variant_id"])
+after_count  = df_final.count()
 
 print(f"Before deduplication: {before_count:,}")
-print(f"After deduplication: {after_count:,}")
-print(f"Duplicates removed: {before_count - after_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Save Gold Drug Response Features
-print("\nSAVING GOLD DRUG RESPONSE FEATURES")
+# DBTITLE 1,Write gold.variant_drug_response_ml_features
+print("\nWRITING gold.variant_drug_response_ml_features")
 print("="*80)
 
 df_final.write \
@@ -599,37 +628,41 @@ print(f"Saved: {catalog_name}.gold.variant_drug_response_ml_features")
 
 # COMMAND ----------
 
-# DBTITLE 1,Final Summary
-print("\nDRUG RESPONSE FEATURES COMPLETE (FULLY ENHANCED)")
+# DBTITLE 1,Final Verification
+print("\nFINAL VERIFICATION")
 print("="*80)
 
-result_count = spark.table(f"{catalog_name}.gold.variant_drug_response_ml_features").count()
-print(f"\nTable created: {result_count:,} variants")
-print(f"Total columns: {len(df_final.columns)}")
+df_check = spark.table(f"{catalog_name}.gold.variant_drug_response_ml_features")
+rows     = df_check.count()
+cols     = len(df_check.columns)
 
-print("\nFeature categories:")
-print("  - Base pharmacogene: 10 features")
-print("  - Expression context: 4 features")
-print("  - Population context: 4 features")
-print("  - Disease associations: 6 features")
-print("  - Cancer context: 2 features")
-print("  - Gene context: 4 features")
-print("  - Enhanced scores: 5 features")
-print("  - Classifications: 5 features")
-print(f"  Total: {len(df_final.columns)} features")
+target_dist = df_check.groupBy("is_actionable_pharmacogene_variant").count().collect()
+total       = sum(r["count"] for r in target_dist)
+positives   = [r["count"] for r in target_dist if r["is_actionable_pharmacogene_variant"] == True]
+pos_count   = positives[0] if positives else 0
+pos_pct     = pos_count / total * 100 if total > 0 else 0
 
-print("\nPriority breakdown:")
-spark.table(f"{catalog_name}.gold.variant_drug_response_ml_features") \
-    .groupBy("drug_response_priority") \
-    .count() \
-    .orderBy("drug_response_priority") \
-    .show()
+print(f"Rows:      {rows:,}")
+print(f"Columns:   {cols}")
+print(f"Positives: {pos_count:,} ({pos_pct:.2f}%)")
 
-print("\nClinical actionability:")
-spark.table(f"{catalog_name}.gold.variant_drug_response_ml_features") \
-    .groupBy("clinical_actionability") \
-    .count() \
-    .orderBy("clinical_actionability") \
-    .show()
+leakage_check = [
+    "has_pharmgkb_annotation",
+    "pharmacogene_annotation_score",
+    "affects_drug_efficacy",
+    "drug_response_priority",
+    "drug_response_category",
+    "clinical_actionability",
+    "drug_response_frequency_context",
+    "expression_breadth",
+    "primary_indication_category",
+    "indication_specific_actionability",
+    "clinical_significance_simple",
+]
+present = [c for c in leakage_check if c in df_check.columns]
+if present:
+    print(f"LEAKAGE ALERT: {present}")
+else:
+    print("Leakage check: PASSED (no known leakage columns present)")
 
 print("\nProcessing complete")

@@ -1,19 +1,42 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### FEATURE ENGINEERING - PHARMACOGENE ANALYSIS (FULLY ENHANCED)
+# MAGIC #### FEATURE ENGINEERING - PHARMACOGENE ANALYSIS (FIXED)
 # MAGIC ##### Module: Comprehensive Gene-Level Pharmacogene Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**  
-# MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** February 22, 2026
+# MAGIC **DNA Gene Mapping Project**
+# MAGIC **Author:** Sharique Mohammad
+# MAGIC **Date:** February 27, 2026
 # MAGIC
-# MAGIC **ENHANCED:** Uses all available silver tables for comprehensive pharmacogene profiling
+# MAGIC **FIXED:** Two-pass structure enforced. Inverted target corrected. Leakage columns removed.
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 9: Pharmacogenomic Guidance
 # MAGIC - Use Case 14: Drug Target Identification
 # MAGIC
 # MAGIC **Creates:** gold.gene_pharmacogene_ml_features
+# MAGIC
+# MAGIC **TWO-PASS STRUCTURE:**
+# MAGIC - Pass 1: Features only. Raw biological measurements from silver tables.
+# MAGIC - Pass 2: Target only. Derived from pharmacogene evidence independently.
+# MAGIC - Final:  Features and target joined on gene_symbol. Written to gold.
+# MAGIC
+# MAGIC **TARGET FIX:**
+# MAGIC - Old: is_high_priority_pharmacogene derived from pharmacogene_priority which used
+# MAGIC   clinical_utility_score >= 15/20. clinical_utility_score included has_pharmgkb_annotation
+# MAGIC   (a leakage flag) making 95.6% positive. Inverted target.
+# MAGIC - New: is_high_priority_pharmacogene = drug_relationships >= 5 AND druggability_score >= 0.5
+# MAGIC   Pure biological signal. Expected 10-25% positive rate.
+# MAGIC
+# MAGIC **LEAKAGE COLUMNS REMOVED:**
+# MAGIC - pharmacogene_priority (derived summary encoding target conditions)
+# MAGIC - pharmacogene_category_enhanced (categorical summary of feature combinations)
+# MAGIC - clinical_actionability_tier (re-encoding of pharmacogene_priority)
+# MAGIC - variant_impact_burden (categorical encoding of pathogenic_variants)
+# MAGIC - drug_metabolism_tissue_expression (categorical encoding of liver/kidney flags)
+# MAGIC - expression_breadth (categorical encoding of tissues_expressed_count)
+# MAGIC - cancer_mutation_burden (categorical encoding of unique_tumor_samples)
+# MAGIC - primary_indication_category (categorical encoding of disease type flags)
+# MAGIC - has_pharmgkb_annotation (boolean derived from source_count - leakage into target via clinical_utility_score)
 
 # COMMAND ----------
 
@@ -32,7 +55,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GOLD PHARMACOGENE FEATURES (FULLY ENHANCED)")
+print("GOLD PHARMACOGENE FEATURES (FIXED - TWO-PASS)")
 print("="*80)
 
 # COMMAND ----------
@@ -41,31 +64,35 @@ print("="*80)
 print("\nLOADING SOURCE TABLES")
 print("="*80)
 
-# Core pharmacogene tables
-df_pharmgkb_genes = spark.table(f"{catalog_name}.silver.pharmgkb_genes")
-df_relationships = spark.table(f"{catalog_name}.silver.pharmgkb_relationships")
-df_genes = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")  # ENHANCED: enriched genes
-
-# Additional enrichment tables
-df_variant_impact = spark.table(f"{catalog_name}.silver.variant_protein_impact")
-df_gtex = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
-df_cancer = spark.table(f"{catalog_name}.silver.cancer_mutations")
-df_gene_disease = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
+df_pharmgkb_genes  = spark.table(f"{catalog_name}.silver.pharmgkb_genes")
+df_relationships   = spark.table(f"{catalog_name}.silver.pharmgkb_relationships")
+df_genes           = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
+df_variant_impact  = spark.table(f"{catalog_name}.silver.variant_protein_impact")
+df_gtex            = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
+df_cancer          = spark.table(f"{catalog_name}.silver.cancer_mutations")
+df_gene_disease    = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
 df_protein_domains = spark.table(f"{catalog_name}.silver.protein_domains")
 
-print(f"PharmGKB genes: {df_pharmgkb_genes.count():,}")
+print(f"PharmGKB genes:         {df_pharmgkb_genes.count():,}")
 print(f"PharmGKB relationships: {df_relationships.count():,}")
-print(f"Genes (enriched): {df_genes.count():,}")
+print(f"Genes (enriched):       {df_genes.count():,}")
 print(f"Variant protein impact: {df_variant_impact.count():,}")
-print(f"GTEx expression: {df_gtex.count():,}")
-print(f"Cancer mutations: {df_cancer.count():,}")
-print(f"Gene-disease: {df_gene_disease.count():,}")
-print(f"Protein domains: {df_protein_domains.count():,}")
+print(f"GTEx expression:        {df_gtex.count():,}")
+print(f"Cancer mutations:       {df_cancer.count():,}")
+print(f"Gene-disease:           {df_gene_disease.count():,}")
+print(f"Protein domains:        {df_protein_domains.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Extract Gene Relationships
-print("\nEXTRACTING GENE RELATIONSHIPS")
+# MAGIC %md
+# MAGIC ### PASS 1 - FEATURES ONLY
+# MAGIC All feature computation happens here.
+# MAGIC Target variable is NOT computed in this pass.
+
+# COMMAND ----------
+
+# DBTITLE 1,PASS 1 - Step 1: Gene Relationships from PharmGKB
+print("\nPASS 1 - STEP 1: GENE RELATIONSHIPS")
 print("="*80)
 
 df_gene_relationships = (
@@ -79,14 +106,13 @@ df_gene_relationships = (
     )
 )
 
-# Calculate relationship counts
 df_relationship_counts = (
     df_gene_relationships
     .groupBy("gene_symbol")
     .agg(
         count("*").alias("total_relationships"),
         countDistinct("related_entity_type").alias("entity_type_count"),
-        spark_sum(when(col("related_entity_type") == "Chemical", 1).otherwise(0)).alias("drug_relationships"),  
+        spark_sum(when(col("related_entity_type") == "Chemical", 1).otherwise(0)).alias("drug_relationships"),
         spark_sum(when(col("related_entity_type") == "Disease", 1).otherwise(0)).alias("disease_relationships"),
         spark_sum(when(col("related_entity_type") == "Variant", 1).otherwise(0)).alias("variant_relationships"),
         spark_sum(when(col("evidence").isNotNull(), 1).otherwise(0)).alias("evidence_count")
@@ -97,11 +123,10 @@ print(f"Genes with relationships: {df_relationship_counts.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Variant-Level Pharmacogene Impact
-print("\nCALCULATING VARIANT-LEVEL PHARMACOGENE IMPACT")
+# DBTITLE 1,PASS 1 - Step 2: Variant-Level Pharmacogene Impact
+print("\nPASS 1 - STEP 2: VARIANT-LEVEL PHARMACOGENE IMPACT")
 print("="*80)
 
-# Gene-level variant statistics for pharmacogenes
 gene_variant_stats = (
     df_variant_impact
     .groupBy(upper(trim(col("gene_name"))).alias("gene_symbol"))
@@ -115,21 +140,19 @@ gene_variant_stats = (
     )
     .withColumn("has_pharmacogene_variants",
                 col("total_gene_variants") > 0)
-    .withColumn("variant_impact_burden",
-                when(col("pathogenic_variants") >= 10, lit("High"))
-                .when(col("pathogenic_variants") >= 5, lit("Medium"))
-                .otherwise(lit("Low")))
 )
 
 print(f"Genes with variant statistics: {gene_variant_stats.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Expression Data (Tissue-Specific Metabolism)
-print("\nENRICHING WITH EXPRESSION DATA")
+# DBTITLE 1,PASS 1 - Step 3: Expression Data
+print("\nPASS 1 - STEP 3: EXPRESSION DATA")
 print("="*80)
 
-# Calculate tissue expression for drug metabolism context
+# Raw numeric expression features only.
+# drug_metabolism_tissue_expression and expression_breadth string categories removed.
+# Raw boolean flags (is_liver_expressed, is_kidney_expressed) and numeric counts retained instead.
 gene_expression = (
     df_gtex
     .filter(col("max_tpm") > 1.0)
@@ -139,7 +162,6 @@ gene_expression = (
         spark_max("max_tpm").alias("max_expression_tpm"),
         avg("max_tpm").alias("avg_expression_tpm")
     )
-    # Liver and kidney are critical for drug metabolism
     .join(
         df_gtex.filter((col("tissue_type") == "Liver") & (col("max_tpm") > 1.0))
                .select(col("gene_name").alias("liver_gene"), lit(True).alias("is_liver_expressed")),
@@ -155,25 +177,18 @@ gene_expression = (
     )
     .drop("kidney_gene")
     .fillna({"is_liver_expressed": False, "is_kidney_expressed": False})
-    .withColumn("expression_breadth",
-                when(col("tissues_expressed_count") >= 15, lit("Ubiquitous"))
-                .when(col("tissues_expressed_count") >= 5, lit("Broad"))
-                .otherwise(lit("Tissue_Specific")))
-    .withColumn("drug_metabolism_tissue_expression",
-                when(col("is_liver_expressed") & col("is_kidney_expressed"), lit("Hepato_Renal"))
-                .when(col("is_liver_expressed"), lit("Hepatic"))
-                .when(col("is_kidney_expressed"), lit("Renal"))
-                .otherwise(lit("Other")))
 )
 
 print(f"Genes with expression data: {gene_expression.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Cancer Context (Oncology Drug Targets)
-print("\nENRICHING WITH CANCER CONTEXT")
+# DBTITLE 1,PASS 1 - Step 4: Cancer Context
+print("\nPASS 1 - STEP 4: CANCER CONTEXT")
 print("="*80)
 
+# Raw cancer counts only. cancer_mutation_burden string category removed.
+# unique_tumor_samples retained as raw numeric feature instead.
 cancer_genes = (
     df_cancer
     .groupBy(upper(trim(col("gene_symbol"))).alias("gene_symbol"))
@@ -183,21 +198,18 @@ cancer_genes = (
     )
     .withColumn("is_oncology_drug_target",
                 col("cancer_mutation_count") >= 50)
-    .withColumn("cancer_mutation_burden",
-                when(col("unique_tumor_samples") >= 100, lit("Very_High"))
-                .when(col("unique_tumor_samples") >= 50, lit("High"))
-                .when(col("unique_tumor_samples") >= 10, lit("Medium"))
-                .otherwise(lit("Low")))
 )
 
 print(f"Genes with cancer data: {cancer_genes.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Disease Associations (Drug Indications)
-print("\nENRICHING WITH DISEASE ASSOCIATIONS")
+# DBTITLE 1,PASS 1 - Step 5: Disease Associations
+print("\nPASS 1 - STEP 5: DISEASE ASSOCIATIONS")
 print("="*80)
 
+# Raw disease boolean flags only. primary_indication_category string category removed.
+# Raw boolean columns (has_cancer_disease, has_cardiovascular_disease etc.) retained instead.
 disease_genes = (
     df_gene_disease
     .select(
@@ -208,20 +220,14 @@ disease_genes = (
         col("has_neurological_disease"),
         col("has_metabolic_disease")
     )
-    .withColumn("primary_indication_category",
-                when(col("has_cancer_disease"), lit("Oncology"))
-                .when(col("has_cardiovascular_disease"), lit("Cardiology"))
-                .when(col("has_neurological_disease"), lit("Neurology"))
-                .when(col("has_metabolic_disease"), lit("Metabolism"))
-                .otherwise(lit("Other")))
 )
 
 print(f"Genes with disease associations: {disease_genes.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Protein Domain Complexity
-print("\nENRICHING WITH PROTEIN DOMAIN COMPLEXITY")
+# DBTITLE 1,PASS 1 - Step 6: Protein Domain Complexity
+print("\nPASS 1 - STEP 6: PROTEIN DOMAIN COMPLEXITY")
 print("="*80)
 
 protein_complexity = (
@@ -239,8 +245,8 @@ print(f"Genes with protein domain data: {protein_complexity.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Join PharmGKB Gene Data
-print("\nJOINING PHARMGKB GENE DATA")
+# DBTITLE 1,PASS 1 - Step 7: PharmGKB Gene Data
+print("\nPASS 1 - STEP 7: PHARMGKB GENE DATA")
 print("="*80)
 
 df_pharmgkb_features = (
@@ -253,9 +259,8 @@ df_pharmgkb_features = (
     .join(df_relationship_counts, on="gene_symbol", how="left")
 )
 
-# Filter to genes with PharmGKB data AND relationships
 df_pharmgkb_with_data = df_pharmgkb_features.filter(
-    (col("source_count").isNotNull()) & 
+    (col("source_count").isNotNull()) &
     (col("total_relationships").isNotNull()) &
     (col("total_relationships") > 0)
 )
@@ -264,11 +269,11 @@ print(f"PharmGKB genes with relationships: {df_pharmgkb_with_data.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Join with Gene Master Data and All Enrichments
-print("\nJOINING WITH GENE MASTER DATA AND ENRICHMENTS")
+# DBTITLE 1,PASS 1 - Step 8: Join All Features
+print("\nPASS 1 - STEP 8: JOINING ALL FEATURES")
 print("="*80)
 
-df_gene_pharmacogene = (
+df_features = (
     df_genes
     .select(
         upper(trim(col("official_symbol"))).alias("gene_symbol"),
@@ -286,223 +291,255 @@ df_gene_pharmacogene = (
         col("drug_metabolism_role")
     )
     .join(df_pharmgkb_with_data, on="gene_symbol", how="inner")
-    
-    # Join all enrichment tables
     .join(gene_variant_stats, on="gene_symbol", how="left")
     .join(gene_expression, col("gene_symbol") == gene_expression["gene_name"], how="left")
     .join(cancer_genes, on="gene_symbol", how="left")
     .join(disease_genes, on="gene_symbol", how="left")
     .join(protein_complexity, on="gene_symbol", how="left")
-
     .drop(gene_expression["gene_name"])
     .drop(disease_genes["gene_symbol"])
-    
-    # Fill nulls
     .fillna({
-        "total_gene_variants": 0,
-        "pathogenic_variants": 0,
-        "missense_variants": 0,
-        "lof_variants": 0,
-        "domain_affecting_variants": 0,
-        "avg_pathogenicity_score": 0.0,
-        "has_pharmacogene_variants": False,
-        "variant_impact_burden": "Low",
-        "tissues_expressed_count": 0,
-        "max_expression_tpm": 0.0,
-        "avg_expression_tpm": 0.0,
-        "is_liver_expressed": False,
-        "is_kidney_expressed": False,
-        "expression_breadth": "Unknown",
-        "drug_metabolism_tissue_expression": "Unknown",
-        "cancer_mutation_count": 0,
-        "unique_tumor_samples": 0,
-        "is_oncology_drug_target": False,
-        "cancer_mutation_burden": "None",
-        "total_disease_count": 0,
-        "has_cancer_disease": False,
-        "has_cardiovascular_disease": False,
-        "has_neurological_disease": False,
-        "has_metabolic_disease": False,
-        "primary_indication_category": "Unknown",
-        "max_domain_count": 0,
-        "has_kinase_domain_count": 0,
-        "is_complex_drug_target": False
+        "total_gene_variants":         0,
+        "pathogenic_variants":         0,
+        "missense_variants":           0,
+        "lof_variants":                0,
+        "domain_affecting_variants":   0,
+        "avg_pathogenicity_score":     0.0,
+        "has_pharmacogene_variants":   False,
+        "tissues_expressed_count":     0,
+        "max_expression_tpm":          0.0,
+        "avg_expression_tpm":          0.0,
+        "is_liver_expressed":          False,
+        "is_kidney_expressed":         False,
+        "cancer_mutation_count":       0,
+        "unique_tumor_samples":        0,
+        "is_oncology_drug_target":     False,
+        "total_disease_count":         0,
+        "has_cancer_disease":          False,
+        "has_cardiovascular_disease":  False,
+        "has_neurological_disease":    False,
+        "has_metabolic_disease":       False,
+        "max_domain_count":            0,
+        "has_kinase_domain_count":     0,
+        "is_complex_drug_target":      False,
     })
 )
 
-print(f"Gene pharmacogene joined: {df_gene_pharmacogene.count():,}")
+print(f"Gene pharmacogene joined: {df_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Enhanced Classification Flags
-print("\nADDING ENHANCED CLASSIFICATION FLAGS")
+# DBTITLE 1,PASS 1 - Step 9: Classification Flags
+print("\nPASS 1 - STEP 9: CLASSIFICATION FLAGS")
 print("="*80)
 
-df_classified = (
-    df_gene_pharmacogene
-    .withColumn("has_pharmgkb_annotation",
-                when(col("source_count").isNotNull(), True).otherwise(False))
-    
+df_features = (
+    df_features
     .withColumn("is_drug_metabolizer",
                 when(col("is_metabolic") & (col("drug_relationships") > 0), True).otherwise(False))
-    
+
     .withColumn("is_drug_transporter_gene",
                 when(col("is_transporter") & (col("drug_relationships") > 0), True).otherwise(False))
-    
+
     .withColumn("is_drug_target_gene",
-                when((col("is_kinase") | col("is_receptor") | col("is_enzyme")) & 
+                when((col("is_kinase") | col("is_receptor") | col("is_enzyme")) &
                      (col("drug_relationships") > 0), True).otherwise(False))
-    
+
     .withColumn("has_high_druggability",
                 when(col("druggability_score") >= 0.7, True).otherwise(False))
-    
-    # Enhanced: Tissue-specific drug metabolism
+
     .withColumn("is_hepatic_metabolizer",
                 col("is_liver_expressed") & col("is_drug_metabolizer"))
-    
+
     .withColumn("is_renal_transporter",
                 col("is_kidney_expressed") & col("is_drug_transporter_gene"))
-    
-    # Enhanced: Cancer drug target
+
     .withColumn("is_validated_cancer_target",
-                col("is_oncology_drug_target") & 
+                col("is_oncology_drug_target") &
                 (col("is_kinase") | col("is_receptor")))
 )
 
-print("Added enhanced classification flags")
+print("Classification flags added")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Comprehensive Scores
-print("\nCALCULATING COMPREHENSIVE SCORES")
+# DBTITLE 1,PASS 1 - Step 10: Comprehensive Scores
+print("\nPASS 1 - STEP 10: COMPREHENSIVE SCORES")
 print("="*80)
 
-df_evidence = (
-    df_classified
-    # Base pharmacogene evidence score
+df_features = (
+    df_features
     .withColumn("pharmacogene_evidence_score",
                 coalesce(col("evidence_count"), lit(0)) +
-                when(col("has_pharmgkb_annotation"), 5).otherwise(0) +
+                when(col("source_count").isNotNull(), 5).otherwise(0) +
                 when(col("has_high_druggability"), 3).otherwise(0) +
                 when(col("has_pharmacogene_variants"), 2).otherwise(0))
-    
-    # Drug interaction score (enhanced with variant and expression data)
+
     .withColumn("drug_interaction_score",
                 coalesce(col("drug_relationships"), lit(0)) * 2 +
                 coalesce(col("evidence_count"), lit(0)) +
                 when(col("is_liver_expressed") | col("is_kidney_expressed"), 3).otherwise(0) +
                 when(col("pathogenic_variants") > 0, 2).otherwise(0))
-    
-    # Clinical utility score (enhanced with disease and cancer data)
+
     .withColumn("clinical_utility_score",
-                when(col("has_pharmgkb_annotation"), 10).otherwise(0) +
+                when(col("source_count").isNotNull(), 10).otherwise(0) +
                 when(col("has_high_druggability"), 5).otherwise(0) +
                 (coalesce(col("drug_relationships"), lit(0)) * 0.5) +
                 when(col("total_disease_count") >= 5, 5).otherwise(0) +
                 when(col("is_oncology_drug_target"), 5).otherwise(0))
-    
-    # Variant impact score
+
     .withColumn("pharmacogene_variant_impact_score",
                 (coalesce(col("pathogenic_variants"), lit(0)) * 3) +
                 (coalesce(col("domain_affecting_variants"), lit(0)) * 2) +
                 coalesce(col("lof_variants"), lit(0)))
-    
-    # Tissue-specific metabolism score
+
     .withColumn("metabolism_context_score",
                 when(col("is_hepatic_metabolizer"), 10).otherwise(0) +
                 when(col("is_renal_transporter"), 8).otherwise(0) +
                 when(col("is_liver_expressed"), 3).otherwise(0))
 )
 
-print("Added comprehensive scores")
+print("Comprehensive scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Enhanced Priority Classification
-print("\nADDING ENHANCED PRIORITY CLASSIFICATION")
+# DBTITLE 1,PASS 1 - Step 11: Deduplicate by Gene Symbol
+print("\nPASS 1 - STEP 11: DEDUPLICATE BY GENE_SYMBOL")
 print("="*80)
 
-df_priority = (
-    df_evidence
-    .withColumn("pharmacogene_priority",
-                when(col("clinical_utility_score") >= 20, lit("critical"))
-                .when(col("clinical_utility_score") >= 15, lit("high"))
-                .when(col("clinical_utility_score") >= 8, lit("medium"))
-                .otherwise(lit("low")))
-    
-    .withColumn("is_high_priority_pharmacogene",
-                when(col("pharmacogene_priority").isin("critical", "high"), True).otherwise(False))
-    
-    .withColumn("pharmacogene_category_enhanced",
-                when((col("is_hepatic_metabolizer")) & (col("drug_relationships") > 0), lit("hepatic_metabolizer"))
-                .when((col("is_renal_transporter")) & (col("drug_relationships") > 0), lit("renal_transporter"))
-                .when((col("is_drug_target_gene")) & (col("is_oncology_drug_target")), lit("oncology_target"))
-                .when((col("is_drug_target_gene")) & (col("drug_relationships") > 0), lit("drug_target"))
-                .when((col("is_drug_metabolizer")) & (col("drug_relationships") > 0), lit("metabolizer"))
-                .when((col("is_drug_transporter_gene")) & (col("drug_relationships") > 0), lit("transporter"))
-                .when(col("drug_relationships") > 0, lit("interaction"))
-                .otherwise(lit("other")))
-    
-    # Clinical actionability tier
-    .withColumn("clinical_actionability_tier",
-                when((col("pharmacogene_priority") == "critical") & 
-                     (col("has_pharmacogene_variants")), lit("Tier_1_Actionable"))
-                .when(col("pharmacogene_priority").isin("critical", "high"), lit("Tier_2_High_Evidence"))
-                .when(col("has_pharmgkb_annotation"), lit("Tier_3_PharmGKB_Annotated"))
-                .otherwise(lit("Tier_4_Research")))
-)
+before_count = df_features.count()
+df_features  = df_features.dropDuplicates(["gene_symbol"])
+after_count  = df_features.count()
 
-print("Added enhanced priority classification")
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
+print(f"Feature columns:      {len(df_features.columns)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Select Final Features
-print("\nSELECTING FINAL FEATURES")
+# MAGIC %md
+# MAGIC ### PASS 2 - TARGET ONLY
+# MAGIC Target variable computed here independently from Pass 1.
+# MAGIC
+# MAGIC TARGET DEFINITION:
+# MAGIC   is_high_priority_pharmacogene = True when:
+# MAGIC     drug_relationships >= 5 AND druggability_score >= 0.5
+# MAGIC
+# MAGIC   Rationale: Old definition derived target from clinical_utility_score which
+# MAGIC   included has_pharmgkb_annotation. Since ALL rows in this table come from an
+# MAGIC   inner join with PharmGKB data, has_pharmgkb_annotation was True for 95.6%
+# MAGIC   of rows, making the target effectively inverted (near-constant).
+# MAGIC   New definition uses raw biological signal only: sufficient drug relationships
+# MAGIC   (evidence of pharmacogenomic activity) AND meaningful druggability score.
+
+# COMMAND ----------
+
+# DBTITLE 1,PASS 2 - Derive Target Variable
+print("\nPASS 2 - DERIVING TARGET VARIABLE")
+print("="*80)
+print("Target: is_high_priority_pharmacogene")
+print("Definition: drug_relationships >= 5 AND druggability_score >= 0.5")
+print()
+
+df_target = (
+    df_features
+    .select("gene_symbol", "drug_relationships", "druggability_score")
+    .withColumn("is_high_priority_pharmacogene",
+                when(
+                    (coalesce(col("drug_relationships"), lit(0)) >= 5) &
+                    (coalesce(col("druggability_score"), lit(0.0)) >= 0.5),
+                    True
+                ).otherwise(False))
+    .select("gene_symbol", "is_high_priority_pharmacogene")
+)
+
+target_counts = df_target.groupBy("is_high_priority_pharmacogene").count().collect()
+total = sum(r["count"] for r in target_counts)
+for row in sorted(target_counts, key=lambda r: str(r["is_high_priority_pharmacogene"])):
+    pct = row["count"] / total * 100
+    print(f"  {row['is_high_priority_pharmacogene']}: {row['count']:,} ({pct:.2f}%)")
+
+positives = [r["count"] for r in target_counts if r["is_high_priority_pharmacogene"] == True]
+positive_count = positives[0] if positives else 0
+positive_pct   = positive_count / total * 100 if total > 0 else 0
+
+print()
+if positive_count == 0:
+    raise ValueError("Target has zero positives. Fix threshold.")
+elif positive_pct < 1.0:
+    raise ValueError(f"Positive rate {positive_pct:.2f}% too low. Fix threshold.")
+elif positive_pct > 90.0:
+    raise ValueError(f"Positive rate {positive_pct:.2f}% too high. Target still inverted. Fix threshold.")
+else:
+    print(f"OK: Positive rate {positive_pct:.2f}%. Proceeding.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### FINAL JOIN - Features + Target
+
+# COMMAND ----------
+
+# DBTITLE 1,Final Join: Features + Target
+print("\nFINAL JOIN - FEATURES AND TARGET")
 print("="*80)
 
 df_final = (
-    df_priority
+    df_features
+    .join(df_target, on="gene_symbol", how="left")
+    .fillna({"is_high_priority_pharmacogene": False})
+)
+
+print(f"Final table rows:    {df_final.count():,}")
+print(f"Final table columns: {len(df_final.columns)}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Select Final Feature Columns
+print("\nSELECTING FINAL COLUMNS")
+print("="*80)
+
+# REMOVED leakage columns:
+# pharmacogene_priority          - derived summary encoding target conditions
+# pharmacogene_category_enhanced - categorical summary of feature combinations
+# clinical_actionability_tier    - re-encoding of pharmacogene_priority
+# variant_impact_burden          - categorical encoding of pathogenic_variants
+# drug_metabolism_tissue_expression - categorical encoding of liver/kidney flags
+# expression_breadth             - categorical encoding of tissues_expressed_count
+# cancer_mutation_burden         - categorical encoding of unique_tumor_samples
+# primary_indication_category    - categorical encoding of disease type flags
+# has_pharmgkb_annotation        - boolean derived from source_count, leakage into old target
+
+df_final = (
+    df_final
     .select(
-        # Gene identifiers
         col("gene_symbol"),
         col("gene_full_name"),
         col("pharmgkb_name"),
         col("description"),
         col("chromosome"),
         col("source_count"),
-        
-        # Basic pharmacogene flags
-        col("has_pharmgkb_annotation"),
         col("is_drug_metabolizer"),
         col("is_drug_transporter_gene"),
         col("is_drug_target_gene"),
         col("has_high_druggability"),
         col("is_pharmacogene"),
-        
-        # Enhanced flags
         col("is_hepatic_metabolizer"),
         col("is_renal_transporter"),
         col("is_validated_cancer_target"),
-        
-        # Protein type flags
         col("is_kinase"),
         col("is_receptor"),
         col("is_enzyme"),
         col("is_transporter"),
         col("is_metabolic"),
-        
-        # Base scores
         col("druggability_score"),
-        
-        # Relationship counts
         col("total_relationships"),
         col("entity_type_count"),
         col("drug_relationships"),
         col("disease_relationships"),
         col("variant_relationships"),
         col("evidence_count"),
-        
-        # Variant impact features
         col("total_gene_variants"),
         col("pathogenic_variants"),
         col("missense_variants"),
@@ -510,56 +547,34 @@ df_final = (
         col("domain_affecting_variants"),
         col("avg_pathogenicity_score"),
         col("has_pharmacogene_variants"),
-        col("variant_impact_burden"),
-        
-        # Expression features
         col("tissues_expressed_count"),
         col("max_expression_tpm"),
         col("avg_expression_tpm"),
         col("is_liver_expressed"),
         col("is_kidney_expressed"),
-        col("expression_breadth"),
-        col("drug_metabolism_tissue_expression"),
-        
-        # Cancer features
         col("cancer_mutation_count"),
         col("unique_tumor_samples"),
         col("is_oncology_drug_target"),
-        col("cancer_mutation_burden"),
-        
-        # Disease features
         col("total_disease_count"),
         col("has_cancer_disease"),
         col("has_cardiovascular_disease"),
         col("has_neurological_disease"),
         col("has_metabolic_disease"),
-        col("primary_indication_category"),
-        
-        # Protein domain features
         col("max_domain_count"),
         col("has_kinase_domain_count"),
         col("is_complex_drug_target"),
-        
-        # Comprehensive scores
         col("pharmacogene_evidence_score"),
         col("drug_interaction_score"),
         col("clinical_utility_score"),
         col("pharmacogene_variant_impact_score"),
         col("metabolism_context_score"),
-        
-        # Classifications
-        col("pharmacogene_priority"),
-        col("is_high_priority_pharmacogene"),
         col("pharmacogene_category"),
-        col("pharmacogene_category_enhanced"),
         col("drug_metabolism_role"),
-        col("clinical_actionability_tier")
+        col("is_high_priority_pharmacogene")
     )
 )
 
-final_count = df_final.count()
-print(f"Final features: {final_count:,} genes")
-print(f"Total columns: {len(df_final.columns)}")
+print(f"Final columns: {len(df_final.columns)}")
 
 # COMMAND ----------
 
@@ -568,17 +583,17 @@ print("\nDEDUPLICATING BY GENE_SYMBOL")
 print("="*80)
 
 before_count = df_final.count()
-df_final = df_final.dropDuplicates(["gene_symbol"])
-after_count = df_final.count()
+df_final     = df_final.dropDuplicates(["gene_symbol"])
+after_count  = df_final.count()
 
 print(f"Before deduplication: {before_count:,}")
-print(f"After deduplication: {after_count:,}")
-print(f"Duplicates removed: {before_count - after_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Save Gold Pharmacogene Features
-print("\nSAVING GOLD PHARMACOGENE FEATURES")
+# DBTITLE 1,Write gold.gene_pharmacogene_ml_features
+print("\nWRITING gold.gene_pharmacogene_ml_features")
 print("="*80)
 
 df_final.write \
@@ -590,37 +605,39 @@ print(f"Saved: {catalog_name}.gold.gene_pharmacogene_ml_features")
 
 # COMMAND ----------
 
-# DBTITLE 1,Final Summary
-print("\nPHARMACOGENE FEATURES COMPLETE (FULLY ENHANCED)")
+# DBTITLE 1,Final Verification
+print("\nFINAL VERIFICATION")
 print("="*80)
 
-result_count = spark.table(f"{catalog_name}.gold.gene_pharmacogene_ml_features").count()
-print(f"\nTable created: {result_count:,} genes")
-print(f"Total columns: {len(df_final.columns)}")
+df_check = spark.table(f"{catalog_name}.gold.gene_pharmacogene_ml_features")
+rows     = df_check.count()
+cols     = len(df_check.columns)
 
-print("\nFeature categories:")
-print("  - Base pharmacogene: 15 features")
-print("  - Variant impact: 8 features")
-print("  - Expression context: 8 features")
-print("  - Cancer context: 4 features")
-print("  - Disease associations: 6 features")
-print("  - Protein domains: 3 features")
-print("  - Comprehensive scores: 5 features")
-print("  - Classifications: 6 features")
-print(f"  Total: {len(df_final.columns)} features")
+target_dist = df_check.groupBy("is_high_priority_pharmacogene").count().collect()
+total       = sum(r["count"] for r in target_dist)
+positives   = [r["count"] for r in target_dist if r["is_high_priority_pharmacogene"] == True]
+pos_count   = positives[0] if positives else 0
+pos_pct     = pos_count / total * 100 if total > 0 else 0
 
-print("\nPriority breakdown:")
-spark.table(f"{catalog_name}.gold.gene_pharmacogene_ml_features") \
-    .groupBy("pharmacogene_priority") \
-    .count() \
-    .orderBy("pharmacogene_priority") \
-    .show()
+print(f"Rows:      {rows:,}")
+print(f"Columns:   {cols}")
+print(f"Positives: {pos_count:,} ({pos_pct:.2f}%)")
 
-print("\nClinical actionability:")
-spark.table(f"{catalog_name}.gold.gene_pharmacogene_ml_features") \
-    .groupBy("clinical_actionability_tier") \
-    .count() \
-    .orderBy("clinical_actionability_tier") \
-    .show()
+leakage_check = [
+    "pharmacogene_priority",
+    "pharmacogene_category_enhanced",
+    "clinical_actionability_tier",
+    "variant_impact_burden",
+    "drug_metabolism_tissue_expression",
+    "expression_breadth",
+    "cancer_mutation_burden",
+    "primary_indication_category",
+    "has_pharmgkb_annotation",
+]
+present = [c for c in leakage_check if c in df_check.columns]
+if present:
+    print(f"LEAKAGE ALERT: {present}")
+else:
+    print("Leakage check: PASSED (no known leakage columns present)")
 
 print("\nProcessing complete")

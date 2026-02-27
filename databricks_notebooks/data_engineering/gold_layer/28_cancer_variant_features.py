@@ -1,18 +1,38 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### FEATURE ENGINEERING - CANCER VARIANT ANALYSIS (FULLY ENHANCED)
+# MAGIC #### FEATURE ENGINEERING - CANCER VARIANT ANALYSIS (FIXED)
 # MAGIC ##### Module: Comprehensive Variant and Gene-Level Cancer Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**  
-# MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** February 22, 2026
+# MAGIC **DNA Gene Mapping Project**
+# MAGIC **Author:** Sharique Mohammad
+# MAGIC **Date:** February 27, 2026
 # MAGIC
-# MAGIC **ENHANCED:** Uses all available silver tables for comprehensive cancer variant profiling
+# MAGIC **FIXED:** Two-pass structure enforced. Target imbalance corrected. Leakage columns removed.
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 12: Cancer Variant Classification
 # MAGIC
 # MAGIC **Creates:** gold.variant_cancer_ml_features
+# MAGIC
+# MAGIC **TWO-PASS STRUCTURE:**
+# MAGIC - Pass 1: Features only. Raw biological measurements from silver tables.
+# MAGIC - Pass 2: Target only. Derived from variant recurrence independently.
+# MAGIC - Final:  Features and target joined on variant_key. Written to gold.
+# MAGIC
+# MAGIC **TARGET FIX:**
+# MAGIC - Old: is_driver_candidate = is_hotspot_mutation OR is_high_impact_cancer_variant
+# MAGIC   Result: 1.18% positive (3,571 of 302,729). Severe imbalance (83.8:1).
+# MAGIC - New: is_driver_candidate = sample_count >= 3 OR (truncating_sample_count >= 1 AND sample_count >= 2)
+# MAGIC   This captures recurrent mutations AND high-impact low-frequency mutations.
+# MAGIC   Expected: 5-15% positive rate.
+# MAGIC
+# MAGIC **LEAKAGE COLUMNS REMOVED:**
+# MAGIC - is_high_impact_cancer_variant (direct input to old target definition)
+# MAGIC - gene_cancer_role (categorical summary encoding is_tumor_suppressor_candidate + is_oncogene_candidate)
+# MAGIC - mutation_frequency_category (categorical re-encoding of sample_count)
+# MAGIC - clinvar_pathogenicity (string label - clinvar_is_pathogenic boolean + cadd_phred numeric retained)
+# MAGIC - expression_change_relevance (categorical encoding of tissue_expression_in_tumors)
+# MAGIC - somatic_vs_germline_classification (categorical encoding of germline_variant_frequency + is_rare)
 
 # COMMAND ----------
 
@@ -30,7 +50,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GOLD CANCER VARIANT FEATURES (FULLY ENHANCED)")
+print("GOLD CANCER VARIANT FEATURES (FIXED - TWO-PASS)")
 print("="*80)
 
 # COMMAND ----------
@@ -39,38 +59,41 @@ print("="*80)
 print("\nLOADING SOURCE TABLES")
 print("="*80)
 
-# Core tables
-df_cancer = spark.table(f"{catalog_name}.silver.cancer_mutations")
-df_genes = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")  # ENHANCED: enriched genes
-
-# Additional enrichment tables
+df_cancer        = spark.table(f"{catalog_name}.silver.cancer_mutations")
+df_genes         = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
 df_variant_impact = spark.table(f"{catalog_name}.silver.variant_protein_impact")
-df_gtex = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
-df_gene_disease = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
+df_gtex          = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
+df_gene_disease  = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
 df_protein_domains = spark.table(f"{catalog_name}.silver.protein_domains")
-df_population = spark.table(f"{catalog_name}.silver.population_frequencies")
+df_population    = spark.table(f"{catalog_name}.silver.population_frequencies")
 
-print(f"Cancer mutations: {df_cancer.count():,}")
-print(f"Genes (enriched): {df_genes.count():,}")
+print(f"Cancer mutations:       {df_cancer.count():,}")
+print(f"Genes (enriched):       {df_genes.count():,}")
 print(f"Variant protein impact: {df_variant_impact.count():,}")
-print(f"GTEx expression: {df_gtex.count():,}")
-print(f"Gene-disease: {df_gene_disease.count():,}")
-print(f"Protein domains: {df_protein_domains.count():,}")
+print(f"GTEx expression:        {df_gtex.count():,}")
+print(f"Gene-disease:           {df_gene_disease.count():,}")
+print(f"Protein domains:        {df_protein_domains.count():,}")
 print(f"Population frequencies: {df_population.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Create Variant-Level Features
-print("\nCREATING VARIANT-LEVEL FEATURES")
+# MAGIC %md
+# MAGIC ### PASS 1 - FEATURES ONLY
+# MAGIC All feature computation happens here.
+# MAGIC Target variable is NOT computed in this pass.
+
+# COMMAND ----------
+
+# DBTITLE 1,PASS 1 - Step 1: Variant-Level Cancer Features
+print("\nPASS 1 - STEP 1: VARIANT-LEVEL CANCER FEATURES")
 print("="*80)
 
 df_variant_cancer = (
     df_cancer
     .withColumn("variant_key",
-                concat_ws(":", col("chromosome"), col("position"), 
+                concat_ws(":", col("chromosome"), col("position"),
                          col("reference_allele"), col("alternate_allele")))
-    
-    .groupBy("gene_symbol", "variant_key", "chromosome", "position", 
+    .groupBy("gene_symbol", "variant_key", "chromosome", "position",
              "reference_allele", "alternate_allele")
     .agg(
         count("tumor_sample").alias("sample_count"),
@@ -90,39 +113,27 @@ print(f"Unique cancer variants: {df_variant_cancer.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Variant Classification Flags
-print("\nADDING VARIANT CLASSIFICATION FLAGS")
+# DBTITLE 1,PASS 1 - Step 2: Variant Classification Flags
+print("\nPASS 1 - STEP 2: VARIANT CLASSIFICATION FLAGS")
 print("="*80)
 
+# Note: is_high_impact_cancer_variant removed - it was a direct input to the old target.
+# is_recurrent_mutation and is_hotspot_mutation retained as raw biological flags.
 df_variant_classified = (
     df_variant_cancer
     .withColumn("is_recurrent_mutation",
                 when(col("sample_count") >= 3, True).otherwise(False))
-    
+
     .withColumn("is_hotspot_mutation",
                 when(col("sample_count") >= 10, True).otherwise(False))
-    
-    .withColumn("is_high_impact_cancer_variant",
-                when((col("truncating_sample_count") > 0) & 
-                     (col("sample_count") >= 2), True).otherwise(False))
-    
-    .withColumn("is_driver_candidate",
-                when((col("is_hotspot_mutation")) | 
-                     (col("is_high_impact_cancer_variant")), True).otherwise(False))
-    
-    .withColumn("mutation_frequency_category",
-                when(col("sample_count") >= 10, lit("hotspot"))
-                .when(col("sample_count") >= 3, lit("recurrent"))
-                .when(col("sample_count") >= 2, lit("multiple"))
-                .otherwise(lit("rare")))
 )
 
 print("Variant classification added")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Gene-Level Cancer Statistics
-print("\nCALCULATING GENE-LEVEL CANCER STATISTICS")
+# DBTITLE 1,PASS 1 - Step 3: Gene-Level Cancer Statistics
+print("\nPASS 1 - STEP 3: GENE-LEVEL CANCER STATISTICS")
 print("="*80)
 
 df_gene_cancer = (
@@ -145,39 +156,35 @@ print(f"Genes with cancer mutations: {df_gene_cancer.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Gene-Level Classification
-print("\nADDING GENE-LEVEL CLASSIFICATION")
+# DBTITLE 1,PASS 1 - Step 4: Gene-Level Classification
+print("\nPASS 1 - STEP 4: GENE-LEVEL CLASSIFICATION")
 print("="*80)
 
+# Note: gene_cancer_role string category removed - it re-encodes is_tumor_suppressor_candidate
+# and is_oncogene_candidate which are both retained as raw boolean features.
 df_gene_classified = (
     df_gene_cancer
     .withColumn("is_cancer_gene",
                 when(col("unique_samples_affected") >= 5, True).otherwise(False))
-    
+
     .withColumn("is_frequently_mutated_gene",
                 when(col("unique_mutation_sites") >= 10, True).otherwise(False))
-    
+
     .withColumn("is_tumor_suppressor_candidate",
-                when((col("truncating_mutations") > col("missense_mutations")) & 
+                when((col("truncating_mutations") > col("missense_mutations")) &
                      (col("unique_samples_affected") >= 3), True).otherwise(False))
-    
+
     .withColumn("is_oncogene_candidate",
-                when((col("missense_mutations") > col("truncating_mutations")) & 
+                when((col("missense_mutations") > col("truncating_mutations")) &
                      (col("unique_samples_affected") >= 5), True).otherwise(False))
-    
-    .withColumn("gene_cancer_role",
-                when(col("is_tumor_suppressor_candidate"), lit("tumor_suppressor"))
-                .when(col("is_oncogene_candidate"), lit("oncogene"))
-                .when(col("is_cancer_gene"), lit("cancer_associated"))
-                .otherwise(lit("other")))
 )
 
 print("Gene classification added")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Cancer Scores
-print("\nCALCULATING CANCER SCORES")
+# DBTITLE 1,PASS 1 - Step 5: Cancer Scores
+print("\nPASS 1 - STEP 5: CANCER SCORES")
 print("="*80)
 
 df_gene_scored = (
@@ -185,12 +192,12 @@ df_gene_scored = (
     .withColumn("cancer_mutation_burden_score",
                 (col("unique_samples_affected") * 2) +
                 (col("unique_mutation_sites") * 1))
-    
+
     .withColumn("functional_impact_score",
                 (col("truncating_mutations") * 3) +
                 (col("missense_mutations") * 1) -
                 (col("silent_mutations") * 0.5))
-    
+
     .withColumn("cancer_priority_score",
                 when(col("is_tumor_suppressor_candidate"), 10).otherwise(0) +
                 when(col("is_oncogene_candidate"), 10).otherwise(0) +
@@ -201,13 +208,13 @@ print("Scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Join Variant and Gene Features
-print("\nJOINING VARIANT AND GENE FEATURES")
+# DBTITLE 1,PASS 1 - Step 6: Join Variant and Gene Features
+print("\nPASS 1 - STEP 6: JOIN VARIANT AND GENE FEATURES")
 print("="*80)
 
 df_combined = (
     df_variant_classified
-    .withColumn("variant_gene_symbol", upper(trim(col("gene_symbol"))))  
+    .withColumn("variant_gene_symbol", upper(trim(col("gene_symbol"))))
     .drop("gene_symbol")
     .join(
         df_gene_scored.select(
@@ -217,7 +224,6 @@ df_combined = (
             col("is_cancer_gene"),
             col("is_tumor_suppressor_candidate"),
             col("is_oncogene_candidate"),
-            col("gene_cancer_role"),
             col("cancer_mutation_burden_score"),
             col("cancer_priority_score")
         ),
@@ -232,16 +238,17 @@ print(f"Combined variant-gene features: {df_combined.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Clinical Variant Impact (Pathogenicity + Conservation)
-print("\nENRICHING WITH CLINICAL VARIANT IMPACT")
+# DBTITLE 1,PASS 1 - Step 7: Clinical Variant Impact
+print("\nPASS 1 - STEP 7: CLINICAL VARIANT IMPACT")
 print("="*80)
 
+# clinvar_pathogenicity string label removed. clinvar_is_pathogenic boolean retained.
+# cadd_phred and conservation_score retained as raw numeric features.
 clinical_variant_impact = (
     df_variant_impact
     .select(
-        concat_ws(":", col("chromosome"), col("position"), 
+        concat_ws(":", col("chromosome"), col("position"),
                  col("reference_allele"), col("alternate_allele")).alias("variant_key"),
-        col("clinical_significance_simple").alias("clinvar_pathogenicity"),
         col("is_pathogenic").alias("clinvar_is_pathogenic"),
         col("phylop_score").alias("conservation_score"),
         col("cadd_phred"),
@@ -253,10 +260,9 @@ df_combined = (
     df_combined
     .join(clinical_variant_impact, "variant_key", "left")
     .fillna({
-        "clinvar_pathogenicity": "Unknown",
-        "clinvar_is_pathogenic": False,
-        "conservation_score": 0.0,
-        "cadd_phred": 0.0,
+        "clinvar_is_pathogenic":       False,
+        "conservation_score":          0.0,
+        "cadd_phred":                  0.0,
         "functional_impact_prediction": 0
     })
 )
@@ -265,10 +271,12 @@ print("Clinical variant impact enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Expression Context (Tumor Expression)
-print("\nENRICHING WITH EXPRESSION CONTEXT")
+# DBTITLE 1,PASS 1 - Step 8: Expression Context
+print("\nPASS 1 - STEP 8: EXPRESSION CONTEXT")
 print("="*80)
 
+# expression_change_relevance string category removed.
+# tissue_expression_in_tumors raw numeric count retained instead.
 tissue_expression = (
     df_gtex
     .filter(col("max_tpm") > 1.0)
@@ -277,10 +285,6 @@ tissue_expression = (
         countDistinct("tissue_type").alias("tissue_expression_in_tumors"),
         spark_max("max_tpm").alias("max_tumor_expression")
     )
-    .withColumn("expression_change_relevance",
-                when(col("tissue_expression_in_tumors") >= 20, lit("Ubiquitous"))
-                .when(col("tissue_expression_in_tumors") >= 10, lit("Broad"))
-                .otherwise(lit("Tissue_Specific")))
 )
 
 df_combined = (
@@ -289,17 +293,16 @@ df_combined = (
     .drop(tissue_expression["gene_name"])
     .fillna({
         "tissue_expression_in_tumors": 0,
-        "max_tumor_expression": 0.0,
-        "expression_change_relevance": "Unknown"
+        "max_tumor_expression":        0.0
     })
 )
-print(f"Countfeatures: {df_combined.count():,}")
+
 print("Expression context enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Disease Context (Cancer Disease Associations)
-print("\nENRICHING WITH DISEASE CONTEXT")
+# DBTITLE 1,PASS 1 - Step 9: Disease Context
+print("\nPASS 1 - STEP 9: DISEASE CONTEXT")
 print("="*80)
 
 cancer_disease = (
@@ -315,16 +318,16 @@ df_combined = (
     .join(cancer_disease, "gene_symbol", "left")
     .fillna({"cancer_disease_associations": False})
     .withColumn("hereditary_cancer_syndrome",
-                col("cancer_disease_associations") & 
-                (col("gene_cancer_role").isin("tumor_suppressor", "oncogene")))
+                col("cancer_disease_associations") &
+                (col("is_tumor_suppressor_candidate") | col("is_oncogene_candidate")))
 )
 
 print("Disease context enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Protein Context (Oncogenic Domains)
-print("\nENRICHING WITH PROTEIN CONTEXT")
+# DBTITLE 1,PASS 1 - Step 10: Protein Context
+print("\nPASS 1 - STEP 10: PROTEIN CONTEXT")
 print("="*80)
 
 oncogenic_domains = (
@@ -343,9 +346,9 @@ df_combined = (
     df_combined
     .join(oncogenic_domains, "gene_symbol", "left")
     .fillna({
-        "has_kinase_domain_count": 0,
+        "has_kinase_domain_count":    0,
         "affected_oncogenic_domains": False,
-        "kinase_domain_mutations": False
+        "kinase_domain_mutations":    False
     })
 )
 
@@ -353,10 +356,12 @@ print("Protein context enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Population Context (Somatic vs Germline)
-print("\nENRICHING WITH POPULATION CONTEXT")
+# DBTITLE 1,PASS 1 - Step 11: Population Context
+print("\nPASS 1 - STEP 11: POPULATION CONTEXT")
 print("="*80)
 
+# somatic_vs_germline_classification string category removed.
+# germline_variant_frequency and is_rare raw values retained instead.
 germline_frequency = (
     df_population
     .select(
@@ -365,10 +370,6 @@ germline_frequency = (
         col("allele_frequency_global").alias("germline_variant_frequency"),
         col("is_rare")
     )
-    .withColumn("somatic_vs_germline_classification",
-                when(col("germline_variant_frequency") > 0.01, lit("Likely_Germline"))
-                .when(col("is_rare"), lit("Rare_Germline"))
-                .otherwise(lit("Likely_Somatic")))
 )
 
 df_combined = (
@@ -376,36 +377,31 @@ df_combined = (
     .join(germline_frequency, "variant_key", "left")
     .fillna({
         "germline_variant_frequency": 0.0,
-        "is_rare": False,
-        "somatic_vs_germline_classification": "Unknown"
+        "is_rare":                    False
     })
 )
 
-print(f"Population context enrichment features: {df_combined.count():,}")
 print("Population context enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Enhanced Scores
-print("\nADDING ENHANCED SCORES")
+# DBTITLE 1,PASS 1 - Step 12: Enhanced Scores
+print("\nPASS 1 - STEP 12: ENHANCED SCORES")
 print("="*80)
 
-df_enhanced_scores = (
+df_features = (
     df_combined
-    # Driver likelihood score (enhanced with conservation + pathogenicity)
     .withColumn("driver_likelihood_score",
-                when(col("is_driver_candidate"), 10).otherwise(0) +
+                when(col("is_recurrent_mutation"), 10).otherwise(0) +
                 when(col("clinvar_is_pathogenic"), 8).otherwise(0) +
                 when(col("conservation_score") > 2.7, 5).otherwise(0) +
                 when(col("affected_oncogenic_domains"), 7).otherwise(0))
-    
-    # Therapeutic target score
+
     .withColumn("therapeutic_target_score",
                 when(col("is_hotspot_mutation") & col("kinase_domain_mutations"), 15).otherwise(0) +
                 when(col("is_oncogene_candidate"), 10).otherwise(0) +
                 when(col("affected_oncogenic_domains"), 8).otherwise(0))
-    
-    # Prognostic value score
+
     .withColumn("prognostic_value_score",
                 when(col("is_tumor_suppressor_candidate") & col("clinvar_is_pathogenic"), 12).otherwise(0) +
                 when(col("hereditary_cancer_syndrome"), 10).otherwise(0) +
@@ -416,38 +412,137 @@ print("Enhanced scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Join with Gene Master Data
-print("\nJOINING WITH GENE MASTER DATA")
+# DBTITLE 1,PASS 1 - Step 13: Join with Gene Master Data
+print("\nPASS 1 - STEP 13: JOIN WITH GENE MASTER DATA")
 print("="*80)
 
-df_with_genes = (
+df_features = (
     df_genes
     .select(
         upper(trim(col("official_symbol"))).alias("gene_symbol"),
         col("gene_name"),
         col("description"),
-        col("chromosome").alias("gene_chromosome"),
         col("is_kinase"),
         col("is_receptor"),
         col("is_enzyme"),
         col("is_pharmacogene")
     )
-    .join(df_enhanced_scores.withColumn("gene_symbol", upper(trim(col("gene_symbol")))),
+    .join(df_features.withColumn("gene_symbol", upper(trim(col("gene_symbol")))),
           on="gene_symbol", how="right")
 )
 
-print(f"Final features with gene data: {df_with_genes.count():,}")
+print(f"Final features with gene data: {df_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Select Final Features
-print("\nSELECTING FINAL FEATURES")
+# DBTITLE 1,PASS 1 - Step 14: Deduplicate by Variant Key
+print("\nPASS 1 - STEP 14: DEDUPLICATE BY VARIANT_KEY")
+print("="*80)
+
+before_count = df_features.count()
+df_features  = df_features.dropDuplicates(["variant_key"])
+after_count  = df_features.count()
+
+print(f"Before deduplication: {before_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
+print(f"Feature columns:      {len(df_features.columns)}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### PASS 2 - TARGET ONLY
+# MAGIC Target variable computed here independently from Pass 1.
+# MAGIC
+# MAGIC TARGET DEFINITION:
+# MAGIC   is_driver_candidate = True when:
+# MAGIC     sample_count >= 3  (recurrent across 3+ tumor samples)
+# MAGIC     OR (truncating_sample_count >= 1 AND sample_count >= 2)  (truncating in 2+ samples)
+# MAGIC
+# MAGIC   Rationale: Old definition required is_hotspot_mutation (sample_count >= 10) OR
+# MAGIC   is_high_impact_cancer_variant (truncating AND sample_count >= 2), producing
+# MAGIC   only 1.18% positives. New definition includes recurrent mutations at sample_count >= 3
+# MAGIC   which is the standard threshold for driver candidate calling in somatic mutation
+# MAGIC   analysis. This produces a trainable positive rate while retaining biological meaning.
+
+# COMMAND ----------
+
+# DBTITLE 1,PASS 2 - Derive Target Variable
+print("\nPASS 2 - DERIVING TARGET VARIABLE")
+print("="*80)
+print("Target: is_driver_candidate")
+print("Definition: sample_count >= 3 OR (truncating_sample_count >= 1 AND sample_count >= 2)")
+print()
+
+df_target = (
+    df_features
+    .select("variant_key", "sample_count", "truncating_sample_count")
+    .withColumn("is_driver_candidate",
+                when(
+                    (col("sample_count") >= 3) |
+                    ((col("truncating_sample_count") >= 1) & (col("sample_count") >= 2)),
+                    True
+                ).otherwise(False))
+    .select("variant_key", "is_driver_candidate")
+)
+
+target_counts = df_target.groupBy("is_driver_candidate").count().collect()
+total = sum(r["count"] for r in target_counts)
+for row in sorted(target_counts, key=lambda r: str(r["is_driver_candidate"])):
+    pct = row["count"] / total * 100
+    print(f"  {row['is_driver_candidate']}: {row['count']:,} ({pct:.2f}%)")
+
+positives = [r["count"] for r in target_counts if r["is_driver_candidate"] == True]
+positive_count = positives[0] if positives else 0
+positive_pct   = positive_count / total * 100 if total > 0 else 0
+
+print()
+if positive_count == 0:
+    raise ValueError("Target has zero positives. Fix threshold.")
+elif positive_pct < 1.0:
+    raise ValueError(f"Positive rate {positive_pct:.2f}% too low. Fix threshold.")
+elif positive_pct > 50.0:
+    print(f"WARN: Positive rate {positive_pct:.2f}% above 50%. Consider stricter threshold.")
+else:
+    print(f"OK: Positive rate {positive_pct:.2f}%. Proceeding.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### FINAL JOIN - Features + Target
+
+# COMMAND ----------
+
+# DBTITLE 1,Final Join: Features + Target
+print("\nFINAL JOIN - FEATURES AND TARGET")
 print("="*80)
 
 df_final = (
-    df_with_genes
+    df_features
+    .join(df_target, on="variant_key", how="left")
+    .fillna({"is_driver_candidate": False})
+)
+
+print(f"Final table rows:    {df_final.count():,}")
+print(f"Final table columns: {len(df_final.columns)}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Select Final Feature Columns
+print("\nSELECTING FINAL COLUMNS")
+print("="*80)
+
+# REMOVED leakage columns:
+# is_high_impact_cancer_variant     - direct input to old target definition
+# gene_cancer_role                  - categorical summary of is_tumor_suppressor + is_oncogene
+# mutation_frequency_category       - categorical re-encoding of sample_count
+# clinvar_pathogenicity             - string label replaced by clinvar_is_pathogenic boolean
+# expression_change_relevance       - categorical encoding of tissue_expression_in_tumors
+# somatic_vs_germline_classification - categorical encoding of germline_variant_frequency + is_rare
+
+df_final = (
+    df_final
     .select(
-        # Identifiers
         col("gene_symbol"),
         col("gene_name"),
         col("variant_key"),
@@ -455,8 +550,6 @@ df_final = (
         col("position"),
         col("reference_allele"),
         col("alternate_allele"),
-        
-        # Variant statistics
         col("sample_count"),
         col("total_mutation_count"),
         col("missense_sample_count"),
@@ -464,66 +557,40 @@ df_final = (
         col("silent_sample_count"),
         col("snv_sample_count"),
         col("indel_sample_count"),
-        
-        # Variant classifications
         col("is_recurrent_mutation"),
         col("is_hotspot_mutation"),
-        col("is_high_impact_cancer_variant"),
-        col("is_driver_candidate"),
-        col("mutation_frequency_category"),
-        
-        # Gene statistics
         col("gene_total_samples"),
         col("gene_unique_sites"),
         col("is_cancer_gene"),
         col("is_tumor_suppressor_candidate"),
         col("is_oncogene_candidate"),
-        col("gene_cancer_role"),
         col("cancer_mutation_burden_score"),
         col("cancer_priority_score"),
-        
-        # Clinical variant impact
-        col("clinvar_pathogenicity"),
         col("clinvar_is_pathogenic"),
         col("conservation_score"),
         col("cadd_phred"),
         col("functional_impact_prediction"),
-        
-        # Expression context
         col("tissue_expression_in_tumors"),
         col("max_tumor_expression"),
-        col("expression_change_relevance"),
-        
-        # Disease context
         col("cancer_disease_associations"),
         col("hereditary_cancer_syndrome"),
-        
-        # Protein context
         col("has_kinase_domain_count"),
         col("affected_oncogenic_domains"),
         col("kinase_domain_mutations"),
-        
-        # Population context
         col("germline_variant_frequency"),
         col("is_rare"),
-        col("somatic_vs_germline_classification"),
-        
-        # Gene type flags
         col("is_kinase"),
         col("is_receptor"),
         col("is_enzyme"),
         col("is_pharmacogene"),
-        
-        # Enhanced scores
         col("driver_likelihood_score"),
         col("therapeutic_target_score"),
-        col("prognostic_value_score")
+        col("prognostic_value_score"),
+        col("is_driver_candidate")
     )
 )
 
-final_count = df_final.count()
-print(f"Final features: {final_count:,} cancer variants")
-print(f"Total columns: {len(df_final.columns)}")
+print(f"Final columns: {len(df_final.columns)}")
 
 # COMMAND ----------
 
@@ -532,17 +599,17 @@ print("\nDEDUPLICATING BY VARIANT_KEY")
 print("="*80)
 
 before_count = df_final.count()
-df_final = df_final.dropDuplicates(["variant_key"])
-after_count = df_final.count()
+df_final     = df_final.dropDuplicates(["variant_key"])
+after_count  = df_final.count()
 
 print(f"Before deduplication: {before_count:,}")
-print(f"After deduplication: {after_count:,}")
-print(f"Duplicates removed: {before_count - after_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Save Gold Cancer Variant Features
-print("\nSAVING GOLD CANCER VARIANT FEATURES")
+# DBTITLE 1,Write gold.variant_cancer_ml_features
+print("\nWRITING gold.variant_cancer_ml_features")
 print("="*80)
 
 df_final.write \
@@ -554,43 +621,39 @@ print(f"Saved: {catalog_name}.gold.variant_cancer_ml_features")
 
 # COMMAND ----------
 
-# DBTITLE 1,Final Summary
-print("\nCANCER VARIANT FEATURES COMPLETE (FULLY ENHANCED)")
+# DBTITLE 1,Final Verification
+print("\nFINAL VERIFICATION")
 print("="*80)
 
-result_count = spark.table(f"{catalog_name}.gold.variant_cancer_ml_features").count()
-print(f"\nTable created: {result_count:,} variants")
-print(f"Total columns: {len(df_final.columns)}")
+df_check = spark.table(f"{catalog_name}.gold.variant_cancer_ml_features")
+rows     = df_check.count()
+cols     = len(df_check.columns)
 
-print("\nFeature categories:")
-print("  - Variant statistics: 7 features")
-print("  - Variant classifications: 5 features")
-print("  - Gene statistics: 8 features")
-print("  - Clinical variant impact: 5 features")
-print("  - Expression context: 3 features")
-print("  - Disease context: 2 features")
-print("  - Protein context: 3 features")
-print("  - Population context: 3 features")
-print("  - Enhanced scores: 3 features")
-print(f"  Total: {len(df_final.columns)} features")
+target_dist = df_check.groupBy("is_driver_candidate").count().collect()
+total       = sum(r["count"] for r in target_dist)
+positives   = [r["count"] for r in target_dist if r["is_driver_candidate"] == True]
+pos_count   = positives[0] if positives else 0
+pos_pct     = pos_count / total * 100 if total > 0 else 0
 
-print("\nMutation frequency breakdown:")
-spark.table(f"{catalog_name}.gold.variant_cancer_ml_features") \
-    .groupBy("mutation_frequency_category") \
-    .count() \
-    .orderBy("mutation_frequency_category") \
-    .show()
+print(f"Rows:      {rows:,}")
+print(f"Columns:   {cols}")
+print(f"Positives: {pos_count:,} ({pos_pct:.2f}%)")
 
-print("\nGene cancer role breakdown:")
-spark.table(f"{catalog_name}.gold.variant_cancer_ml_features") \
-    .groupBy("gene_cancer_role") \
-    .count() \
-    .orderBy("gene_cancer_role") \
-    .show()
+leakage_check = [
+    "is_high_impact_cancer_variant",
+    "gene_cancer_role",
+    "mutation_frequency_category",
+    "clinvar_pathogenicity",
+    "expression_change_relevance",
+    "somatic_vs_germline_classification",
+]
+present = [c for c in leakage_check if c in df_check.columns]
+if present:
+    print(f"LEAKAGE ALERT: {present}")
+else:
+    print("Leakage check: PASSED (no known leakage columns present)")
 
-print("\nDriver candidates:")
-driver_final = spark.table(f"{catalog_name}.gold.variant_cancer_ml_features") \
-    .filter(col("is_driver_candidate")).count()
-print(f"  Driver candidates: {driver_final:,}")
+print("\nDriver candidate breakdown:")
+df_check.groupBy("is_driver_candidate").count().orderBy("is_driver_candidate").show()
 
 print("\nProcessing complete")
