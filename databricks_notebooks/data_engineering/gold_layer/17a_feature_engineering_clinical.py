@@ -3,8 +3,8 @@
 # MAGIC #### FEATURE ENGINEERING - CLINICAL USE CASES (FIXED)
 # MAGIC ##### Module 1: Clinical Pathogenicity, Inheritance Patterns, Gene Statistics
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 27, 2026
 # MAGIC
 # MAGIC **FIXED:** Two-pass structure enforced. Leakage columns removed.

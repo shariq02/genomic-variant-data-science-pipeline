@@ -3,8 +3,8 @@
 # MAGIC #### FEATURE ENGINEERING - TRANSCRIPT EXPRESSION ANALYSIS (FIXED)
 # MAGIC ##### Module: Comprehensive Gene-Level Expression Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 27, 2026
 # MAGIC
 # MAGIC **FIXED:** Two-pass structure enforced. Target threshold corrected. Leakage columns removed.
@@ -403,30 +403,25 @@ print(f"Feature columns:      {len(df_features.columns)}")
 # COMMAND ----------
 
 # DBTITLE 1,PASS 2 - Derive Target Variable
+# DBTITLE 1,PASS 2 - Derive Target Variable
 print("\nPASS 2 - DERIVING TARGET VARIABLE")
 print("="*80)
 print("Target: is_clinically_relevant_expression")
 print("Definition: total_tissues_expressed <= 15 AND max_expression_tpm >= 10")
 print()
 
-# Target derived from expression statistics only.
-# These columns (total_tissues_expressed, max_expression_tpm) come from GTEx
-# and are used as features in Pass 1 as raw measurements.
-# The target is a threshold combination of those measurements.
-# This is acceptable because the raw continuous values are available to the model
-# and the threshold is a biological definition, not a label re-encoding.
 df_target = (
     df_features
-    .select("gene_symbol")
+    .select("gene_symbol", "total_tissues_expressed", "max_expression_tpm")
     .withColumn("is_clinically_relevant_expression",
                 when(
                     (col("total_tissues_expressed") <= 15) &
                     (col("max_expression_tpm") >= 10),
                     True
                 ).otherwise(False))
+    .select("gene_symbol", "is_clinically_relevant_expression")
 )
 
-# Verify target distribution
 target_counts = df_target.groupBy("is_clinically_relevant_expression").count().collect()
 total = sum(r["count"] for r in target_counts)
 for row in sorted(target_counts, key=lambda r: str(r["is_clinically_relevant_expression"])):
@@ -439,13 +434,11 @@ positive_pct   = positive_count / total * 100 if total > 0 else 0
 
 print()
 if positive_count == 0:
-    print("CRITICAL: Zero positives. Threshold needs further adjustment.")
     raise ValueError("Target has zero positives. Do not write. Fix threshold first.")
 elif positive_pct < 1.0:
-    print(f"CRITICAL: Positive rate {positive_pct:.2f}% is below 1%. Adjust threshold.")
     raise ValueError(f"Target positive rate {positive_pct:.2f}% too low. Do not write.")
 elif positive_pct > 30.0:
-    print(f"WARN: Positive rate {positive_pct:.2f}% is above 30%. Consider stricter threshold.")
+    print(f"WARN: Positive rate {positive_pct:.2f}% above 30%. Consider stricter threshold.")
 else:
     print(f"OK: Positive rate {positive_pct:.2f}%. Proceeding to write.")
 

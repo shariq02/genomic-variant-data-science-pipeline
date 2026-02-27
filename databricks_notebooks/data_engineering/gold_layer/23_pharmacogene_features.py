@@ -3,8 +3,8 @@
 # MAGIC #### FEATURE ENGINEERING - PHARMACOGENE ANALYSIS (FIXED)
 # MAGIC ##### Module: Comprehensive Gene-Level Pharmacogene Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 27, 2026
 # MAGIC
 # MAGIC **FIXED:** Two-pass structure enforced. Inverted target corrected. Leakage columns removed.

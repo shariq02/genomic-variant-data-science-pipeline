@@ -3,8 +3,8 @@
 # MAGIC #### FEATURE ENGINEERING - GENETIC TEST AVAILABILITY (FIXED)
 # MAGIC ##### Module: Comprehensive Gene-Level Test Availability Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 27, 2026
 # MAGIC
 # MAGIC **FIXED:** Two-pass structure enforced. Target threshold corrected. Leakage columns removed.

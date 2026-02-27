@@ -3,8 +3,8 @@
 # MAGIC #### FEATURE ENGINEERING - CANCER VARIANT ANALYSIS (FIXED)
 # MAGIC ##### Module: Comprehensive Variant and Gene-Level Cancer Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 27, 2026
 # MAGIC
 # MAGIC **FIXED:** Two-pass structure enforced. Target imbalance corrected. Leakage columns removed.
