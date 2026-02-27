@@ -34,6 +34,30 @@ CHECKPOINT_FILE = f"/Volumes/{catalog_name}/{SCHEMA_NAME}/{VOLUME_NAME}/.export_
 
 # COMMAND ----------
 
+# import json
+#
+# metadata_path = "/Volumes/workspace/gold/gold_exports/.export_metadata.json"
+#
+# with open(metadata_path, "r") as f:
+#     metadata = json.load(f)
+#
+# # Force disease_ml_features and ml_dataset_disease_* tables to look changed by setting rows to 0
+# metadata["disease_ml_features"]["rows"] = 0
+# metadata["ml_dataset_disease_train"]["rows"] = 0
+# metadata["ml_dataset_disease_validation"]["rows"] = 0
+# metadata["ml_dataset_disease_test"]["rows"] = 0
+#
+# with open(metadata_path, "w") as f:
+#     json.dump(metadata, f, indent=2)
+#
+# print("Done - disease_ml_features and ml_dataset_disease_* tables will be force-exported on next run")
+# print(f"Current entry: {metadata['disease_ml_features']}")
+# print(f"Train entry: {metadata['ml_dataset_disease_train']}")
+# print(f"Validation entry: {metadata['ml_dataset_disease_validation']}")
+# print(f"Test entry: {metadata['ml_dataset_disease_test']}")
+
+# COMMAND ----------
+
 # DBTITLE 1,Create Export Volume
 spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog_name}.{SCHEMA_NAME}.{VOLUME_NAME}")
 volume_path = f"/Volumes/{catalog_name}/{SCHEMA_NAME}/{VOLUME_NAME}/"

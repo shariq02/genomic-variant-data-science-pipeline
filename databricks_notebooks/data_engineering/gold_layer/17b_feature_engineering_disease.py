@@ -20,12 +20,12 @@
 # COMMAND ----------
 
 # DBTITLE 1,Import Libraries
-from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, when, lit, coalesce, count, sum as spark_sum, avg,
     max as spark_max, min as spark_min, countDistinct, collect_list,
-    concat_ws, size, array_distinct, length
+    concat_ws, size, array_distinct, length, regexp_replace
 )
+from pyspark.sql import SparkSession
 
 # COMMAND ----------
 
@@ -121,6 +121,18 @@ df_variants_enriched = (
                     col("orphanet_disease_name"),
                     lit("Unknown_Disease")
                 ))
+    .withColumn("disease_name_enriched",
+    regexp_replace(
+        regexp_replace(
+            regexp_replace(
+                regexp_replace(col("disease_name_enriched"), '"', ''),
+                '\n', ' '
+            ),
+            '\r', ' '
+        ),
+        ',', ';'
+    )
+    )
     
     # Disease database coverage flags
     .withColumn("has_omim_disease",
