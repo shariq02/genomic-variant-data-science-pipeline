@@ -47,6 +47,7 @@ from pyspark.sql.functions import (
     col, count, countDistinct, sum as spark_sum, avg, max as spark_max, min as spark_min,
     when, lit, trim, upper, coalesce
 )
+from pyspark.sql.functions import corr as spark_corr, count
 
 # COMMAND ----------
 
@@ -403,7 +404,6 @@ print(f"Feature columns:      {len(df_features.columns)}")
 # COMMAND ----------
 
 # DBTITLE 1,PASS 2 - Derive Target Variable
-# DBTITLE 1,PASS 2 - Derive Target Variable
 print("\nPASS 2 - DERIVING TARGET VARIABLE")
 print("="*80)
 print("Target: is_clinically_relevant_expression")
@@ -461,6 +461,131 @@ df_gene_final = (
 
 print(f"Final table rows:    {df_gene_final.count():,}")
 print(f"Final table columns: {len(df_gene_final.columns)}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Correlation Scan Utility
+def run_leakage_scan(df_features, df_target, target_cols, primary_key,
+                     sample_threshold=100_000, sample_fraction=0.40,
+                     drop_threshold=0.98, warn_threshold=0.85):
+    """
+    Dynamically detect and remove leaky feature columns via Pearson correlation.
+
+    Adaptive sampling:
+      - Row count < sample_threshold -> full scan (100%)
+      - Row count >= sample_threshold -> stratified sample at sample_fraction
+
+    Args:
+        df_features     : Pass 1 feature dataframe (no targets)
+        df_target       : Pass 2 target dataframe
+        target_cols     : list of target column names e.g. ["target_is_pathogenic"]
+        primary_key     : join key e.g. "variant_id" or "gene_symbol"
+        sample_threshold: row count above which sampling kicks in (default 100k)
+        sample_fraction : fraction to sample for large tables (default 0.40)
+        drop_threshold  : abs(r) >= this -> auto drop (default 0.98)
+        warn_threshold  : abs(r) >= this -> warn but keep (default 0.85)
+
+    Returns:
+        df_features_clean : df_features with leaky columns dropped
+        dropped_cols      : dict of {col_name: {target: r_value}}
+        warned_cols       : dict of {col_name: {target: r_value}}
+    """
+
+    print("\nLEAKAGE CORRELATION SCAN")
+    print("="*80)
+
+    row_count = df_features.count()
+    print(f"Feature rows: {row_count:,}")
+
+    # Join features + targets for scan
+    df_scan_base = df_features.join(df_target, on=primary_key, how="inner")
+
+    # Adaptive sampling
+    if row_count >= sample_threshold:
+        # Stratified sample: sample within each target class combination
+        # For simplicity, use plain random sample at fraction
+        # This is sufficient for structural leakage detection
+        df_scan = df_scan_base.sample(withReplacement=False,
+                                      fraction=sample_fraction,
+                                      seed=42)
+        scan_count = df_scan.count()
+        print(f"Sampling: 40% -> {scan_count:,} rows for scan")
+    else:
+        df_scan = df_scan_base
+        print(f"Sampling: 100% (table < {sample_threshold:,} rows) -> {row_count:,} rows")
+
+    # Identify numeric and boolean feature columns to scan
+    # Exclude identifiers and target columns
+    exclude_cols = set([primary_key] + target_cols +
+                       ["gene_name", "variant_id", "gene_symbol",
+                        "variant_key", "chromosome", "position",
+                        "reference_allele", "alternate_allele",
+                        "variant_name", "gene_full_name", "pharmgkb_name",
+                        "description", "variant_location", "drug_metabolism_role",
+                        "pharmacogene_category", "gene_chromosome",
+                        "official_gene_symbol", "review_status", "variant_type"])
+
+    scannable_types = {"IntegerType", "LongType", "DoubleType",
+                       "FloatType", "BooleanType", "ShortType"}
+
+    feature_cols = [
+        f.name for f in df_scan.schema.fields
+        if f.name not in exclude_cols
+        and type(f.dataType).__name__ in scannable_types
+    ]
+
+    print(f"Scanning {len(feature_cols)} numeric/boolean feature columns "
+          f"against {len(target_cols)} target(s)...")
+    print()
+
+    dropped_cols = {}
+    warned_cols  = {}
+
+    # Process column by column to minimise memory pressure
+    for feat_col in feature_cols:
+        max_r_abs  = 0.0
+        col_results = {}
+
+        for tgt_col in target_cols:
+            try:
+                r_row = df_scan.select(
+                    spark_corr(feat_col, tgt_col).alias("r")
+                ).collect()[0]
+                r_val = r_row["r"]
+                if r_val is None:
+                    continue
+                r_abs = abs(r_val)
+                col_results[tgt_col] = round(r_val, 4)
+                if r_abs > max_r_abs:
+                    max_r_abs = r_abs
+            except Exception:
+                continue
+
+        if max_r_abs >= drop_threshold:
+            dropped_cols[feat_col] = col_results
+            print(f"  DROP  {feat_col}: {col_results}")
+        elif max_r_abs >= warn_threshold:
+            warned_cols[feat_col] = col_results
+            print(f"  WARN  {feat_col}: {col_results}")
+
+    print()
+    print(f"Auto-dropped: {len(dropped_cols)} columns")
+    print(f"Warned:       {len(warned_cols)} columns (kept)")
+
+    # Drop leaky columns from features
+    cols_to_drop = list(dropped_cols.keys())
+    df_features_clean = df_features.drop(*cols_to_drop) if cols_to_drop else df_features
+
+    return df_features_clean, dropped_cols, warned_cols
+
+# COMMAND ----------
+
+df_features_clean_25, dropped_25, warned_25 = run_leakage_scan(
+    df_features   = df_features,
+    df_target     = df_target,
+    target_cols   = ["is_clinically_relevant_expression"],
+    primary_key   = "gene_symbol"
+)
 
 # COMMAND ----------
 
