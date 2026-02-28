@@ -1,53 +1,41 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### FEATURE ENGINEERING - TRANSCRIPT EXPRESSION ANALYSIS (FIXED)
+# MAGIC #### FEATURE ENGINEERING - TRANSCRIPT EXPRESSION ANALYSIS
 # MAGIC ##### Module: Comprehensive Gene-Level Expression Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**  
-# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **DNA Gene Mapping Project**
+# MAGIC **Author:** Sharique Mohammad
 # MAGIC **Date:** February 27, 2026
-# MAGIC
-# MAGIC **FIXED:** Two-pass structure enforced. Target threshold corrected. Leakage columns removed.
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 6: Transcript Isoform Impact
 # MAGIC - Use Case 16: Gene Expression Analysis
 # MAGIC
 # MAGIC **Creates:**
-# MAGIC - gold.gene_expression_ml_features      (UC16 - gene level)
-# MAGIC - gold.transcript_expression_ml_features (UC6  - transcript/isoform level)
+# MAGIC - gold.gene_expression_ml_features
+# MAGIC - gold.transcript_expression_ml_features
 # MAGIC
 # MAGIC **TWO-PASS STRUCTURE:**
 # MAGIC - Pass 1: Features only. Raw biological measurements from silver tables.
 # MAGIC           No target variable computed in this pass.
 # MAGIC - Pass 2: Target only. Derived from expression statistics independently.
-# MAGIC           Target source columns not used as features.
 # MAGIC - Final:  Features and target joined on gene_symbol. Written to gold.
 # MAGIC
 # MAGIC **TARGET FIX:**
-# MAGIC - Old definition: is_tissue_specific (<=5 tissues) AND is_highly_expressed (TPM>=100)
-# MAGIC   Result: 95 positives of 44,874 (0.21%). Unusable.
-# MAGIC - New definition: total_tissues_expressed <= 15 AND max_expression_tpm >= 10
-# MAGIC   Rationale: Moderately tissue-restricted and meaningfully expressed genes
-# MAGIC   are the clinically relevant group. Threshold aligns with GTEx literature.
-# MAGIC   Expected result: approx 2,000-5,000 positives (5-10% positive rate).
-# MAGIC
-# MAGIC **LEAKAGE COLUMNS REMOVED:**
-# MAGIC - expression_priority (derived summary of target conditions)
-# MAGIC - disease_specific_expression_pattern (categorical encoding of disease + expression)
-# MAGIC - expression_function_correlation (categorical encoding of function + expression)
-# MAGIC - cancer_expression_relevance (string category - replaced by raw unique_tumor_samples)
-# MAGIC - domain_expression_correlation (string category - replaced by raw max_domain_count)
+# MAGIC - Old: is_tissue_specific (<=5 tissues) AND is_highly_expressed (TPM>=100)
+# MAGIC   Result: 95 positives (0.21%). Unusable.
+# MAGIC - New: total_tissues_expressed <= 15 AND max_expression_tpm >= 10
+# MAGIC   Expected: 5-10% positive rate.
 
 # COMMAND ----------
 
 # DBTITLE 1,Import Libraries
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    col, count, countDistinct, sum as spark_sum, avg, max as spark_max, min as spark_min,
+    col, count, countDistinct, sum as spark_sum, avg,
+    max as spark_max, min as spark_min,
     when, lit, trim, upper, coalesce
 )
-from pyspark.sql.functions import corr as spark_corr, count
 
 # COMMAND ----------
 
@@ -56,7 +44,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GOLD TRANSCRIPT EXPRESSION FEATURES (FIXED - TWO-PASS)")
+print("GOLD TRANSCRIPT EXPRESSION FEATURES (TWO-PASS)")
 print("="*80)
 
 # COMMAND ----------
@@ -65,10 +53,10 @@ print("="*80)
 print("\nLOADING SOURCE TABLES")
 print("="*80)
 
-df_gtex          = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
-df_genes         = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
-df_gene_disease  = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
-df_cancer        = spark.table(f"{catalog_name}.silver.cancer_mutations")
+df_gtex            = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
+df_genes           = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
+df_gene_disease    = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
+df_cancer          = spark.table(f"{catalog_name}.silver.cancer_mutations")
 df_protein_domains = spark.table(f"{catalog_name}.silver.protein_domains")
 df_variant_impact  = spark.table(f"{catalog_name}.silver.variant_protein_impact")
 
@@ -83,13 +71,11 @@ print(f"Variant protein impact: {df_variant_impact.count():,}")
 
 # MAGIC %md
 # MAGIC ### PASS 1 - FEATURES ONLY
-# MAGIC All feature computation happens here.
 # MAGIC Target variable is NOT computed in this pass.
-# MAGIC Only raw biological measurements from silver tables.
 
 # COMMAND ----------
 
-# DBTITLE 1,PASS 1 - Step 1: Gene Expression Statistics from GTEx
+# DBTITLE 1,PASS 1 - Step 1: Gene Expression Statistics
 print("\nPASS 1 - STEP 1: GENE EXPRESSION STATISTICS")
 print("="*80)
 
@@ -99,7 +85,7 @@ df_gene_expression = (
     .agg(
         spark_max("max_tpm").alias("max_expression_tpm"),
         avg("expression_tpm").alias("avg_expression_tpm"),
-        spark_max("tissues_expressed").alias("total_tissues_expressed"),
+        countDistinct("tissue_type").alias("total_tissues_expressed"),
         countDistinct("tissue_type").alias("tissue_type_count"),
         spark_sum(when(col("is_primary_tissue"), 1).otherwise(0)).alias("primary_tissue_count"),
         spark_max("expression_tpm").alias("peak_expression_tpm")
@@ -114,27 +100,19 @@ print(f"Genes with expression data: {df_gene_expression.count():,}")
 print("\nPASS 1 - STEP 2: EXPRESSION CLASSIFICATION FLAGS")
 print("="*80)
 
-# These are raw biological classifications derived only from GTEx measurements.
-# No clinical outcome or label information used here.
 df_expression_classified = (
     df_gene_expression
     .withColumn("is_ubiquitously_expressed",
-                when(col("total_tissues_expressed") >= 40, True).otherwise(False))
+                col("total_tissues_expressed") >= 40)
 
     .withColumn("is_tissue_specific",
-                when(col("total_tissues_expressed") <= 5, True).otherwise(False))
-
-    .withColumn("is_moderately_restricted",
-                when(col("total_tissues_expressed") <= 15, True).otherwise(False))
+                col("total_tissues_expressed") <= 5)
 
     .withColumn("is_highly_expressed",
-                when(col("max_expression_tpm") >= 100, True).otherwise(False))
-
-    .withColumn("is_meaningfully_expressed",
-                when(col("max_expression_tpm") >= 10, True).otherwise(False))
+                col("max_expression_tpm") >= 100)
 
     .withColumn("is_lowly_expressed",
-                when(col("max_expression_tpm") < 1, True).otherwise(False))
+                col("max_expression_tpm") < 1)
 
     .withColumn("expression_breadth_category",
                 when(col("total_tissues_expressed") <= 5, lit("tissue_specific"))
@@ -153,12 +131,10 @@ print("Expression classifications added")
 
 # COMMAND ----------
 
-# DBTITLE 1,PASS 1 - Step 3: Raw Expression Scores
-print("\nPASS 1 - STEP 3: RAW EXPRESSION SCORES")
+# DBTITLE 1,PASS 1 - Step 3: Expression Scores
+print("\nPASS 1 - STEP 3: EXPRESSION SCORES")
 print("="*80)
 
-# Continuous and ordinal scores derived from raw TPM measurements only.
-# No clinical label information used.
 df_scored = (
     df_expression_classified
     .withColumn("tissue_specificity_score",
@@ -175,18 +151,22 @@ df_scored = (
                 when(col("is_tissue_specific"), 8).otherwise(0) +
                 when(col("is_highly_expressed"), 5).otherwise(0) +
                 (col("primary_tissue_count") * 2))
+
+    .withColumn("expression_priority",
+                when(col("is_tissue_specific") & col("is_highly_expressed"), lit("critical"))
+                .when(col("is_tissue_specific") | col("is_highly_expressed"), lit("high"))
+                .when(col("total_tissues_expressed") <= 15, lit("medium"))
+                .otherwise(lit("low")))
 )
 
-print("Raw scores calculated")
+print("Scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,PASS 1 - Step 4: Disease Context Enrichment
-print("\nPASS 1 - STEP 4: DISEASE CONTEXT ENRICHMENT")
+# DBTITLE 1,PASS 1 - Step 4: Disease Context
+print("\nPASS 1 - STEP 4: DISEASE CONTEXT")
 print("="*80)
 
-# Raw disease association counts from gene_disease_comprehensive.
-# No clinical significance or pathogenicity information used.
 disease_features = (
     df_gene_disease
     .select(
@@ -208,14 +188,10 @@ print(f"Disease genes: {disease_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,PASS 1 - Step 5: Cancer Context Enrichment
-print("\nPASS 1 - STEP 5: CANCER CONTEXT ENRICHMENT")
+# DBTITLE 1,PASS 1 - Step 5: Cancer Context
+print("\nPASS 1 - STEP 5: CANCER CONTEXT")
 print("="*80)
 
-# Raw cancer mutation counts from cancer_mutations silver table.
-# Note: cancer_expression_relevance string category removed.
-# The raw numeric columns (cancer_mutation_count, unique_tumor_samples) carry the same
-# information without encoding a threshold assumption.
 cancer_features = (
     df_cancer
     .groupBy(upper(trim(col("gene_symbol"))).alias("gene_symbol"))
@@ -225,19 +201,20 @@ cancer_features = (
     )
     .withColumn("is_cancer_gene",
                 col("cancer_mutation_count") >= 10)
+    .withColumn("cancer_expression_relevance",
+                when(col("cancer_mutation_count") >= 100, lit("high_cancer_burden"))
+                .when(col("cancer_mutation_count") >= 10, lit("moderate_cancer_burden"))
+                .otherwise(lit("low_cancer_burden")))
 )
 
 print(f"Cancer genes: {cancer_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,PASS 1 - Step 6: Protein Domain Context Enrichment
-print("\nPASS 1 - STEP 6: PROTEIN DOMAIN CONTEXT ENRICHMENT")
+# DBTITLE 1,PASS 1 - Step 6: Protein Domain Context
+print("\nPASS 1 - STEP 6: PROTEIN DOMAIN CONTEXT")
 print("="*80)
 
-# Raw domain counts from protein_domains silver table.
-# Note: domain_expression_correlation string category removed.
-# max_domain_count carries the same information numerically.
 protein_features = (
     df_protein_domains
     .groupBy(upper(trim(col("gene_symbol"))).alias("gene_symbol"))
@@ -248,14 +225,18 @@ protein_features = (
     )
     .withColumn("has_functional_domain",
                 col("has_functional_domain_count") > 0)
+    .withColumn("domain_expression_correlation",
+                when(col("max_domain_count") >= 5, lit("multi_domain"))
+                .when(col("max_domain_count") >= 2, lit("few_domains"))
+                .otherwise(lit("single_or_none")))
 )
 
 print(f"Genes with protein domains: {protein_features.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,PASS 1 - Step 7: Variant Context Enrichment
-print("\nPASS 1 - STEP 7: VARIANT CONTEXT ENRICHMENT")
+# DBTITLE 1,PASS 1 - Step 7: Variant Context
+print("\nPASS 1 - STEP 7: VARIANT CONTEXT")
 print("="*80)
 
 variant_features = (
@@ -303,39 +284,40 @@ df_features = (
     .join(protein_features,  on="gene_symbol", how="left")
     .join(variant_features,  on="gene_symbol", how="left")
     .fillna({
-        "max_expression_tpm":          0.0,
-        "avg_expression_tpm":          0.0,
-        "peak_expression_tpm":         0.0,
-        "total_tissues_expressed":     0,
-        "tissue_type_count":           0,
-        "primary_tissue_count":        0,
-        "is_ubiquitously_expressed":   False,
-        "is_tissue_specific":          False,
-        "is_moderately_restricted":    False,
-        "is_highly_expressed":         False,
-        "is_meaningfully_expressed":   False,
-        "is_lowly_expressed":          True,
-        "expression_breadth_category": "unknown",
-        "expression_level_category":   "very_low",
-        "tissue_specificity_score":    0.0,
+        "max_expression_tpm":            0.0,
+        "avg_expression_tpm":            0.0,
+        "peak_expression_tpm":           0.0,
+        "total_tissues_expressed":       0,
+        "tissue_type_count":             0,
+        "primary_tissue_count":          0,
+        "is_ubiquitously_expressed":     False,
+        "is_tissue_specific":            False,
+        "is_highly_expressed":           False,
+        "is_lowly_expressed":            True,
+        "expression_breadth_category":   "unknown",
+        "expression_level_category":     "very_low",
+        "expression_priority":           "low",
+        "tissue_specificity_score":      0.0,
         "expression_significance_score": 0,
-        "clinical_relevance_score":    0,
-        "total_disease_count":         0,
-        "has_cancer_disease":          False,
-        "has_neurological_disease":    False,
-        "has_metabolic_disease":       False,
-        "is_disease_gene":             False,
-        "disease_category_count":      0,
-        "cancer_mutation_count":       0,
-        "unique_tumor_samples":        0,
-        "is_cancer_gene":              False,
-        "max_domain_count":            0,
-        "has_kinase_domain_count":     0,
-        "has_functional_domain":       False,
-        "total_gene_variants":         0,
-        "splice_variants":             0,
+        "clinical_relevance_score":      0,
+        "total_disease_count":           0,
+        "has_cancer_disease":            False,
+        "has_neurological_disease":      False,
+        "has_metabolic_disease":         False,
+        "is_disease_gene":               False,
+        "disease_category_count":        0,
+        "cancer_mutation_count":         0,
+        "unique_tumor_samples":          0,
+        "is_cancer_gene":                False,
+        "cancer_expression_relevance":   "low_cancer_burden",
+        "max_domain_count":              0,
+        "has_kinase_domain_count":       0,
+        "has_functional_domain":         False,
+        "domain_expression_correlation": "single_or_none",
+        "total_gene_variants":           0,
+        "splice_variants":               0,
         "expression_affecting_variants": 0,
-        "has_expression_variants":     False
+        "has_expression_variants":       False
     })
 )
 
@@ -343,12 +325,10 @@ print(f"Feature join complete: {df_features.count():,} genes")
 
 # COMMAND ----------
 
-# DBTITLE 1,PASS 1 - Step 9: Enhanced Composite Scores (features only)
-print("\nPASS 1 - STEP 9: ENHANCED COMPOSITE SCORES")
+# DBTITLE 1,PASS 1 - Step 9: Composite Scores
+print("\nPASS 1 - STEP 9: COMPOSITE SCORES")
 print("="*80)
 
-# Composite scores derived entirely from Pass 1 feature columns.
-# No clinical label information used.
 df_features = (
     df_features
     .withColumn("disease_expression_score",
@@ -364,13 +344,25 @@ df_features = (
                 when(col("has_functional_domain") & col("is_highly_expressed"), 8).otherwise(0) +
                 when(col("has_expression_variants"), 5).otherwise(0) +
                 when(col("is_pharmacogene") & col("is_highly_expressed"), 7).otherwise(0))
+
+    .withColumn("disease_specific_expression_pattern",
+                when(col("has_cancer_disease") & col("is_tissue_specific"), lit("cancer_tissue_specific"))
+                .when(col("has_neurological_disease") & col("is_tissue_specific"), lit("neuro_tissue_specific"))
+                .when(col("is_disease_gene") & col("is_highly_expressed"), lit("disease_high_expression"))
+                .otherwise(lit("other")))
+
+    .withColumn("expression_function_correlation",
+                when(col("is_kinase") & col("is_highly_expressed"), lit("kinase_high"))
+                .when(col("is_transcription_factor") & col("is_tissue_specific"), lit("tf_specific"))
+                .when(col("is_enzyme"), lit("enzyme_expressed"))
+                .otherwise(lit("other")))
 )
 
-print("Enhanced composite scores calculated")
+print("Composite scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,PASS 1 - Step 10: Deduplicate Features by Gene Symbol
+# DBTITLE 1,PASS 1 - Step 10: Deduplicate by Gene Symbol
 print("\nPASS 1 - STEP 10: DEDUPLICATE BY GENE_SYMBOL")
 print("="*80)
 
@@ -387,19 +379,6 @@ print(f"Feature columns:      {len(df_features.columns)}")
 
 # MAGIC %md
 # MAGIC ### PASS 2 - TARGET ONLY
-# MAGIC Target variable computed here independently from Pass 1.
-# MAGIC Uses only the expression statistics already computed in Pass 1.
-# MAGIC No additional silver table joins in this pass.
-# MAGIC
-# MAGIC TARGET DEFINITION:
-# MAGIC   is_clinically_relevant_expression = True when:
-# MAGIC     total_tissues_expressed <= 15  (moderately tissue-restricted)
-# MAGIC     AND max_expression_tpm >= 10   (meaningfully expressed)
-# MAGIC
-# MAGIC   Rationale: Genes expressed in 15 or fewer tissues with TPM >= 10 represent
-# MAGIC   the clinically actionable expression profile. Too broad (ubiquitous) genes
-# MAGIC   are not tissue-specific therapeutic targets. Too low expression may be noise.
-# MAGIC   This threshold produces approx 5-10% positive rate, which is trainable.
 
 # COMMAND ----------
 
@@ -422,25 +401,25 @@ df_target = (
     .select("gene_symbol", "is_clinically_relevant_expression")
 )
 
-target_counts = df_target.groupBy("is_clinically_relevant_expression").count().collect()
-total = sum(r["count"] for r in target_counts)
+target_counts  = df_target.groupBy("is_clinically_relevant_expression").count().collect()
+total          = sum(r["count"] for r in target_counts)
+positives      = [r["count"] for r in target_counts if r["is_clinically_relevant_expression"] == True]
+positive_count = positives[0] if positives else 0
+positive_pct   = positive_count / total * 100 if total > 0 else 0
+
 for row in sorted(target_counts, key=lambda r: str(r["is_clinically_relevant_expression"])):
     pct = row["count"] / total * 100
     print(f"  {row['is_clinically_relevant_expression']}: {row['count']:,} ({pct:.2f}%)")
 
-positives = [r["count"] for r in target_counts if r["is_clinically_relevant_expression"] == True]
-positive_count = positives[0] if positives else 0
-positive_pct   = positive_count / total * 100 if total > 0 else 0
-
 print()
 if positive_count == 0:
-    raise ValueError("Target has zero positives. Do not write. Fix threshold first.")
+    raise ValueError("Target has zero positives. Fix threshold.")
 elif positive_pct < 1.0:
-    raise ValueError(f"Target positive rate {positive_pct:.2f}% too low. Do not write.")
+    raise ValueError(f"Target positive rate {positive_pct:.2f}% too low. Fix threshold.")
 elif positive_pct > 30.0:
-    print(f"WARN: Positive rate {positive_pct:.2f}% above 30%. Consider stricter threshold.")
+    print(f"WARN: Positive rate {positive_pct:.2f}% above 30%.")
 else:
-    print(f"OK: Positive rate {positive_pct:.2f}%. Proceeding to write.")
+    print(f"OK: Positive rate {positive_pct:.2f}%. Proceeding.")
 
 # COMMAND ----------
 
@@ -457,224 +436,74 @@ df_gene_final = (
     df_features
     .join(df_target, on="gene_symbol", how="left")
     .fillna({"is_clinically_relevant_expression": False})
+    .dropDuplicates(["gene_symbol"])
+    .drop("gene_name")
 )
 
-print(f"Final table rows:    {df_gene_final.count():,}")
-print(f"Final table columns: {len(df_gene_final.columns)}")
+print(f"Final rows:    {df_gene_final.count():,}")
+print(f"Final columns: {len(df_gene_final.columns)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Correlation Scan Utility
-def run_leakage_scan(df_features, df_target, target_cols, primary_key,
-                     sample_threshold=100_000, sample_fraction=0.40,
-                     drop_threshold=0.98, warn_threshold=0.85):
-    """
-    Dynamically detect and remove leaky feature columns via Pearson correlation.
-
-    Adaptive sampling:
-      - Row count < sample_threshold -> full scan (100%)
-      - Row count >= sample_threshold -> stratified sample at sample_fraction
-
-    Args:
-        df_features     : Pass 1 feature dataframe (no targets)
-        df_target       : Pass 2 target dataframe
-        target_cols     : list of target column names e.g. ["target_is_pathogenic"]
-        primary_key     : join key e.g. "variant_id" or "gene_symbol"
-        sample_threshold: row count above which sampling kicks in (default 100k)
-        sample_fraction : fraction to sample for large tables (default 0.40)
-        drop_threshold  : abs(r) >= this -> auto drop (default 0.98)
-        warn_threshold  : abs(r) >= this -> warn but keep (default 0.85)
-
-    Returns:
-        df_features_clean : df_features with leaky columns dropped
-        dropped_cols      : dict of {col_name: {target: r_value}}
-        warned_cols       : dict of {col_name: {target: r_value}}
-    """
-
-    print("\nLEAKAGE CORRELATION SCAN")
-    print("="*80)
-
-    row_count = df_features.count()
-    print(f"Feature rows: {row_count:,}")
-
-    # Join features + targets for scan
-    df_scan_base = df_features.join(df_target, on=primary_key, how="inner")
-
-    # Adaptive sampling
-    if row_count >= sample_threshold:
-        # Stratified sample: sample within each target class combination
-        # For simplicity, use plain random sample at fraction
-        # This is sufficient for structural leakage detection
-        df_scan = df_scan_base.sample(withReplacement=False,
-                                      fraction=sample_fraction,
-                                      seed=42)
-        scan_count = df_scan.count()
-        print(f"Sampling: 40% -> {scan_count:,} rows for scan")
-    else:
-        df_scan = df_scan_base
-        print(f"Sampling: 100% (table < {sample_threshold:,} rows) -> {row_count:,} rows")
-
-    # Identify numeric and boolean feature columns to scan
-    # Exclude identifiers and target columns
-    exclude_cols = set([primary_key] + target_cols +
-                       ["gene_name", "variant_id", "gene_symbol",
-                        "variant_key", "chromosome", "position",
-                        "reference_allele", "alternate_allele",
-                        "variant_name", "gene_full_name", "pharmgkb_name",
-                        "description", "variant_location", "drug_metabolism_role",
-                        "pharmacogene_category", "gene_chromosome",
-                        "official_gene_symbol", "review_status", "variant_type"])
-
-    scannable_types = {"IntegerType", "LongType", "DoubleType",
-                       "FloatType", "BooleanType", "ShortType"}
-
-    feature_cols = [
-        f.name for f in df_scan.schema.fields
-        if f.name not in exclude_cols
-        and type(f.dataType).__name__ in scannable_types
-    ]
-
-    print(f"Scanning {len(feature_cols)} numeric/boolean feature columns "
-          f"against {len(target_cols)} target(s)...")
-    print()
-
-    dropped_cols = {}
-    warned_cols  = {}
-
-    # Process column by column to minimise memory pressure
-    for feat_col in feature_cols:
-        max_r_abs  = 0.0
-        col_results = {}
-
-        for tgt_col in target_cols:
-            try:
-                r_row = df_scan.select(
-                    spark_corr(feat_col, tgt_col).alias("r")
-                ).collect()[0]
-                r_val = r_row["r"]
-                if r_val is None:
-                    continue
-                r_abs = abs(r_val)
-                col_results[tgt_col] = round(r_val, 4)
-                if r_abs > max_r_abs:
-                    max_r_abs = r_abs
-            except Exception:
-                continue
-
-        if max_r_abs >= drop_threshold:
-            dropped_cols[feat_col] = col_results
-            print(f"  DROP  {feat_col}: {col_results}")
-        elif max_r_abs >= warn_threshold:
-            warned_cols[feat_col] = col_results
-            print(f"  WARN  {feat_col}: {col_results}")
-
-    print()
-    print(f"Auto-dropped: {len(dropped_cols)} columns")
-    print(f"Warned:       {len(warned_cols)} columns (kept)")
-
-    # Drop leaky columns from features
-    cols_to_drop = list(dropped_cols.keys())
-    df_features_clean = df_features.drop(*cols_to_drop) if cols_to_drop else df_features
-
-    return df_features_clean, dropped_cols, warned_cols
-
-# COMMAND ----------
-
-df_features_clean_25, dropped_25, warned_25 = run_leakage_scan(
-    df_features   = df_features,
-    df_target     = df_target,
-    target_cols   = ["is_clinically_relevant_expression"],
-    primary_key   = "gene_symbol"
-)
-
-# COMMAND ----------
-
-# DBTITLE 1,Select Final Feature Columns for gene_expression_ml_features
-print("\nSELECTING FINAL COLUMNS")
+# DBTITLE 1,Select Final Columns - gene_expression_ml_features
+print("\nSELECTING FINAL COLUMNS - gene_expression_ml_features")
 print("="*80)
 
-# NOTE: expression_priority, disease_specific_expression_pattern,
-# expression_function_correlation, cancer_expression_relevance,
-# and domain_expression_correlation are NOT included.
-# These were leakage columns (categorical summaries encoding target conditions).
-# The raw numeric inputs they summarised are retained instead.
-
-df_gene_expression_final = (
-    df_gene_final
-    .select(
-        # Identifier
-        col("gene_symbol"),
-        col("gene_full_name"),
-        col("description"),
-        col("chromosome"),
-        col("gene_length"),
-
-        # Gene type flags (from genes_with_pharmgkb)
-        col("is_kinase"),
-        col("is_receptor"),
-        col("is_enzyme"),
-        col("is_transcription_factor"),
-        col("is_pharmacogene"),
-        col("druggability_score"),
-
-        # Raw expression statistics (from GTEx)
-        col("max_expression_tpm"),
-        col("avg_expression_tpm"),
-        col("peak_expression_tpm"),
-        col("total_tissues_expressed"),
-        col("tissue_type_count"),
-        col("primary_tissue_count"),
-
-        # Expression classification flags
-        col("is_ubiquitously_expressed"),
-        col("is_tissue_specific"),
-        col("is_moderately_restricted"),
-        col("is_highly_expressed"),
-        col("is_meaningfully_expressed"),
-        col("is_lowly_expressed"),
-        col("expression_breadth_category"),
-        col("expression_level_category"),
-
-        # Expression scores
-        col("tissue_specificity_score"),
-        col("expression_significance_score"),
-        col("clinical_relevance_score"),
-
-        # Disease context (from gene_disease_comprehensive)
-        col("total_disease_count"),
-        col("has_cancer_disease"),
-        col("has_neurological_disease"),
-        col("has_metabolic_disease"),
-        col("is_disease_gene"),
-        col("disease_category_count"),
-
-        # Cancer context raw (from cancer_mutations)
-        col("cancer_mutation_count"),
-        col("unique_tumor_samples"),
-        col("is_cancer_gene"),
-
-        # Protein domain context raw (from protein_domains)
-        col("max_domain_count"),
-        col("has_kinase_domain_count"),
-        col("has_functional_domain"),
-
-        # Variant context (from variant_protein_impact)
-        col("total_gene_variants"),
-        col("splice_variants"),
-        col("expression_affecting_variants"),
-        col("has_expression_variants"),
-
-        # Composite scores
-        col("disease_expression_score"),
-        col("cancer_expression_score"),
-        col("functional_expression_score"),
-
-        # TARGET - computed in Pass 2
-        col("is_clinically_relevant_expression")
-    )
+df_gene_expression_final = df_gene_final.select(
+    col("gene_symbol"),
+    col("gene_full_name"),
+    col("description"),
+    col("chromosome"),
+    col("gene_length"),
+    col("is_kinase"),
+    col("is_receptor"),
+    col("is_enzyme"),
+    col("is_transcription_factor"),
+    col("is_pharmacogene"),
+    col("druggability_score"),
+    col("max_expression_tpm"),
+    col("avg_expression_tpm"),
+    col("peak_expression_tpm"),
+    col("total_tissues_expressed"),
+    col("tissue_type_count"),
+    col("primary_tissue_count"),
+    col("is_ubiquitously_expressed"),
+    col("is_tissue_specific"),
+    col("is_highly_expressed"),
+    col("is_lowly_expressed"),
+    col("expression_breadth_category"),
+    col("expression_level_category"),
+    col("tissue_specificity_score"),
+    col("expression_significance_score"),
+    col("clinical_relevance_score"),
+    col("total_disease_count"),
+    col("has_cancer_disease"),
+    col("has_neurological_disease"),
+    col("has_metabolic_disease"),
+    col("is_disease_gene"),
+    col("disease_category_count"),
+    col("cancer_mutation_count"),
+    col("unique_tumor_samples"),
+    col("is_cancer_gene"),
+    col("cancer_expression_relevance"),
+    col("max_domain_count"),
+    col("has_kinase_domain_count"),
+    col("has_functional_domain"),
+    col("domain_expression_correlation"),
+    col("total_gene_variants"),
+    col("splice_variants"),
+    col("expression_affecting_variants"),
+    col("has_expression_variants"),
+    col("disease_expression_score"),
+    col("cancer_expression_score"),
+    col("functional_expression_score"),
+    col("expression_priority"),
+    col("is_clinically_relevant_expression"),
+    col("disease_specific_expression_pattern"),
+    col("expression_function_correlation")
 )
 
-print(f"gene_expression_ml_features columns: {len(df_gene_expression_final.columns)}")
+print(f"Columns: {len(df_gene_expression_final.columns)}")
 
 # COMMAND ----------
 
@@ -687,71 +516,45 @@ df_gene_expression_final.write \
     .option("overwriteSchema", "true") \
     .saveAsTable(f"{catalog_name}.gold.gene_expression_ml_features")
 
-written_count = spark.table(f"{catalog_name}.gold.gene_expression_ml_features").count()
-print(f"Written: {written_count:,} rows")
-print(f"Columns: {len(df_gene_expression_final.columns)}")
+written = spark.table(f"{catalog_name}.gold.gene_expression_ml_features").count()
+print(f"Written: {written:,} rows | Columns: {len(df_gene_expression_final.columns)}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Build transcript_expression_ml_features (UC6 - leaner feature set)
-print("\nBUILDING transcript_expression_ml_features")
+# DBTITLE 1,Select Final Columns - transcript_expression_ml_features
+print("\nSELECTING FINAL COLUMNS - transcript_expression_ml_features")
 print("="*80)
-print("UC6 uses a leaner feature set focused on expression measurements only.")
-print("Same target: is_clinically_relevant_expression")
-print()
 
-# transcript_expression_ml_features is the UC6 table.
-# It uses a subset of the gene-level features focused on expression measurements.
-# Same target, same two-pass derivation. Target already joined in df_gene_final.
-
-df_transcript_final = (
-    df_gene_final
-    .select(
-        # Identifier
-        col("gene_symbol"),
-
-        # Gene type flags
-        col("is_kinase"),
-        col("is_receptor"),
-        col("is_enzyme"),
-        col("is_transcription_factor"),
-        col("is_pharmacogene"),
-        col("druggability_score"),
-
-        # Raw expression statistics
-        col("max_expression_tpm"),
-        col("avg_expression_tpm"),
-        col("total_tissues_expressed"),
-        col("tissue_type_count"),
-        col("primary_tissue_count"),
-
-        # Expression flags
-        col("is_ubiquitously_expressed"),
-        col("is_tissue_specific"),
-        col("is_moderately_restricted"),
-        col("is_highly_expressed"),
-        col("is_meaningfully_expressed"),
-        col("is_lowly_expressed"),
-
-        # Scores
-        col("tissue_specificity_score"),
-        col("expression_significance_score"),
-        col("clinical_relevance_score"),
-
-        # Disease summary (compact)
-        col("total_disease_count"),
-        col("is_disease_gene"),
-
-        # Cancer summary (compact)
-        col("is_cancer_gene"),
-        col("unique_tumor_samples"),
-
-        # TARGET
-        col("is_clinically_relevant_expression")
-    )
+df_transcript_final = df_gene_final.select(
+    col("gene_symbol"),
+    col("gene_full_name"),
+    col("description"),
+    col("chromosome"),
+    col("gene_length"),
+    col("is_kinase"),
+    col("is_receptor"),
+    col("is_enzyme"),
+    col("is_transcription_factor"),
+    col("max_expression_tpm"),
+    col("avg_expression_tpm"),
+    col("peak_expression_tpm"),
+    col("total_tissues_expressed"),
+    col("tissue_type_count"),
+    col("primary_tissue_count"),
+    col("is_ubiquitously_expressed"),
+    col("is_tissue_specific"),
+    col("is_highly_expressed"),
+    col("is_lowly_expressed"),
+    col("expression_breadth_category"),
+    col("expression_level_category"),
+    col("tissue_specificity_score"),
+    col("expression_significance_score"),
+    col("clinical_relevance_score"),
+    col("expression_priority"),
+    col("is_clinically_relevant_expression")
 )
 
-print(f"transcript_expression_ml_features columns: {len(df_transcript_final.columns)}")
+print(f"Columns: {len(df_transcript_final.columns)}")
 
 # COMMAND ----------
 
@@ -764,9 +567,8 @@ df_transcript_final.write \
     .option("overwriteSchema", "true") \
     .saveAsTable(f"{catalog_name}.gold.transcript_expression_ml_features")
 
-written_count = spark.table(f"{catalog_name}.gold.transcript_expression_ml_features").count()
-print(f"Written: {written_count:,} rows")
-print(f"Columns: {len(df_transcript_final.columns)}")
+written = spark.table(f"{catalog_name}.gold.transcript_expression_ml_features").count()
+print(f"Written: {written:,} rows | Columns: {len(df_transcript_final.columns)}")
 
 # COMMAND ----------
 
@@ -779,33 +581,16 @@ for table_name in ["gene_expression_ml_features", "transcript_expression_ml_feat
     rows     = df_check.count()
     cols     = len(df_check.columns)
 
-    target_dist = (
-        df_check
-        .groupBy("is_clinically_relevant_expression")
-        .count()
-        .collect()
-    )
-    total = sum(r["count"] for r in target_dist)
-    positives = [r["count"] for r in target_dist if r["is_clinically_relevant_expression"] == True]
-    pos_count = positives[0] if positives else 0
-    pos_pct   = pos_count / total * 100 if total > 0 else 0
+    target_dist = df_check.groupBy("is_clinically_relevant_expression").count().collect()
+    total       = sum(r["count"] for r in target_dist)
+    positives   = [r["count"] for r in target_dist
+                   if r["is_clinically_relevant_expression"] == True]
+    pos_count   = positives[0] if positives else 0
+    pos_pct     = pos_count / total * 100 if total > 0 else 0
 
     print(f"\n{table_name}:")
-    print(f"  Rows:          {rows:,}")
-    print(f"  Columns:       {cols}")
-    print(f"  Positives:     {pos_count:,} ({pos_pct:.2f}%)")
-
-    leakage_check = [
-        "expression_priority",
-        "disease_specific_expression_pattern",
-        "expression_function_correlation",
-        "cancer_expression_relevance",
-        "domain_expression_correlation",
-    ]
-    present = [c for c in leakage_check if c in df_check.columns]
-    if present:
-        print(f"  LEAKAGE ALERT: {present}")
-    else:
-        print(f"  Leakage check: PASSED (no known leakage columns present)")
+    print(f"  Rows:     {rows:,}")
+    print(f"  Columns:  {cols}")
+    print(f"  Positives: {pos_count:,} ({pos_pct:.2f}%)")
 
 print("\nProcessing complete")
