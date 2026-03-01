@@ -1,26 +1,29 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### FEATURE ENGINEERING - POPULATION FREQUENCY ANALYSIS (FULLY ENHANCED)
+# MAGIC #### FEATURE ENGINEERING - POPULATION FREQUENCY ANALYSIS
 # MAGIC ##### Module: Comprehensive Variant-Level Population Frequency Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**  
-# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **DNA Gene Mapping Project**
+# MAGIC **Author:** Sharique Mohammad
 # MAGIC **Date:** February 22, 2026
-# MAGIC
-# MAGIC **ENHANCED:** Uses all available silver tables for comprehensive population frequency profiling
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 10: Population Carrier Screening
 # MAGIC - Use Case 19: Ancestry-Specific Risk
 # MAGIC
 # MAGIC **Creates:** gold.variant_population_ml_features
+# MAGIC
+# MAGIC **NOTE:** This is a features-only gold table. It has no ML target column.
+# MAGIC It serves as a feature source joined into other ML training tables.
+# MAGIC Two-pass structure is not applicable here.
 
 # COMMAND ----------
 
 # DBTITLE 1,Import Libraries
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    col, count, countDistinct, when, lit, trim, upper, coalesce, concat_ws, sum as spark_sum
+    col, count, countDistinct, when, lit, trim, upper, coalesce,
+    concat_ws, sum as spark_sum
 )
 
 # COMMAND ----------
@@ -30,7 +33,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("GOLD POPULATION FREQUENCY FEATURES (FULLY ENHANCED)")
+print("GOLD POPULATION FREQUENCY FEATURES")
 print("="*80)
 
 # COMMAND ----------
@@ -39,54 +42,51 @@ print("="*80)
 print("\nLOADING SOURCE TABLES")
 print("="*80)
 
-# Core tables
-df_pop_freq = spark.table(f"{catalog_name}.silver.population_frequencies")
-df_variants = spark.table(f"{catalog_name}.silver.variants_ultra_enriched")
-
-# Additional enrichment tables
+df_pop_freq       = spark.table(f"{catalog_name}.silver.population_frequencies")
+df_variants       = spark.table(f"{catalog_name}.silver.variants_ultra_enriched")
 df_variant_impact = spark.table(f"{catalog_name}.silver.variant_protein_impact")
-df_gene_disease = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
-df_cancer = spark.table(f"{catalog_name}.silver.cancer_mutations")
-df_gtex = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
-df_genes = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
+df_gene_disease   = spark.table(f"{catalog_name}.silver.gene_disease_comprehensive")
+df_cancer         = spark.table(f"{catalog_name}.silver.cancer_mutations")
+df_gtex           = spark.table(f"{catalog_name}.silver.gtex_tissue_expression")
+df_genes          = spark.table(f"{catalog_name}.silver.genes_with_pharmgkb")
 
 print(f"Population frequencies: {df_pop_freq.count():,}")
-print(f"Variants: {df_variants.count():,}")
+print(f"Variants:               {df_variants.count():,}")
 print(f"Variant protein impact: {df_variant_impact.count():,}")
-print(f"Gene-disease: {df_gene_disease.count():,}")
-print(f"Cancer mutations: {df_cancer.count():,}")
-print(f"GTEx expression: {df_gtex.count():,}")
-print(f"Genes (enriched): {df_genes.count():,}")
+print(f"Gene-disease:           {df_gene_disease.count():,}")
+print(f"Cancer mutations:       {df_cancer.count():,}")
+print(f"GTEx expression:        {df_gtex.count():,}")
+print(f"Genes (enriched):       {df_genes.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Frequency Classification
-print("\nADDING FREQUENCY CLASSIFICATION")
+# DBTITLE 1,Step 1: Frequency Classification
+print("\nSTEP 1: FREQUENCY CLASSIFICATION")
 print("="*80)
 
 df_classified = (
     df_pop_freq
     .withColumn("allele_frequency",
                 coalesce(col("allele_frequency_global"), lit(0.0)))
-    
+
     .withColumn("is_ultra_rare_variant",
                 when(col("allele_frequency") < 0.0001, True).otherwise(False))
-    
+
     .withColumn("is_very_rare_variant",
-                when((col("allele_frequency") >= 0.0001) & 
+                when((col("allele_frequency") >= 0.0001) &
                      (col("allele_frequency") < 0.001), True).otherwise(False))
-    
+
     .withColumn("is_rare_variant",
-                when((col("allele_frequency") >= 0.001) & 
+                when((col("allele_frequency") >= 0.001) &
                      (col("allele_frequency") < 0.01), True).otherwise(False))
-    
+
     .withColumn("is_low_frequency_variant",
-                when((col("allele_frequency") >= 0.01) & 
+                when((col("allele_frequency") >= 0.01) &
                      (col("allele_frequency") < 0.05), True).otherwise(False))
-    
+
     .withColumn("is_common_variant",
                 when(col("allele_frequency") >= 0.05, True).otherwise(False))
-    
+
     .withColumn("frequency_tier",
                 when(col("allele_frequency") < 0.0001, lit("ultra_rare"))
                 .when(col("allele_frequency") < 0.001, lit("very_rare"))
@@ -99,8 +99,8 @@ print("Frequency classification added")
 
 # COMMAND ----------
 
-# DBTITLE 1,Calculate Rarity Scores
-print("\nCALCULATING RARITY SCORES")
+# DBTITLE 1,Step 2: Rarity Scores
+print("\nSTEP 2: RARITY SCORES")
 print("="*80)
 
 df_scored = (
@@ -111,13 +111,13 @@ df_scored = (
                 .when(col("allele_frequency") < 0.01, 6)
                 .when(col("allele_frequency") < 0.05, 4)
                 .otherwise(2))
-    
+
     .withColumn("carrier_risk_score",
-                when((col("is_ultra_rare_variant")) | (col("is_very_rare_variant")), 10)
+                when(col("is_ultra_rare_variant") | col("is_very_rare_variant"), 10)
                 .when(col("is_rare_variant"), 7)
                 .when(col("is_low_frequency_variant"), 5)
                 .otherwise(2))
-    
+
     .withColumn("pathogenicity_likelihood_score",
                 when(col("is_ultra_rare_variant"), 9)
                 .when(col("is_very_rare_variant"), 7)
@@ -130,16 +130,17 @@ print("Rarity scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Join with Variant Clinical Data
-print("\nJOINING WITH VARIANT CLINICAL DATA")
+# DBTITLE 1,Step 3: Join with Variant Clinical Data
+print("\nSTEP 3: JOINING WITH VARIANT CLINICAL DATA")
 print("="*80)
 
-df_with_variants = (
+df_enriched = (
     df_scored
     .join(
         df_variants.select(
             col("variant_id"),
             upper(trim(col("gene_name"))).alias("gene_symbol"),
+            col("gene_name"),
             col("clinical_significance_simple"),
             col("is_pathogenic"),
             col("is_benign"),
@@ -152,12 +153,12 @@ df_with_variants = (
     )
 )
 
-print(f"Variants with population frequency: {df_with_variants.count():,}")
+print(f"Variants with population frequency: {df_enriched.count():,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Pathogenicity for Frequency Correlation
-print("\nENRICHING WITH PATHOGENICITY")
+# DBTITLE 1,Step 4: Pathogenicity Context
+print("\nSTEP 4: PATHOGENICITY CONTEXT")
 print("="*80)
 
 pathogenicity_context = (
@@ -171,23 +172,22 @@ pathogenicity_context = (
     )
 )
 
-df_with_variants = (
-    df_with_variants
+df_enriched = (
+    df_enriched
     .join(pathogenicity_context, "variant_id", "left")
     .fillna({
-        "clinvar_pathogenic": False,
-        "clinvar_benign": False,
+        "clinvar_pathogenic":  False,
+        "clinvar_benign":      False,
         "pathogenicity_score": 0,
-        "conservation_level": 0
+        "conservation_level":  0
     })
-    
-    # Pathogenicity-frequency conflict detection
+
     .withColumn("pathogenicity_frequency_conflict",
                 col("is_common_variant") & col("clinvar_pathogenic"))
-    
+
     .withColumn("rare_pathogenic_variant",
                 (col("is_rare_variant") | col("is_ultra_rare_variant")) & col("clinvar_pathogenic"))
-    
+
     .withColumn("common_benign_validation",
                 col("is_common_variant") & col("clinvar_benign"))
 )
@@ -196,11 +196,10 @@ print("Pathogenicity enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Gene Context
-print("\nENRICHING WITH GENE CONTEXT")
+# DBTITLE 1,Step 5: Gene Constraint Context
+print("\nSTEP 5: GENE CONSTRAINT CONTEXT")
 print("="*80)
 
-# Gene-level variant tolerance
 gene_variant_tolerance = (
     df_variant_impact
     .groupBy(upper(trim(col("gene_name"))).alias("gene_symbol"))
@@ -217,23 +216,23 @@ gene_variant_tolerance = (
                 100.0 / (col("lof_variants") + 1))
 )
 
-df_with_variants = (
-    df_with_variants
+df_enriched = (
+    df_enriched
     .join(gene_variant_tolerance, "gene_symbol", "left")
     .fillna({
-        "total_gene_variants": 0,
-        "lof_variants": 0,
+        "total_gene_variants":    0,
+        "lof_variants":           0,
         "gene_mutation_tolerance": "Unknown",
-        "gene_constraint_score": 0.0
+        "gene_constraint_score":  0.0
     })
 )
 
-print("Gene context enrichment complete")
+print("Gene constraint enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Disease Context (Disease Prevalence)
-print("\nENRICHING WITH DISEASE CONTEXT")
+# DBTITLE 1,Step 6: Disease Context
+print("\nSTEP 6: DISEASE CONTEXT")
 print("="*80)
 
 disease_frequency = (
@@ -249,14 +248,14 @@ disease_frequency = (
                 .otherwise(lit("No_Disease")))
 )
 
-df_with_variants = (
-    df_with_variants
+df_enriched = (
+    df_enriched
     .join(disease_frequency, "gene_symbol", "left")
     .fillna({
-        "total_disease_count": 0,
+        "total_disease_count":    0,
         "disease_allele_frequency": "No_Disease"
     })
-    
+
     .withColumn("carrier_frequency_by_disease",
                 when(col("rare_pathogenic_variant") & (col("total_disease_count") >= 5),
                      lit("High_Risk_Carrier"))
@@ -269,11 +268,10 @@ print("Disease context enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Cancer Context (Somatic Frequency)
-print("\nENRICHING WITH CANCER CONTEXT")
+# DBTITLE 1,Step 7: Cancer Context
+print("\nSTEP 7: CANCER CONTEXT")
 print("="*80)
 
-# Check if variant appears in cancer mutations (somatic)
 cancer_frequency = (
     df_cancer
     .withColumn("cancer_variant_key",
@@ -285,23 +283,23 @@ cancer_frequency = (
     )
 )
 
-df_with_variants = (
-    df_with_variants
+df_enriched = (
+    df_enriched
     .withColumn("variant_key",
                 concat_ws(":", col("chromosome"), col("position"),
                          col("reference_allele"), col("alternate_allele")))
     .join(
         cancer_frequency.select(
             col("cancer_variant_key").alias("variant_key"),
-            "somatic_frequency"
+            col("somatic_frequency")
         ),
         "variant_key",
         "left"
     )
     .fillna({"somatic_frequency": 0})
-    
+
     .withColumn("germline_cancer_predisposition",
-                (col("is_rare_variant") | col("is_ultra_rare_variant")) & 
+                (col("is_rare_variant") | col("is_ultra_rare_variant")) &
                 (col("somatic_frequency") > 0))
 )
 
@@ -309,8 +307,8 @@ print("Cancer context enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Enrich with Expression Context
-print("\nENRICHING WITH EXPRESSION CONTEXT")
+# DBTITLE 1,Step 8: Expression Context
+print("\nSTEP 8: EXPRESSION CONTEXT")
 print("="*80)
 
 expression_frequency = (
@@ -326,43 +324,44 @@ expression_frequency = (
                 .otherwise(lit("Tissue_Specific_Expression")))
 )
 
-df_with_variants = (
-    df_with_variants
-    .join(expression_frequency, col("gene_symbol") == expression_frequency["gene_name"], "left")
+df_enriched = (
+    df_enriched
+    .join(expression_frequency,
+          col("gene_symbol") == expression_frequency["gene_name"], "left")
     .drop(expression_frequency["gene_name"])
     .fillna({
-        "expression_tissues": 0,
+        "expression_tissues":               0,
         "expression_frequency_correlation": "Unknown"
     })
-    
+
     .withColumn("tissue_specific_allele_effects",
                 col("expression_frequency_correlation") == "Tissue_Specific_Expression")
 )
 
-print(f"Count frequency: {df_with_variants.count():,}")
+print(f"Enriched count: {df_enriched.count():,}")
 print("Expression context enrichment complete")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Clinical Actionability Classification
-print("\nADDING CLINICAL ACTIONABILITY CLASSIFICATION")
+# DBTITLE 1,Step 9: Clinical Actionability
+print("\nSTEP 9: CLINICAL ACTIONABILITY")
 print("="*80)
 
-df_priority = (
-    df_with_variants
+df_enriched = (
+    df_enriched
     .withColumn("is_clinically_actionable_rare_variant",
-                when((col("is_rare_variant") | col("is_ultra_rare_variant")) & 
-                     (col("is_pathogenic")), True).otherwise(False))
-    
+                when((col("is_rare_variant") | col("is_ultra_rare_variant")) &
+                     col("is_pathogenic"), True).otherwise(False))
+
     .withColumn("is_carrier_screening_candidate",
-                when((col("is_rare_variant")) & 
-                     (col("is_germline")), True).otherwise(False))
-    
+                when(col("is_rare_variant") &
+                     col("is_germline"), True).otherwise(False))
+
     .withColumn("population_priority",
                 when(col("is_clinically_actionable_rare_variant"), lit("high"))
-                .when((col("is_rare_variant")) & (col("is_vus")), lit("medium"))
+                .when(col("is_rare_variant") & col("is_vus"), lit("medium"))
                 .otherwise(lit("low")))
-    
+
     .withColumn("screening_recommendation",
                 when(col("is_clinically_actionable_rare_variant"), lit("recommended"))
                 .when(col("is_carrier_screening_candidate"), lit("consider"))
@@ -373,25 +372,22 @@ print("Clinical actionability added")
 
 # COMMAND ----------
 
-# DBTITLE 1,Add Enhanced Scores
-print("\nADDING ENHANCED SCORES")
+# DBTITLE 1,Step 10: Enhanced Scores
+print("\nSTEP 10: ENHANCED SCORES")
 print("="*80)
 
-df_enhanced_scores = (
-    df_priority
-    # Clinical significance-frequency score
+df_enriched = (
+    df_enriched
     .withColumn("clinical_significance_frequency_score",
                 col("pathogenicity_score") * 0.5 +
                 col("rarity_score") * 0.3 +
                 when(col("rare_pathogenic_variant"), 10).otherwise(0))
-    
-    # Carrier risk score adjusted by gene constraint
+
     .withColumn("carrier_risk_score_adjusted",
                 col("carrier_risk_score") +
                 when(col("gene_mutation_tolerance") == "LoF_Sensitive", 5).otherwise(0) +
                 (col("gene_constraint_score") * 0.1))
-    
-    # Pathogenicity likelihood refined with conservation
+
     .withColumn("pathogenicity_likelihood_refined",
                 col("pathogenicity_likelihood_score") +
                 (col("conservation_level") * 2) +
@@ -402,112 +398,84 @@ print("Enhanced scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,Select Final Features
-print("\nSELECTING FINAL FEATURES")
+# DBTITLE 1,Step 11: Deduplicate by Variant ID
+print("\nSTEP 11: DEDUPLICATE BY VARIANT_ID")
 print("="*80)
 
-df_final = (
-    df_enhanced_scores
-    .select(
-        # Identifiers
-        col("variant_id"),
-        col("variant_key"),
-        col("gene_symbol"),
-        col("gene_name"),
-        col("chromosome"),
-        col("position"),
-        col("reference_allele"),
-        col("alternate_allele"),
-        
-        # Frequency statistics
-        col("allele_frequency"),
-        col("frequency_category"),
-        
-        # Frequency classifications
-        col("is_ultra_rare_variant"),
-        col("is_very_rare_variant"),
-        col("is_rare_variant"),
-        col("is_low_frequency_variant"),
-        col("is_common_variant"),
-        col("frequency_tier"),
-        
-        # Clinical significance
-        col("clinical_significance_simple").alias("clinical_significance"),
-        col("is_pathogenic"),
-        col("is_benign"),
-        col("is_vus"),
-        col("is_germline"),
-        col("is_somatic"),
-        
-        # Base scores
-        col("rarity_score"),
-        col("carrier_risk_score"),
-        col("pathogenicity_likelihood_score"),
-        
-        # Pathogenicity context
-        col("clinvar_pathogenic"),
-        col("clinvar_benign"),
-        col("pathogenicity_score"),
-        col("conservation_level"),
-        col("pathogenicity_frequency_conflict"),
-        col("rare_pathogenic_variant"),
-        col("common_benign_validation"),
-        
-        # Gene context
-        col("total_gene_variants"),
-        col("lof_variants"),
-        col("gene_mutation_tolerance"),
-        col("gene_constraint_score"),
-        
-        # Disease context
-        col("total_disease_count"),
-        col("disease_allele_frequency"),
-        col("carrier_frequency_by_disease"),
-        
-        # Cancer context
-        col("somatic_frequency"),
-        col("germline_cancer_predisposition"),
-        
-        # Expression context
-        col("expression_tissues"),
-        col("expression_frequency_correlation"),
-        col("tissue_specific_allele_effects"),
-        
-        # Classifications
-        col("is_clinically_actionable_rare_variant"),
-        col("is_carrier_screening_candidate"),
-        col("population_priority"),
-        col("screening_recommendation"),
-        
-        # Enhanced scores
-        col("clinical_significance_frequency_score"),
-        col("carrier_risk_score_adjusted"),
-        col("pathogenicity_likelihood_refined")
-    )
-)
-
-final_count = df_final.count()
-print(f"Final features: {final_count:,} variants")
-print(f"Total columns: {len(df_final.columns)}")
-
-# COMMAND ----------
-
-# DBTITLE 1,Deduplicate by Variant ID
-print("\nDEDUPLICATING BY VARIANT_ID")
-print("="*80)
-
-before_count = df_final.count()
-df_final = df_final.dropDuplicates(["variant_id"])
-after_count = df_final.count()
+before_count = df_enriched.count()
+df_enriched  = df_enriched.dropDuplicates(["variant_id"])
+after_count  = df_enriched.count()
 
 print(f"Before deduplication: {before_count:,}")
-print(f"After deduplication: {after_count:,}")
-print(f"Duplicates removed: {before_count - after_count:,}")
+print(f"After deduplication:  {after_count:,}")
+print(f"Duplicates removed:   {before_count - after_count:,}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Save Gold Population Frequency Features
-print("\nSAVING GOLD POPULATION FREQUENCY FEATURES")
+# DBTITLE 1,Select Final Columns
+print("\nSELECTING FINAL COLUMNS")
+print("="*80)
+
+df_final = df_enriched.select(
+    col("variant_id"),
+    col("variant_key"),
+    col("gene_symbol"),
+    col("gene_name"),
+    col("chromosome"),
+    col("position"),
+    col("reference_allele"),
+    col("alternate_allele"),
+    col("allele_frequency"),
+    col("frequency_category"),
+    col("is_ultra_rare_variant"),
+    col("is_very_rare_variant"),
+    col("is_rare_variant"),
+    col("is_low_frequency_variant"),
+    col("is_common_variant"),
+    col("frequency_tier"),
+    col("clinical_significance_simple").alias("clinical_significance"),
+    col("is_pathogenic"),
+    col("is_benign"),
+    col("is_vus"),
+    col("is_germline"),
+    col("is_somatic"),
+    col("rarity_score"),
+    col("carrier_risk_score"),
+    col("pathogenicity_likelihood_score"),
+    col("clinvar_pathogenic"),
+    col("clinvar_benign"),
+    col("pathogenicity_score"),
+    col("conservation_level"),
+    col("pathogenicity_frequency_conflict"),
+    col("rare_pathogenic_variant"),
+    col("common_benign_validation"),
+    col("total_gene_variants"),
+    col("lof_variants"),
+    col("gene_mutation_tolerance"),
+    col("gene_constraint_score"),
+    col("total_disease_count"),
+    col("disease_allele_frequency"),
+    col("carrier_frequency_by_disease"),
+    col("somatic_frequency"),
+    col("germline_cancer_predisposition"),
+    col("expression_tissues"),
+    col("expression_frequency_correlation"),
+    col("tissue_specific_allele_effects"),
+    col("is_clinically_actionable_rare_variant"),
+    col("is_carrier_screening_candidate"),
+    col("population_priority"),
+    col("screening_recommendation"),
+    col("clinical_significance_frequency_score"),
+    col("carrier_risk_score_adjusted"),
+    col("pathogenicity_likelihood_refined")
+)
+
+print(f"Final columns: {len(df_final.columns)}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Write gold.variant_population_ml_features
+print("\nWRITING gold.variant_population_ml_features")
 print("="*80)
 
 df_final.write \
@@ -519,47 +487,21 @@ print(f"Saved: {catalog_name}.gold.variant_population_ml_features")
 
 # COMMAND ----------
 
-# DBTITLE 1,Final Summary
-print("\nPOPULATION FREQUENCY FEATURES COMPLETE (FULLY ENHANCED)")
+# DBTITLE 1,Final Verification
+print("\nFINAL VERIFICATION")
 print("="*80)
 
-result_count = spark.table(f"{catalog_name}.gold.variant_population_ml_features").count()
-print(f"\nTable created: {result_count:,} variants")
-print(f"Total columns: {len(df_final.columns)}")
+df_check = spark.table(f"{catalog_name}.gold.variant_population_ml_features")
+rows     = df_check.count()
+cols     = len(df_check.columns)
 
-print("\nFeature categories:")
-print("  - Frequency statistics: 7 features")
-print("  - Clinical significance: 6 features")
-print("  - Base scores: 3 features")
-print("  - Pathogenicity context: 7 features")
-print("  - Gene context: 4 features")
-print("  - Disease context: 3 features")
-print("  - Cancer context: 2 features")
-print("  - Expression context: 3 features")
-print("  - Classifications: 4 features")
-print("  - Enhanced scores: 3 features")
-print(f"  Total: {len(df_final.columns)} features")
+print(f"Rows:    {rows:,}")
+print(f"Columns: {cols}")
 
 print("\nFrequency tier breakdown:")
-spark.table(f"{catalog_name}.gold.variant_population_ml_features") \
-    .groupBy("frequency_tier") \
-    .count() \
-    .orderBy("frequency_tier") \
-    .show()
+df_check.groupBy("frequency_tier").count().orderBy("frequency_tier").show()
 
 print("\nPopulation priority breakdown:")
-spark.table(f"{catalog_name}.gold.variant_population_ml_features") \
-    .groupBy("population_priority") \
-    .count() \
-    .orderBy("population_priority") \
-    .show()
-
-print("\nClinically actionable rare variants:")
-actionable = spark.table(f"{catalog_name}.gold.variant_population_ml_features") \
-    .filter(col("is_clinically_actionable_rare_variant")).count()
-print(f"  Count: {actionable:,}")
+df_check.groupBy("population_priority").count().orderBy("population_priority").show()
 
 print("\nProcessing complete")
-print("="*80)
-print("ALL 7 GOLD NOTEBOOKS (23-29) NOW FULLY ENHANCED!")
-print("="*80)
