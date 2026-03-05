@@ -3,8 +3,8 @@
 # MAGIC #### LEAKAGE DIAGNOSTIC AND FIX
 # MAGIC ##### Notebook 29b: Pre-Split Gold Table Leakage Guard
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 2026
 # MAGIC
 # MAGIC **Position in pipeline:** Runs AFTER all gold notebooks (17a-29), BEFORE split notebooks (30-40)
@@ -20,8 +20,8 @@
 # MAGIC   - No scan. Correlation leakage is not applicable without a target column.
 # MAGIC   - No changes made to these tables.
 # MAGIC
-# MAGIC **TWO-STEP EXECUTION:**
-# MAGIC   Step 1 - Run the Scan cell. Review all findings printed to output.
+# MAGIC **TWO-STEP EXECUTION:**  
+# MAGIC   Step 1 - Run the Scan cell. Review all findings printed to output.  
 # MAGIC   Step 2 - Only run the Write cell after confirming findings are correct.
 # MAGIC
 # MAGIC **VACUUM note:** Not supported on Databricks Serverless.
@@ -385,20 +385,20 @@ else:
 # DBTITLE 1,Final Summary
 print("FINAL SUMMARY")
 print("="*80)
-print(f"Mode 1 tables scanned:  {len(MODE_1_REGISTRY)}")
+print(f"Mode 1 tables scanned:   {len(MODE_1_REGISTRY)}")
 print(f"Mode 2 tables (no scan): {len(MODE_2_REGISTRY)}")
 
 if "all_audit_rows" in dir() and all_audit_rows:
-    print(f"Total columns dropped:  {len(all_audit_rows)}")
+    print(f"Total columns dropped:   {len(all_audit_rows)}")
     print()
     print("Dropped column breakdown:")
     spark.table(f"{catalog_name}.gold.leakage_audit_log") \
         .filter(col("run_timestamp") == lit(run_timestamp).cast("timestamp")) \
-        .groupBy("gold_table", "column_name", "correlation_value", "target_column") \
+        .select("gold_table", "column_name", "correlation_value", "target_column") \
         .orderBy("gold_table") \
         .show(truncate=False)
 else:
-    print("Total columns dropped:  0")
+    print("Total columns dropped:   0")
 
 print()
 print("Mode 1 gold tables ready for split notebooks (30-40).")
