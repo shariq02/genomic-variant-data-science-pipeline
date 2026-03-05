@@ -3,8 +3,8 @@
 # MAGIC #### FEATURE ENGINEERING - CANCER VARIANT ANALYSIS
 # MAGIC ##### Module: Comprehensive Variant and Gene-Level Cancer Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 27, 2026
 # MAGIC
 # MAGIC **Use Cases:**
@@ -377,7 +377,7 @@ germline_frequency = (
         col("is_rare")
     )
     .withColumn("somatic_vs_germline_classification",
-                when(col("allele_frequency_global") > 0.01, lit("likely_germline"))
+                when(col("germline_variant_frequency") > 0.01, lit("likely_germline"))
                 .when(col("is_rare"), lit("likely_somatic"))
                 .otherwise(lit("unknown")))
 )

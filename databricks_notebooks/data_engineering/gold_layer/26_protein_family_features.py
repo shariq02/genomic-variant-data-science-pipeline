@@ -3,8 +3,8 @@
 # MAGIC #### FEATURE ENGINEERING - PROTEIN FAMILY ANALYSIS
 # MAGIC ##### Module: Comprehensive Gene-Level Protein Family Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 27, 2026
 # MAGIC
 # MAGIC **Use Cases:**

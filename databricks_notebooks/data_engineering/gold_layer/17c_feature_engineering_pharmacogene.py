@@ -1,18 +1,20 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - PHARMACOGENE USE CASE
-# MAGIC ##### Module 3: Drug Target Identification
+# MAGIC ##### Drug Target Identification
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 22, 2026
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 7: Drug Target Identification (Pharmacogenes)
 # MAGIC
-# MAGIC **Creates:** gold.pharmacogene_ml_features
+# MAGIC **Creates:**  
+# MAGIC gold.pharmacogene_ml_features
 # MAGIC
-# MAGIC **NOTE:** Features-only gold table. No ML target column.
+# MAGIC **NOTE:**   
+# MAGIC Features-only gold table. No ML target column.
 
 # COMMAND ----------
 

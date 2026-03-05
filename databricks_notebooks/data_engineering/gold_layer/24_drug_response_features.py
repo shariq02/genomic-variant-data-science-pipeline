@@ -650,7 +650,6 @@ df_final = (
         col("tissue_specific_response_score"),
         col("drug_response_priority_score"),
         col("is_actionable_pharmacogene_variant"),
-        # Schema columns written for compliance - 29b drops before splits run
         col("clinical_significance_simple"),
         col("has_pharmgkb_annotation"),
         col("affects_drug_efficacy"),

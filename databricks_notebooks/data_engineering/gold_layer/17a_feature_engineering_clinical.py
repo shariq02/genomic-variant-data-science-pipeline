@@ -1,10 +1,10 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - CLINICAL USE CASES
-# MAGIC ##### Module 1: Clinical Pathogenicity, Inheritance Patterns, Gene Statistics
+# MAGIC #####Clinical Pathogenicity, Inheritance Patterns, Gene Statistics
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 27, 2026
 # MAGIC
 # MAGIC **Use Cases:**
@@ -19,7 +19,7 @@
 # MAGIC - Pass 2: Targets only from ClinVar significance. Independent of Pass 1.
 # MAGIC - Final:  Features and targets joined on variant_id. Written to gold.
 # MAGIC
-# MAGIC **NOTE ON LEAKAGE COLUMNS:**
+# MAGIC **NOTE ON LEAKAGE COLUMNS:**  
 # MAGIC The following columns are written to gold per schema definition.
 # MAGIC Notebook 29b scans and drops them dynamically before split notebooks run:
 # MAGIC   clinical_significance_simple, clinvar_pathogenicity_class,
@@ -43,7 +43,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("CLINICAL FEATURE ENGINEERING - MODULE 1 (TWO-PASS)")
+print("CLINICAL FEATURE ENGINEERING (TWO-PASS)")
 print("="*80)
 
 # COMMAND ----------
@@ -512,15 +512,15 @@ df_final = df_joined.select(
     col("target_is_pathogenic"),
     col("target_is_benign"),
     col("target_is_vus"),
-    col("clinical_significance_simple"),   # leakage - 29b drops
-    col("clinvar_pathogenicity_class"),    # leakage - 29b drops
+    col("clinical_significance_simple"),   
+    col("clinvar_pathogenicity_class"),    
     col("clinical_sig_is_uncertain"),
     col("review_quality_score"),
     col("has_strong_evidence"),
     col("mutation_severity_score"),
     col("pathogenicity_score"),
     col("combined_pathogenicity_risk"),
-    col("protein_impact_category"),        # leakage - 29b drops
+    col("protein_impact_category"),        
     col("is_coding_variant"),
     col("is_regulatory_variant"),
     col("is_missense_variant"),
@@ -543,8 +543,8 @@ df_final = df_joined.select(
     col("has_conservation_data"),
     col("has_complete_annotation"),
     col("inheritance_pattern"),
-    col("x_linked_risk_modifier"),         # leakage - 29b drops
-    col("inheritance_pathogenicity_modifier"), # leakage - 29b drops
+    col("x_linked_risk_modifier"),         
+    col("inheritance_pathogenicity_modifier"), 
     col("is_mitochondrial_variant"),
     col("is_y_linked_variant"),
     col("is_x_linked_variant"),
@@ -573,14 +573,14 @@ df_final = df_joined.select(
     col("max_expression_tpm"),
     col("is_broadly_expressed"),
     col("is_highly_expressed"),
-    col("expression_context"),             # leakage - 29b drops
+    col("expression_context"),            
     col("cancer_mutation_count"),
     col("is_cancer_gene"),
-    col("is_cancer_relevant"),             # leakage - 29b drops
+    col("is_cancer_relevant"),             
     col("population_allele_frequency"),
     col("is_common_in_population"),
     col("is_rare_in_population"),
-    col("frequency_pathogenicity_conflict"), # leakage - 29b drops
+    col("frequency_pathogenicity_conflict"), 
     col("disease_count"),
     col("has_cancer_disease"),
     col("has_neurological_disease"),

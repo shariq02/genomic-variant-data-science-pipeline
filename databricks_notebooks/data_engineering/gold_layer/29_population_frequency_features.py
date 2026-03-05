@@ -3,8 +3,8 @@
 # MAGIC #### FEATURE ENGINEERING - POPULATION FREQUENCY ANALYSIS
 # MAGIC ##### Module: Comprehensive Variant-Level Population Frequency Features
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 22, 2026
 # MAGIC
 # MAGIC **Use Cases:**
@@ -136,6 +136,7 @@ print("="*80)
 
 df_enriched = (
     df_scored
+    .drop("gene_name")
     .join(
         df_variants.select(
             col("variant_id"),

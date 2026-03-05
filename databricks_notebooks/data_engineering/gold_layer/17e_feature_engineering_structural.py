@@ -1,10 +1,10 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - STRUCTURAL VARIANT USE CASE
-# MAGIC ##### Module 5: Comprehensive Structural Variant Impact Analysis with Gene Mapping
+# MAGIC ##### Comprehensive Structural Variant Impact Analysis with Gene Mapping
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 22, 2026
 # MAGIC
 # MAGIC **Use Cases:**

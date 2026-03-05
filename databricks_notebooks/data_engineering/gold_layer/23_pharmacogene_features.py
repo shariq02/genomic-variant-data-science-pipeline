@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### FEATURE ENGINEERING - PHARMACOGENE ANALYSIS (FIXED)
+# MAGIC #### FEATURE ENGINEERING - PHARMACOGENE ANALYSIS 
 # MAGIC ##### Module: Comprehensive Gene-Level Pharmacogene Features
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**  
@@ -626,7 +626,6 @@ df_final = (
         col("pharmacogene_category"),
         col("drug_metabolism_role"),
         col("is_high_priority_pharmacogene"),
-        # Schema columns written for compliance - 29b drops before splits run
         col("has_pharmgkb_annotation"),
         col("variant_impact_burden"),
         col("expression_breadth"),

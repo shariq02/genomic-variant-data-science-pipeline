@@ -1,11 +1,11 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC #### FEATURE ENGINEERING - DISEASE USE CASES
-# MAGIC ##### Module 2: Disease Association, Polygenic Risk, Gene Prioritization
+# MAGIC ##### Disease Association, Polygenic Risk, Gene Prioritization
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
-# MAGIC **Date:** February 22, 2026
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
+# MAGIC **Date:** February 22, 2026  
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 4: Disease Association Discovery (Gene-Disease links)
@@ -14,7 +14,8 @@
 # MAGIC
 # MAGIC **Creates:** gold.disease_ml_features
 # MAGIC
-# MAGIC **NOTE:** This is a features-only gold table. No ML target column.
+# MAGIC **NOTE:**   
+# MAGIC This is a features-only gold table. No ML target column.
 # MAGIC It serves as a feature source joined into other ML training tables.
 
 # COMMAND ----------
@@ -34,7 +35,7 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("DISEASE FEATURE ENGINEERING - MODULE 2")
+print("DISEASE FEATURE ENGINEERING ")
 print("="*80)
 
 # COMMAND ----------
@@ -159,22 +160,22 @@ df_genes_with_disease = (
     df_gene_disease_comp
     .select(
         "gene_name",
-        col("total_disease_count").alias("disease_count"),
+        col("total_disease_count").alias("gene_disease_count"),
         col("omim_disease_count")
     )
     .withColumn("disease_count_category",
-                when(col("disease_count") >= 10, lit("Highly_Associated"))
-                .when(col("disease_count") >= 5, lit("Moderately_Associated"))
-                .when(col("disease_count") >= 2, lit("Associated"))
-                .when(col("disease_count") == 1, lit("Single_Disease"))
+                when(col("gene_disease_count") >= 10, lit("Highly_Associated"))
+                .when(col("gene_disease_count") >= 5, lit("Moderately_Associated"))
+                .when(col("gene_disease_count") >= 2, lit("Associated"))
+                .when(col("gene_disease_count") == 1, lit("Single_Disease"))
                 .otherwise(lit("Not_Associated")))
-    .withColumn("is_disease_associated",  col("disease_count") >= 1)
-    .withColumn("is_multi_disease_gene",  col("disease_count") >= 3)
+    .withColumn("is_disease_associated",  col("gene_disease_count") >= 1)
+    .withColumn("is_multi_disease_gene",  col("gene_disease_count") >= 3)
     .withColumn("disease_association_strength",
-                when(col("disease_count") >= 10, 5)
-                .when(col("disease_count") >= 5, 4)
-                .when(col("disease_count") >= 2, 3)
-                .when(col("disease_count") == 1, 2)
+                when(col("gene_disease_count") >= 10, 5)
+                .when(col("gene_disease_count") >= 5, 4)
+                .when(col("gene_disease_count") >= 2, 3)
+                .when(col("gene_disease_count") == 1, 2)
                 .otherwise(1))
     .withColumn("is_omim_gene", col("omim_disease_count") >= 1)
 )
@@ -183,7 +184,7 @@ df_disease = (
     df_variants_enriched
     .join(df_genes_with_disease, "gene_name", "left")
     .fillna({
-        "disease_count":               0,
+        "gene_disease_count":               0,
         "omim_disease_count":          0,
         "disease_association_strength": 1,
         "is_disease_associated":        False,
