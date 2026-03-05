@@ -29,19 +29,6 @@
 # MAGIC   (affects_functional_domain OR is_pathogenic OR cadd_phred >= 20)
 # MAGIC   This adds a functional evidence requirement beyond mere annotation presence.
 # MAGIC   Expected: 5-15% positive rate.
-# MAGIC
-# MAGIC **LEAKAGE COLUMNS REMOVED:**
-# MAGIC - has_pharmgkb_annotation (boolean encoding of join key - direct input to old target)
-# MAGIC - pharmacogene_annotation_score (= has_pharmgkb_annotation * 10, same leakage)
-# MAGIC - affects_drug_efficacy (derived from has_pharmgkb_annotation AND variant type)
-# MAGIC - drug_response_priority (categorical re-encoding of drug_response_priority_score)
-# MAGIC - drug_response_category (categorical summary of feature combinations)
-# MAGIC - clinical_actionability (categorical summary encoding has_pharmgkb_annotation + is_pathogenic)
-# MAGIC - drug_response_frequency_context (categorical encoding of is_common_variant + is_rare_variant)
-# MAGIC - expression_breadth (categorical encoding of tissues_expressed_count)
-# MAGIC - primary_indication_category (categorical encoding of disease type booleans)
-# MAGIC - indication_specific_actionability (re-encoding of primary_indication_category)
-# MAGIC - clinical_significance_simple (string label - is_pathogenic/is_benign/is_vus booleans retained)
 
 # COMMAND ----------
 
@@ -614,19 +601,6 @@ print(f"Final table columns: {len(df_final.columns)}")
 print("\nSELECTING FINAL COLUMNS")
 print("="*80)
 
-# REMOVED leakage columns:
-# has_pharmgkb_annotation       - direct input to old target (= is_pharmgkb_annotated_variant renamed)
-# pharmacogene_annotation_score - = has_pharmgkb_annotation * 10
-# affects_drug_efficacy         - derived from has_pharmgkb_annotation AND variant type
-# drug_response_priority        - categorical re-encoding of drug_response_priority_score
-# drug_response_category        - categorical summary of feature combinations
-# clinical_actionability        - categorical encoding of has_pharmgkb_annotation + is_pathogenic
-# drug_response_frequency_context - categorical encoding of is_common_variant + is_rare_variant
-# expression_breadth            - categorical encoding of tissues_expressed_count
-# primary_indication_category   - categorical encoding of disease type booleans
-# indication_specific_actionability - re-encoding of primary_indication_category
-# clinical_significance_simple  - string label replaced by is_pathogenic/is_benign/is_vus booleans
-
 df_final = (
     df_final
     .select(
@@ -739,24 +713,5 @@ pos_pct     = pos_count / total * 100 if total > 0 else 0
 print(f"Rows:      {rows:,}")
 print(f"Columns:   {cols}")
 print(f"Positives: {pos_count:,} ({pos_pct:.2f}%)")
-
-leakage_check = [
-    "has_pharmgkb_annotation",
-    "pharmacogene_annotation_score",
-    "affects_drug_efficacy",
-    "drug_response_priority",
-    "drug_response_category",
-    "clinical_actionability",
-    "drug_response_frequency_context",
-    "expression_breadth",
-    "primary_indication_category",
-    "indication_specific_actionability",
-    "clinical_significance_simple",
-]
-present = [c for c in leakage_check if c in df_check.columns]
-if present:
-    print(f"LEAKAGE ALERT: {present}")
-else:
-    print("Leakage check: PASSED (no known leakage columns present)")
 
 print("\nProcessing complete")

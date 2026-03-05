@@ -26,17 +26,6 @@
 # MAGIC   (a leakage flag) making 95.6% positive. Inverted target.
 # MAGIC - New: is_high_priority_pharmacogene = drug_relationships >= 5 AND druggability_score >= 0.5
 # MAGIC   Pure biological signal. Expected 10-25% positive rate.
-# MAGIC
-# MAGIC **LEAKAGE COLUMNS REMOVED:**
-# MAGIC - pharmacogene_priority (derived summary encoding target conditions)
-# MAGIC - pharmacogene_category_enhanced (categorical summary of feature combinations)
-# MAGIC - clinical_actionability_tier (re-encoding of pharmacogene_priority)
-# MAGIC - variant_impact_burden (categorical encoding of pathogenic_variants)
-# MAGIC - drug_metabolism_tissue_expression (categorical encoding of liver/kidney flags)
-# MAGIC - expression_breadth (categorical encoding of tissues_expressed_count)
-# MAGIC - cancer_mutation_burden (categorical encoding of unique_tumor_samples)
-# MAGIC - primary_indication_category (categorical encoding of disease type flags)
-# MAGIC - has_pharmgkb_annotation (boolean derived from source_count - leakage into target via clinical_utility_score)
 
 # COMMAND ----------
 
@@ -577,17 +566,6 @@ print(f"Final table columns: {len(df_final.columns)}")
 print("\nSELECTING FINAL COLUMNS")
 print("="*80)
 
-# REMOVED leakage columns:
-# pharmacogene_priority          - derived summary encoding target conditions
-# pharmacogene_category_enhanced - categorical summary of feature combinations
-# clinical_actionability_tier    - re-encoding of pharmacogene_priority
-# variant_impact_burden          - categorical encoding of pathogenic_variants
-# drug_metabolism_tissue_expression - categorical encoding of liver/kidney flags
-# expression_breadth             - categorical encoding of tissues_expressed_count
-# cancer_mutation_burden         - categorical encoding of unique_tumor_samples
-# primary_indication_category    - categorical encoding of disease type flags
-# has_pharmgkb_annotation        - boolean derived from source_count, leakage into old target
-
 df_final = (
     df_final
     .select(
@@ -709,22 +687,5 @@ pos_pct     = pos_count / total * 100 if total > 0 else 0
 print(f"Rows:      {rows:,}")
 print(f"Columns:   {cols}")
 print(f"Positives: {pos_count:,} ({pos_pct:.2f}%)")
-
-leakage_check = [
-    "pharmacogene_priority",
-    "pharmacogene_category_enhanced",
-    "clinical_actionability_tier",
-    "variant_impact_burden",
-    "drug_metabolism_tissue_expression",
-    "expression_breadth",
-    "cancer_mutation_burden",
-    "primary_indication_category",
-    "has_pharmgkb_annotation",
-]
-present = [c for c in leakage_check if c in df_check.columns]
-if present:
-    print(f"LEAKAGE ALERT: {present}")
-else:
-    print("Leakage check: PASSED (no known leakage columns present)")
 
 print("\nProcessing complete")
