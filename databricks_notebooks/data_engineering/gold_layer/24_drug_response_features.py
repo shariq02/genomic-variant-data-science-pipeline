@@ -430,6 +430,89 @@ print("Comprehensive scores calculated")
 
 # COMMAND ----------
 
+# DBTITLE 1,PASS 1 - Step 10.5: Restore Schema Columns for 29b
+print("\nPASS 1 - STEP 10.5: RESTORE SCHEMA COLUMNS")
+print("="*80)
+print("These columns are written to gold to satisfy the schema definition.")
+print("Notebook 29b scans and drops them dynamically before split notebooks run.")
+
+df_features = (
+    df_features
+    # has_pharmgkb_annotation - schema column, 29b drops
+    .withColumn("has_pharmgkb_annotation",
+                col("is_pharmgkb_annotated_variant"))
+
+    # pharmacogene_annotation_score - schema column, 29b drops
+    .withColumn("pharmacogene_annotation_score",
+                when(col("is_pharmgkb_annotated_variant"), 10).otherwise(0))
+
+    # affects_drug_efficacy - schema column, 29b drops
+    .withColumn("affects_drug_efficacy",
+                when(col("is_pharmgkb_annotated_variant") &
+                     (col("is_missense_variant") | col("affects_functional_domain")),
+                     True).otherwise(False))
+
+    # expression_breadth - schema column, 29b drops
+    .withColumn("expression_breadth",
+                when(col("tissues_expressed_count") >= 15, lit("Ubiquitous"))
+                .when(col("tissues_expressed_count") >= 5,  lit("Broad"))
+                .otherwise(lit("Tissue_Specific")))
+
+    # drug_response_frequency_context - schema column, 29b drops
+    .withColumn("drug_response_frequency_context",
+                when(col("is_common_variant"), lit("Common_Drug_Response"))
+                .when(col("is_rare_variant"),  lit("Rare_Drug_Response"))
+                .otherwise(lit("Standard_Frequency")))
+
+    # primary_indication_category - schema column, 29b drops
+    .withColumn("primary_indication_category",
+                when(col("has_cancer_disease"),          lit("Oncology"))
+                .when(col("has_cardiovascular_disease"), lit("Cardiology"))
+                .when(col("has_neurological_disease"),   lit("Neurology"))
+                .otherwise(lit("Other")))
+
+    # drug_response_priority - schema column, 29b drops
+    .withColumn("drug_response_priority",
+                when(col("drug_response_priority_score") >= 20, lit("critical"))
+                .when(col("drug_response_priority_score") >= 15, lit("high"))
+                .when(col("drug_response_priority_score") >= 8,  lit("medium"))
+                .otherwise(lit("low")))
+
+    # drug_response_category - schema column, 29b drops
+    .withColumn("drug_response_category",
+                when(col("is_hepatic_drug_metabolism_variant"), lit("hepatic_metabolism"))
+                .when(col("affects_drug_metabolism"),  lit("metabolism"))
+                .when(col("affects_drug_efficacy"),    lit("efficacy"))
+                .when(col("is_potential_resistance_variant"), lit("resistance"))
+                .when(col("is_pharmgkb_annotated_variant"), lit("pharmacogene_variant"))
+                .otherwise(lit("unknown")))
+
+    # clinical_actionability - schema column, 29b drops
+    .withColumn("clinical_actionability",
+                when(col("is_pathogenic") & col("is_pharmgkb_annotated_variant") & col("is_pharmacogene"),
+                     lit("tier_1_actionable"))
+                .when(col("is_pharmgkb_annotated_variant") & col("is_pharmacogene"),
+                     lit("tier_2_high_evidence"))
+                .when(col("is_pharmgkb_annotated_variant"),
+                     lit("tier_3_pharmgkb_annotated"))
+                .otherwise(lit("tier_4_research_only")))
+
+    # indication_specific_actionability - schema column, 29b drops
+    .withColumn("indication_specific_actionability",
+                when(col("primary_indication_category") != "Other", lit(True)).otherwise(lit(False)))
+
+    # clinical_significance_simple - schema column, 29b drops
+    .withColumn("clinical_significance_simple",
+                when(col("is_pathogenic"), lit("Pathogenic"))
+                .when(col("is_benign"),    lit("Benign"))
+                .when(col("is_vus"),       lit("VUS"))
+                .otherwise(lit("Unknown")))
+)
+
+print("Schema columns restored (29b will drop these before splits run)")
+
+# COMMAND ----------
+
 # DBTITLE 1,PASS 1 - Step 11: Deduplicate by Variant ID
 print("\nPASS 1 - STEP 11: DEDUPLICATE BY VARIANT_ID")
 print("="*80)
@@ -566,7 +649,6 @@ df_final = (
         col("conservation_level"),
         col("pathogenicity_score"),
         col("mutation_severity_score"),
-        col("is_pharmgkb_annotated_variant"),
         col("has_high_conservation"),
         col("affects_drug_metabolism"),
         col("is_high_impact_variant"),
@@ -593,7 +675,19 @@ df_final = (
         col("population_adjusted_score"),
         col("tissue_specific_response_score"),
         col("drug_response_priority_score"),
-        col("is_actionable_pharmacogene_variant")
+        col("is_actionable_pharmacogene_variant"),
+        # Schema columns written for compliance - 29b drops before splits run
+        col("clinical_significance_simple"),
+        col("has_pharmgkb_annotation"),
+        col("affects_drug_efficacy"),
+        col("expression_breadth"),
+        col("drug_response_frequency_context"),
+        col("primary_indication_category"),
+        col("pharmacogene_annotation_score"),
+        col("drug_response_priority"),
+        col("drug_response_category"),
+        col("clinical_actionability"),
+        col("indication_specific_actionability")
     )
 )
 

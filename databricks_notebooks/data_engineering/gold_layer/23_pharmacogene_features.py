@@ -403,6 +403,83 @@ print("Comprehensive scores calculated")
 
 # COMMAND ----------
 
+# DBTITLE 1,PASS 1 - Step 10.5: Restore Schema Columns for 29b
+print("\nPASS 1 - STEP 10.5: RESTORE SCHEMA COLUMNS")
+print("="*80)
+print("These columns are written to gold to satisfy the schema definition.")
+print("Notebook 29b scans and drops them dynamically before split notebooks run.")
+
+df_features = (
+    df_features
+    # has_pharmgkb_annotation - schema column, 29b drops
+    .withColumn("has_pharmgkb_annotation",
+                when(col("source_count").isNotNull(), True).otherwise(False))
+
+    # variant_impact_burden - schema column, 29b drops
+    .withColumn("variant_impact_burden",
+                when(col("pathogenic_variants") >= 10, lit("High"))
+                .when(col("pathogenic_variants") >= 5,  lit("Medium"))
+                .otherwise(lit("Low")))
+
+    # expression_breadth - schema column, 29b drops
+    .withColumn("expression_breadth",
+                when(col("tissues_expressed_count") >= 15, lit("Ubiquitous"))
+                .when(col("tissues_expressed_count") >= 5,  lit("Broad"))
+                .otherwise(lit("Tissue_Specific")))
+
+    # drug_metabolism_tissue_expression - schema column, 29b drops
+    .withColumn("drug_metabolism_tissue_expression",
+                when(col("is_liver_expressed") & col("is_kidney_expressed"), lit("Hepato_Renal"))
+                .when(col("is_liver_expressed"),  lit("Hepatic"))
+                .when(col("is_kidney_expressed"), lit("Renal"))
+                .otherwise(lit("Other")))
+
+    # cancer_mutation_burden - schema column, 29b drops
+    .withColumn("cancer_mutation_burden",
+                when(col("unique_tumor_samples") >= 100, lit("Very_High"))
+                .when(col("unique_tumor_samples") >= 50,  lit("High"))
+                .when(col("unique_tumor_samples") >= 10,  lit("Medium"))
+                .otherwise(lit("Low")))
+
+    # primary_indication_category - schema column, 29b drops
+    .withColumn("primary_indication_category",
+                when(col("has_cancer_disease"),          lit("Oncology"))
+                .when(col("has_cardiovascular_disease"), lit("Cardiology"))
+                .when(col("has_neurological_disease"),   lit("Neurology"))
+                .when(col("has_metabolic_disease"),      lit("Metabolism"))
+                .otherwise(lit("Other")))
+
+    # pharmacogene_priority - schema column, 29b drops
+    .withColumn("pharmacogene_priority",
+                when(col("clinical_utility_score") >= 20, lit("critical"))
+                .when(col("clinical_utility_score") >= 15, lit("high"))
+                .when(col("clinical_utility_score") >= 8,  lit("medium"))
+                .otherwise(lit("low")))
+
+    # pharmacogene_category_enhanced - schema column, 29b drops
+    .withColumn("pharmacogene_category_enhanced",
+                when(col("is_hepatic_metabolizer") & (col("drug_relationships") > 0), lit("hepatic_metabolizer"))
+                .when(col("is_renal_transporter") & (col("drug_relationships") > 0), lit("renal_transporter"))
+                .when(col("is_drug_target_gene") & col("is_oncology_drug_target"), lit("oncology_target"))
+                .when(col("is_drug_target_gene") & (col("drug_relationships") > 0), lit("drug_target"))
+                .when(col("is_drug_metabolizer") & (col("drug_relationships") > 0), lit("metabolizer"))
+                .when(col("is_drug_transporter_gene") & (col("drug_relationships") > 0), lit("transporter"))
+                .when(col("drug_relationships") > 0, lit("interaction"))
+                .otherwise(lit("other")))
+
+    # clinical_actionability_tier - schema column, 29b drops
+    .withColumn("clinical_actionability_tier",
+                when((col("pharmacogene_priority") == "critical") &
+                     col("has_pharmacogene_variants"), lit("Tier_1_Actionable"))
+                .when(col("pharmacogene_priority").isin("critical", "high"), lit("Tier_2_High_Evidence"))
+                .when(col("has_pharmgkb_annotation"), lit("Tier_3_PharmGKB_Annotated"))
+                .otherwise(lit("Tier_4_Research")))
+)
+
+print("Schema columns restored (29b will drop these before splits run)")
+
+# COMMAND ----------
+
 # DBTITLE 1,PASS 1 - Step 11: Deduplicate by Gene Symbol
 print("\nPASS 1 - STEP 11: DEDUPLICATE BY GENE_SYMBOL")
 print("="*80)
@@ -570,7 +647,17 @@ df_final = (
         col("metabolism_context_score"),
         col("pharmacogene_category"),
         col("drug_metabolism_role"),
-        col("is_high_priority_pharmacogene")
+        col("is_high_priority_pharmacogene"),
+        # Schema columns written for compliance - 29b drops before splits run
+        col("has_pharmgkb_annotation"),
+        col("variant_impact_burden"),
+        col("expression_breadth"),
+        col("drug_metabolism_tissue_expression"),
+        col("cancer_mutation_burden"),
+        col("primary_indication_category"),
+        col("pharmacogene_priority"),
+        col("pharmacogene_category_enhanced"),
+        col("clinical_actionability_tier")
     )
 )
 
