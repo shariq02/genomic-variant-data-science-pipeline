@@ -7,7 +7,7 @@
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 27, 2026
 # MAGIC
-# MAGIC **FIXED:** Two-pass structure enforced. Inverted target corrected. Leakage columns removed.
+# MAGIC **FIXED:** Two-pass structure enforced. Inverted target corrected. 
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 9: Pharmacogenomic Guidance
@@ -392,45 +392,44 @@ print("Comprehensive scores calculated")
 
 # COMMAND ----------
 
-# DBTITLE 1,PASS 1 - Step 10.5: Restore Schema Columns for 29b
+# DBTITLE 1,PASS 1 - Step 10.5: Restore Schema Columns 
 print("\nPASS 1 - STEP 10.5: RESTORE SCHEMA COLUMNS")
 print("="*80)
 print("These columns are written to gold to satisfy the schema definition.")
-print("Notebook 29b scans and drops them dynamically before split notebooks run.")
 
 df_features = (
     df_features
-    # has_pharmgkb_annotation - schema column, 29b drops
+    # has_pharmgkb_annotation - schema column, 
     .withColumn("has_pharmgkb_annotation",
                 when(col("source_count").isNotNull(), True).otherwise(False))
 
-    # variant_impact_burden - schema column, 29b drops
+    # variant_impact_burden - schema column,
     .withColumn("variant_impact_burden",
                 when(col("pathogenic_variants") >= 10, lit("High"))
                 .when(col("pathogenic_variants") >= 5,  lit("Medium"))
                 .otherwise(lit("Low")))
 
-    # expression_breadth - schema column, 29b drops
+    # expression_breadth - schema column, 
     .withColumn("expression_breadth",
                 when(col("tissues_expressed_count") >= 15, lit("Ubiquitous"))
                 .when(col("tissues_expressed_count") >= 5,  lit("Broad"))
                 .otherwise(lit("Tissue_Specific")))
 
-    # drug_metabolism_tissue_expression - schema column, 29b drops
+    # drug_metabolism_tissue_expression - schema column,
     .withColumn("drug_metabolism_tissue_expression",
                 when(col("is_liver_expressed") & col("is_kidney_expressed"), lit("Hepato_Renal"))
                 .when(col("is_liver_expressed"),  lit("Hepatic"))
                 .when(col("is_kidney_expressed"), lit("Renal"))
                 .otherwise(lit("Other")))
 
-    # cancer_mutation_burden - schema column, 29b drops
+    # cancer_mutation_burden - schema column,
     .withColumn("cancer_mutation_burden",
                 when(col("unique_tumor_samples") >= 100, lit("Very_High"))
                 .when(col("unique_tumor_samples") >= 50,  lit("High"))
                 .when(col("unique_tumor_samples") >= 10,  lit("Medium"))
                 .otherwise(lit("Low")))
 
-    # primary_indication_category - schema column, 29b drops
+    # primary_indication_category - schema column, 
     .withColumn("primary_indication_category",
                 when(col("has_cancer_disease"),          lit("Oncology"))
                 .when(col("has_cardiovascular_disease"), lit("Cardiology"))
@@ -438,14 +437,14 @@ df_features = (
                 .when(col("has_metabolic_disease"),      lit("Metabolism"))
                 .otherwise(lit("Other")))
 
-    # pharmacogene_priority - schema column, 29b drops
+    # pharmacogene_priority - schema column, 
     .withColumn("pharmacogene_priority",
                 when(col("clinical_utility_score") >= 20, lit("critical"))
                 .when(col("clinical_utility_score") >= 15, lit("high"))
                 .when(col("clinical_utility_score") >= 8,  lit("medium"))
                 .otherwise(lit("low")))
 
-    # pharmacogene_category_enhanced - schema column, 29b drops
+    # pharmacogene_category_enhanced - schema column, 
     .withColumn("pharmacogene_category_enhanced",
                 when(col("is_hepatic_metabolizer") & (col("drug_relationships") > 0), lit("hepatic_metabolizer"))
                 .when(col("is_renal_transporter") & (col("drug_relationships") > 0), lit("renal_transporter"))
@@ -456,7 +455,7 @@ df_features = (
                 .when(col("drug_relationships") > 0, lit("interaction"))
                 .otherwise(lit("other")))
 
-    # clinical_actionability_tier - schema column, 29b drops
+    # clinical_actionability_tier - schema column,
     .withColumn("clinical_actionability_tier",
                 when((col("pharmacogene_priority") == "critical") &
                      col("has_pharmacogene_variants"), lit("Tier_1_Actionable"))
@@ -465,7 +464,7 @@ df_features = (
                 .otherwise(lit("Tier_4_Research")))
 )
 
-print("Schema columns restored (29b will drop these before splits run)")
+print("Schema columns restored ")
 
 # COMMAND ----------
 

@@ -117,8 +117,6 @@ df_features = (
         col("has_receptor_domain"),
         col("review_status"),
         col("review_quality_score"),
-        # Schema columns - leakage candidates written for schema compliance
-        # 29b drops these dynamically before split notebooks run
         col("clinical_significance_simple"),
         col("clinvar_pathogenicity_class"),
         col("protein_impact_category")
@@ -199,8 +197,6 @@ gene_expression = (
                 col("tissues_expressed_count") >= 10)
     .withColumn("is_highly_expressed",
                 col("max_expression_tpm") >= 100)
-    # Schema column - leakage candidate, written for schema compliance
-    # 29b drops dynamically before split notebooks run
     .withColumn("expression_context",
                 when(col("tissues_expressed_count") >= 10, lit("Ubiquitous"))
                 .when(col("tissues_expressed_count") >= 5, lit("Broad"))
@@ -247,8 +243,6 @@ df_features = (
         "cancer_mutation_count": 0,
         "is_cancer_gene":        False
     })
-    # Schema column - leakage candidate, written for schema compliance
-    # 29b drops dynamically before split notebooks run
     .withColumn("is_cancer_relevant", col("is_cancer_gene"))
 )
 
@@ -276,8 +270,6 @@ df_features = (
         "is_common_in_population":     False,
         "is_rare_in_population":       False
     })
-    # Schema column - leakage candidate, written for schema compliance
-    # 29b drops dynamically before split notebooks run
     .withColumn("frequency_pathogenicity_conflict",
                 col("is_common_in_population"))
 )
@@ -329,8 +321,6 @@ df_features = (
     .withColumn("is_x_linked_variant",      col("chromosome") == "X")
     .withColumn("is_autosomal_variant",
                 ~col("chromosome").isin("X", "Y", "MT"))
-    # Schema columns - leakage candidates, written for schema compliance
-    # 29b drops dynamically before split notebooks run
     .withColumn("x_linked_risk_modifier",
                 when(col("chromosome") == "X", lit("X_Linked_Risk"))
                 .otherwise(lit("No_X_Risk")))
