@@ -76,7 +76,6 @@ df_ml = df.select(
     "proteins_with_helix_loop",
     "proteins_with_ig",
     "proteins_with_functional_domain",
-    "has_signaling_domain",
     "has_dna_binding_domain",
     "has_membrane_domain",
     "has_apoptosis_domain",
@@ -105,9 +104,7 @@ df_ml = df.select(
     "variant_domain_impact_score",
     "cancer_protein_family_score",
     "disease_protein_family_score",
-    "protein_family_priority",
     "is_high_value_protein_family",
-    "protein_functional_category",
     "variant_disease_domain_correlation",
     "cancer_protein_classification"
 )
@@ -123,12 +120,6 @@ print("=" * 80)
 
 print("is_high_value_protein_family:")
 df_ml.groupBy("is_high_value_protein_family").count().orderBy("is_high_value_protein_family").show()
-
-print("protein_family_priority:")
-df_ml.groupBy("protein_family_priority").count().orderBy("protein_family_priority").show()
-
-print("protein_functional_category:")
-df_ml.groupBy("protein_functional_category").count().orderBy("protein_functional_category").show()
 
 print("cancer_protein_classification:")
 df_ml.groupBy("cancer_protein_classification").count().orderBy("cancer_protein_classification").show()
@@ -170,8 +161,6 @@ df_ml = df_ml.fillna({
     "disease_protein_family_score": 0.0,
     "druggability_score": 0.0,
     "protein_family": "unknown",
-    "protein_family_priority": "low",
-    "protein_functional_category": "unknown",
     "oncogenic_domain_alterations": "unknown",
     "disease_specific_domains": "unknown",
     "variant_disease_domain_correlation": "unknown",
@@ -238,14 +227,6 @@ print(f"Total:      {total:,}")
 print("\nTrain target distribution:")
 spark.table(f"{catalog_name}.gold.ml_dataset_protein_family_train") \
     .groupBy("is_high_value_protein_family").count().show()
-
-print("\nTrain protein family priority distribution:")
-spark.table(f"{catalog_name}.gold.ml_dataset_protein_family_train") \
-    .groupBy("protein_family_priority").count().orderBy("protein_family_priority").show()
-
-print("\nTrain protein functional category distribution:")
-spark.table(f"{catalog_name}.gold.ml_dataset_protein_family_train") \
-    .groupBy("protein_functional_category").count().orderBy("protein_functional_category").show()
 
 # COMMAND ----------
 

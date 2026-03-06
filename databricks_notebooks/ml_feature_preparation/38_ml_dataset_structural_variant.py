@@ -79,7 +79,6 @@ df_ml = df.select(
     "sv_pathogenicity_risk",
     "genes_overlapped",
     "gene_list",
-    "gene_count_category",
     "pharmacogenes_affected",
     "omim_genes_affected",
     "kinase_genes_affected",
@@ -91,13 +90,10 @@ df_ml = df.select(
     "cancer_genes_affected",
     "neuro_genes_affected",
     "has_disease_associated_genes",
-    "disease_sv_priority",
     "broadly_expressed_genes_affected",
     "affects_essential_genes",
-    "sv_clinical_priority",
     "sv_combined_impact_score",
     "sv_impact_tier",
-    "sv_classification"
 )
 
 print(f"Features selected: {len(df_ml.columns)}")
@@ -109,9 +105,6 @@ print(f"Records: {df_ml.count():,}")
 print("\nTARGET DISTRIBUTION")
 print("=" * 80)
 
-print("sv_classification:")
-df_ml.groupBy("sv_classification").count().orderBy("sv_classification").show()
-
 print("sv_impact_tier:")
 df_ml.groupBy("sv_impact_tier").count().orderBy("sv_impact_tier").show()
 
@@ -120,9 +113,6 @@ df_ml.groupBy("sv_type_class").count().orderBy("sv_type_class").show()
 
 print("sv_pathogenicity_risk:")
 df_ml.groupBy("sv_pathogenicity_risk").count().orderBy("sv_pathogenicity_risk").show()
-
-print("sv_clinical_priority:")
-df_ml.groupBy("sv_clinical_priority").count().orderBy("sv_clinical_priority").show()
 
 # COMMAND ----------
 
@@ -145,13 +135,7 @@ df_ml = df_ml.fillna({
     "broadly_expressed_genes_affected": 0,
     "sv_combined_impact_score": 0,
     "sv_type_class": "unknown",
-    "sv_size_category": "unknown",
-    "sv_pathogenicity_risk": "unknown",
-    "gene_count_category": "unknown",
-    "disease_sv_priority": "unknown",
-    "sv_clinical_priority": "unknown",
     "sv_impact_tier": "unknown",
-    "sv_classification": "unknown",
     "study_id": "unknown",
     "variant_name": "unknown",
     "assembly": "unknown"
@@ -213,10 +197,6 @@ print(f"Train:      {t:,} ({t/total*100:.1f}%)")
 print(f"Validation: {v:,} ({v/total*100:.1f}%)")
 print(f"Test:       {te:,} ({te/total*100:.1f}%)")
 print(f"Total:      {total:,}")
-
-print("\nTrain target distribution:")
-spark.table(f"{catalog_name}.gold.ml_dataset_structural_variant_train") \
-    .groupBy("sv_classification").count().orderBy("sv_classification").show()
 
 print("\nTrain sv_impact_tier distribution:")
 spark.table(f"{catalog_name}.gold.ml_dataset_structural_variant_train") \

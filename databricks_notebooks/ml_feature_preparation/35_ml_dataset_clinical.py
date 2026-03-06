@@ -72,15 +72,12 @@ df_ml = df.select(
     "official_gene_symbol",
     "gene_is_validated",
     "gene_has_omim",
-    "gene_has_ensembl",
     "gene_is_well_characterized",
     "is_pharmacogene",
     "druggability_score",
     "target_is_pathogenic",
     "target_is_benign",
     "target_is_vus",
-    "clinical_significance_simple",
-    "clinvar_pathogenicity_class",
     "clinical_sig_is_uncertain",
     "review_quality_score",
     "has_strong_evidence",
@@ -93,7 +90,6 @@ df_ml = df.select(
     "is_missense_variant",
     "is_frameshift_variant",
     "is_nonsense_variant",
-    "is_splice_variant",
     "phylop_score",
     "cadd_phred",
     "conservation_level",
@@ -107,8 +103,7 @@ df_ml = df.select(
     "is_deleterious_by_cadd",
     "has_functional_domain",
     "domain_count",
-    "has_conservation_data",
-    "has_complete_annotation",
+    "has_conservation_data",    
     "inheritance_pattern",
     "x_linked_risk_modifier",
     "inheritance_pathogenicity_modifier",
@@ -143,11 +138,9 @@ df_ml = df.select(
     "expression_context",
     "cancer_mutation_count",
     "is_cancer_gene",
-    "is_cancer_relevant",
     "population_allele_frequency",
     "is_common_in_population",
     "is_rare_in_population",
-    "frequency_pathogenicity_conflict",
     "disease_count",
     "has_cancer_disease",
     "has_neurological_disease",
@@ -165,12 +158,6 @@ print("=" * 80)
 
 print("target_is_pathogenic:")
 df_ml.groupBy("target_is_pathogenic").count().orderBy("target_is_pathogenic").show()
-
-print("clinical_significance_simple:")
-df_ml.groupBy("clinical_significance_simple").count().orderBy("clinical_significance_simple").show()
-
-print("clinvar_pathogenicity_class:")
-df_ml.groupBy("clinvar_pathogenicity_class").count().orderBy("clinvar_pathogenicity_class").show()
 
 # COMMAND ----------
 
@@ -206,8 +193,6 @@ df_ml = df_ml.fillna({
     "cancer_mutation_count": 0,
     "population_allele_frequency": 0.0,
     "disease_count": 0,
-    "clinical_significance_simple": "Unknown",
-    "clinvar_pathogenicity_class": "Unknown",
     "protein_impact_category": "unknown",
     "inheritance_pattern": "unknown",
     "x_linked_risk_modifier": "unknown",
@@ -286,9 +271,6 @@ print("\nTrain target distribution:")
 spark.table(f"{catalog_name}.gold.ml_dataset_clinical_train") \
     .groupBy("target_is_pathogenic").count().show()
 
-print("\nTrain clinical significance distribution:")
-spark.table(f"{catalog_name}.gold.ml_dataset_clinical_train") \
-    .groupBy("clinical_significance_simple").count().orderBy("clinical_significance_simple").show()
 
 # COMMAND ----------
 

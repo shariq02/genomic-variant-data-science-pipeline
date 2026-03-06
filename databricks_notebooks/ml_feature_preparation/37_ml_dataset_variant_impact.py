@@ -74,8 +74,6 @@ df_ml = df.select(
     "is_pathogenic",
     "is_benign",
     "is_vus",
-    "clinical_significance_simple",
-    "clinvar_pathogenicity_class",
     "review_status",
     "review_quality_score",
     "variant_type",
@@ -91,7 +89,6 @@ df_ml = df.select(
     "is_snv",
     "is_insertion",
     "is_deletion",
-    "has_functional_domain",
     "domain_count",
     "has_zinc_finger",
     "has_kinase_domain",
@@ -100,7 +97,6 @@ df_ml = df.select(
     "has_sh3_domain",
     "has_ph_domain",
     "affects_functional_domain",
-    "domain_impact_severity",
     "domain_type_count",
     "has_multiple_domain_types",
     "mutation_severity_score",
@@ -120,13 +116,10 @@ df_ml = df.select(
     "is_high_impact",
     "is_very_high_impact",
     "is_conservation_constrained",
-    "is_highly_conserved_region",
-    "is_domain_affecting",
     "is_loss_of_function",
     "is_splice_affecting",
     "has_cadd_score",
     "is_deleterious_by_cadd",
-    "is_splice_site_variant",
     "splice_impact_severity",
     "lof_category",
     "is_kinase",
@@ -137,7 +130,6 @@ df_ml = df.select(
     "is_druggable_gene",
     "is_key_protein_type",
     "is_well_annotated",
-    "clinical_impact_priority",
     "tissues_expressed_count",
     "max_expression_tpm",
     "is_broadly_expressed",
@@ -183,9 +175,6 @@ df_ml.groupBy("is_high_impact").count().orderBy("is_high_impact").show()
 print("variant_impact_tier:")
 df_ml.groupBy("variant_impact_tier").count().orderBy("variant_impact_tier").show()
 
-print("domain_impact_severity:")
-df_ml.groupBy("domain_impact_severity").count().orderBy("domain_impact_severity").show()
-
 print("lof_category:")
 df_ml.groupBy("lof_category").count().orderBy("lof_category").show()
 
@@ -220,19 +209,15 @@ df_ml = df_ml.fillna({
     "gene_domain_affecting_count": 0,
     "gene_avg_impact_score": 0.0,
     "gene_max_impact_score": 0,
-    "clinical_significance_simple": "Unknown",
-    "clinvar_pathogenicity_class": "Unknown",
     "review_status": "unknown",
     "variant_type": "unknown",
     "protein_change": "unknown",
     "cdna_change": "unknown",
     "protein_impact_category": "unknown",
     "variant_impact_tier": "unknown",
-    "domain_impact_severity": "unknown",
     "conservation_impact_class": "unknown",
     "splice_impact_severity": "unknown",
     "lof_category": "unknown",
-    "clinical_impact_priority": "unknown",
     "expression_impact_context": "unknown",
     "cancer_variant_priority": "unknown",
     "disease_impact_category": "unknown",

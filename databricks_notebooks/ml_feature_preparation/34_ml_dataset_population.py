@@ -186,10 +186,6 @@ print(f"Validation: {v1:,} ({v1/total1*100:.1f}%)")
 print(f"Test:       {te1:,} ({te1/total1*100:.1f}%)")
 print(f"Total:      {total1:,}")
 
-print("\nTrain target distribution:")
-spark.table(f"{catalog_name}.gold.ml_dataset_carrier_screening_train") \
-    .groupBy("is_clinically_actionable_rare_variant").count().show()
-
 # COMMAND ----------
 
 # MAGIC %md
@@ -263,7 +259,6 @@ df2_ml = df2.select(
     "expression_tissues",
     "expression_frequency_correlation",
     "tissue_specific_allele_effects",
-    "is_clinically_actionable_rare_variant",
     "is_carrier_screening_candidate",
     "clinical_significance_frequency_score",
     "carrier_risk_score_adjusted",
