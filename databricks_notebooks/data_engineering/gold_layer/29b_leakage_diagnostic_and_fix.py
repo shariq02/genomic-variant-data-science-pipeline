@@ -3,8 +3,8 @@
 # MAGIC #### LEAKAGE DIAGNOSTIC AND FIX
 # MAGIC ##### Notebook 29b: Pre-Split Gold Table Leakage Guard
 # MAGIC
-# MAGIC **DNA Gene Mapping Project**
-# MAGIC **Author:** Sharique Mohammad
+# MAGIC **DNA Gene Mapping Project**  
+# MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 2026
 # MAGIC
 # MAGIC **Position in pipeline:** Runs AFTER all gold notebooks (17a-29), BEFORE split notebooks (30-40)
@@ -24,8 +24,8 @@
 # MAGIC     target rate is exactly 1.0 or exactly 0.0.
 # MAGIC     High-cardinality columns (>10% distinct values) are skipped as identifiers.
 # MAGIC
-# MAGIC **TWO-STEP EXECUTION:**
-# MAGIC   Step 1 - Run the Scan cell. Review ALL findings before proceeding.
+# MAGIC **TWO-STEP EXECUTION:**  
+# MAGIC   Step 1 - Run the Scan cell. Review ALL findings before proceeding.  
 # MAGIC   Step 2 - Only run the Write cell after confirming findings are correct.
 # MAGIC
 # MAGIC **VACUUM note:** Not supported on Databricks Serverless.
@@ -505,9 +505,18 @@ print(f"Tables scanned:  {len(ALL_TABLE_REGISTRY)}")
 if "all_audit_rows" in dir() and all_audit_rows:
     print(f"Total columns dropped: {len(all_audit_rows)}")
     print()
-    print("Dropped column breakdown:")
-    spark.table(f"{catalog_name}.gold.leakage_audit_log") \
-        .filter(col("run_timestamp") == col("run_timestamp").cast("timestamp")) \
+    print("Dropped column breakdown (this run only):")
+    from pyspark.sql.types import StructType, StructField, StringType as ST, TimestampType, DoubleType as DT
+    audit_schema = StructType([
+        StructField("run_timestamp",     TimestampType(), True),
+        StructField("gold_table",        ST(),            True),
+        StructField("column_name",       ST(),            True),
+        StructField("drop_reason",       ST(),            True),
+        StructField("correlation_value", DT(),            True),
+        StructField("target_column",     ST(),            True),
+    ])
+    df_this_run = spark.createDataFrame(all_audit_rows, schema=audit_schema)
+    df_this_run \
         .select("gold_table", "column_name", "drop_reason", "target_column") \
         .orderBy("gold_table") \
         .show(truncate=False)
