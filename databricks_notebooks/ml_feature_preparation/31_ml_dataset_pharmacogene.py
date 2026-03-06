@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "2"
+# ///
 # MAGIC %md
 # MAGIC #### ML DATASET - PHARMACOGENE PRIORITY PREDICTION
 # MAGIC ##### Module: Prepare Pharmacogene ML Dataset
@@ -69,7 +73,6 @@ df1_ml = df1.select(
     "gene_full_name",
     "chromosome",
     "source_count",
-    "has_pharmgkb_annotation",
     "is_drug_metabolizer",
     "is_drug_transporter_gene",
     "is_drug_target_gene",
@@ -80,8 +83,6 @@ df1_ml = df1.select(
     "is_validated_cancer_target",
     "is_kinase",
     "is_receptor",
-    "is_enzyme",
-    "is_transporter",
     "is_metabolic",
     "druggability_score",
     "total_relationships",
@@ -114,7 +115,6 @@ df1_ml = df1.select(
     "has_cardiovascular_disease",
     "has_neurological_disease",
     "has_metabolic_disease",
-    "primary_indication_category",
     "max_domain_count",
     "has_kinase_domain_count",
     "is_complex_drug_target",
@@ -192,7 +192,6 @@ df1_ml = df1_ml.fillna({
     "drug_metabolism_tissue_expression": "unknown",
     "cancer_mutation_burden": "low",
     "variant_impact_burden": "Low",
-    "primary_indication_category": "Unknown"
 })
 
 print("Missing values filled")
@@ -300,7 +299,6 @@ df2_ml = df2.select(
     "is_pathogenic",
     "is_benign",
     "is_vus",
-    "clinical_significance_simple",
     "variant_type",
     "is_missense_variant",
     "is_loss_of_function",
@@ -314,13 +312,11 @@ df2_ml = df2.select(
     "is_drug_target",
     "is_metabolizing_enzyme",
     "metabolizing_enzyme_type",
-    "is_enzyme",
     "is_drug_transporter",
     "is_kinase",
     "is_phosphatase",
     "is_receptor",
     "is_gpcr",
-    "is_transporter",
     "drug_target_category",
     "druggability_score",
     "enhanced_druggability_score",
@@ -332,7 +328,6 @@ df2_ml = df2.select(
     "is_kinase_inhibitor_target",
     "kinase_variant_therapeutic_relevance",
     "pharmgkb_source_count",
-    "has_pharmgkb_annotation",
     "gene_pharmacogene_variants",
     "gene_drug_interaction_variants",
     "gene_metabolizer_variants",
@@ -358,7 +353,6 @@ df2_ml = df2.select(
     "has_cancer_disease",
     "has_cardiovascular_disease",
     "has_neurological_disease",
-    "primary_indication_category"
 )
 
 print(f"Features selected: {len(df2_ml.columns)}")
@@ -398,7 +392,6 @@ df2_ml = df2_ml.fillna({
     "cancer_mutation_count": 0,
     "allele_frequency": 0.0,
     "disease_count": 0,
-    "clinical_significance_simple": "Unknown",
     "pharmacogene_category": "unknown",
     "pharmacogene_evidence_level": "unknown",
     "drug_metabolism_role": "unknown",
@@ -412,7 +405,6 @@ df2_ml = df2_ml.fillna({
     "expression_breadth": "unknown",
     "drug_metabolism_context": "unknown",
     "drug_response_frequency_context": "unknown",
-    "primary_indication_category": "Unknown",
     "metabolizing_enzyme_type": "unknown",
     "variant_type": "unknown",
     "protein_impact_category": "unknown"

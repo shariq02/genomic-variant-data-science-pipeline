@@ -78,7 +78,6 @@ print("=" * 80)
 df1_ml = df1.select(
     "variant_id",
     "gene_symbol",
-    "gene_name",
     "chromosome",
     "position",
     "reference_allele",
@@ -91,7 +90,6 @@ df1_ml = df1.select(
     "is_low_frequency_variant",
     "is_common_variant",
     "frequency_tier",
-    "clinical_significance",
     "is_pathogenic",
     "is_benign",
     "is_vus",
@@ -100,10 +98,7 @@ df1_ml = df1.select(
     "rarity_score",
     "carrier_risk_score",
     "pathogenicity_likelihood_score",
-    "is_clinically_actionable_rare_variant",
     "is_carrier_screening_candidate",
-    "population_priority",
-    "screening_recommendation"
 )
 
 print(f"Features selected: {len(df1_ml.columns)}")
@@ -115,14 +110,10 @@ print(f"Records: {df1_ml.count():,}")
 print("\nTARGET DISTRIBUTION")
 print("=" * 80)
 
-print("is_clinically_actionable_rare_variant:")
-df1_ml.groupBy("is_clinically_actionable_rare_variant").count().orderBy("is_clinically_actionable_rare_variant").show()
 
 print("frequency_tier:")
 df1_ml.groupBy("frequency_tier").count().orderBy("frequency_tier").show()
 
-print("screening_recommendation:")
-df1_ml.groupBy("screening_recommendation").count().orderBy("screening_recommendation").show()
 
 # COMMAND ----------
 
@@ -137,10 +128,6 @@ df1_ml = df1_ml.fillna({
     "pathogenicity_likelihood_score": 0,
     "frequency_category": "unknown",
     "frequency_tier": "unknown",
-    "clinical_significance": "Unknown",
-    "population_priority": "low",
-    "screening_recommendation": "not_indicated",
-    "gene_name": "unknown"
 })
 
 print("Missing values filled")
@@ -240,7 +227,6 @@ df2_ml = df2.select(
     "variant_id",
     "variant_key",
     "gene_symbol",
-    "gene_name",
     "chromosome",
     "position",
     "reference_allele",
@@ -253,7 +239,6 @@ df2_ml = df2.select(
     "is_low_frequency_variant",
     "is_common_variant",
     "frequency_tier",
-    "clinical_significance",
     "is_pathogenic",
     "is_benign",
     "is_vus",
@@ -262,8 +247,6 @@ df2_ml = df2.select(
     "rarity_score",
     "carrier_risk_score",
     "pathogenicity_likelihood_score",
-    "clinvar_pathogenic",
-    "clinvar_benign",
     "pathogenicity_score",
     "conservation_level",
     "pathogenicity_frequency_conflict",
@@ -275,7 +258,6 @@ df2_ml = df2.select(
     "gene_constraint_score",
     "total_disease_count",
     "disease_allele_frequency",
-    "carrier_frequency_by_disease",
     "somatic_frequency",
     "germline_cancer_predisposition",
     "expression_tissues",
@@ -283,8 +265,6 @@ df2_ml = df2.select(
     "tissue_specific_allele_effects",
     "is_clinically_actionable_rare_variant",
     "is_carrier_screening_candidate",
-    "population_priority",
-    "screening_recommendation",
     "clinical_significance_frequency_score",
     "carrier_risk_score_adjusted",
     "pathogenicity_likelihood_refined"
@@ -299,14 +279,9 @@ print(f"Records: {df2_ml.count():,}")
 print("\nTARGET DISTRIBUTION")
 print("=" * 80)
 
-print("is_clinically_actionable_rare_variant:")
-df2_ml.groupBy("is_clinically_actionable_rare_variant").count().orderBy("is_clinically_actionable_rare_variant").show()
-
 print("frequency_tier:")
 df2_ml.groupBy("frequency_tier").count().orderBy("frequency_tier").show()
 
-print("population_priority:")
-df2_ml.groupBy("population_priority").count().orderBy("population_priority").show()
 
 # COMMAND ----------
 
@@ -332,14 +307,9 @@ df2_ml = df2_ml.fillna({
     "pathogenicity_likelihood_refined": 0,
     "frequency_category": "unknown",
     "frequency_tier": "unknown",
-    "clinical_significance": "Unknown",
-    "population_priority": "low",
-    "screening_recommendation": "not_indicated",
     "gene_mutation_tolerance": "unknown",
     "disease_allele_frequency": "unknown",
-    "carrier_frequency_by_disease": "unknown",
     "expression_frequency_correlation": "unknown",
-    "gene_name": "unknown"
 })
 
 print("Missing values filled")
@@ -398,9 +368,6 @@ print(f"Validation: {v2:,} ({v2/total2*100:.1f}%)")
 print(f"Test:       {te2:,} ({te2/total2*100:.1f}%)")
 print(f"Total:      {total2:,}")
 
-print("\nTrain target distribution:")
-spark.table(f"{catalog_name}.gold.ml_dataset_variant_population_train") \
-    .groupBy("is_clinically_actionable_rare_variant").count().show()
 
 # COMMAND ----------
 
