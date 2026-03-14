@@ -133,7 +133,7 @@ EXCLUSION_LISTS = {
         "drug_response_priority_score"
     ],
     
-    "variant_cancer_ml_features": [
+    "cancer_variant_ml_features": [
         # Metadata (7 columns)
         "mutation_frequency_category",
         "somatic_vs_germline_classification",
@@ -144,7 +144,9 @@ EXCLUSION_LISTS = {
         "hereditary_cancer_syndrome",
         # AUC leakage (2 columns)
         "driver_likelihood_score",
-        "therapeutic_target_score"
+        "therapeutic_target_score",
+        # Old multiclass target (1 column)
+        "gene_cancer_role"
     ],
     
     "variant_population_ml_features": [
@@ -265,7 +267,7 @@ audit_schema = StructType([
     StructField("rows_after", IntegerType(), False),
     StructField("columns_before", IntegerType(), False),
     StructField("columns_after", IntegerType(), False),
-    StructField("cleanup_timestamp", TimestampType(), False)
+    StructField("cleanup_timestamp", TimestampType(), True)  # Changed False to True (allow null)
 ])
 
 print("Audit log schema ready")
