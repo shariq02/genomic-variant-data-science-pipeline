@@ -175,9 +175,9 @@ df_gene_classified = (
     # Binary driver gene classification replaces multiclass gene_cancer_role
     # Driver = (oncogene OR tumor_suppressor) AND significant mutation burden
     .withColumn("is_driver_gene",
-                when((col("is_oncogene_candidate") | col("is_tumor_suppressor_candidate")) &
-                     (col("unique_samples_affected") >= 10), True)
-                .otherwise(False))
+            when((col("is_oncogene_candidate") | col("is_tumor_suppressor_candidate")) &
+                 (col("unique_samples_affected") >= 300), True)  
+            .otherwise(False))
     
     # Keep old multiclass for reference (will be excluded by cleanup notebook)
     .withColumn("gene_cancer_role",
@@ -234,6 +234,7 @@ df_combined = (
             col("is_cancer_gene"),
             col("is_tumor_suppressor_candidate"),
             col("is_oncogene_candidate"),
+            col("is_driver_gene"),
             col("gene_cancer_role"),
             col("cancer_mutation_burden_score"),
             col("cancer_priority_score")
@@ -599,15 +600,15 @@ print(f"Final columns: {len(df_final.columns)}")
 # COMMAND ----------
 
 # DBTITLE 1,Write gold.variant_cancer_ml_features
-print("\nWRITING gold.variant_cancer_ml_features")
+print("\nWRITING gold.cancer_variant_ml_features")
 print("="*80)
 
 df_final.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.gold.variant_cancer_ml_features")
+    .saveAsTable(f"{catalog_name}.gold.cancer_variant_ml_features")
 
-print(f"Saved: {catalog_name}.gold.variant_cancer_ml_features")
+print(f"Saved: {catalog_name}.gold.cancer_variant_ml_features")
 
 # COMMAND ----------
 
@@ -615,7 +616,7 @@ print(f"Saved: {catalog_name}.gold.variant_cancer_ml_features")
 print("\nFINAL VERIFICATION")
 print("="*80)
 
-df_check = spark.table(f"{catalog_name}.gold.variant_cancer_ml_features")
+df_check = spark.table(f"{catalog_name}.gold.cancer_variant_ml_features")
 rows     = df_check.count()
 cols     = len(df_check.columns)
 
@@ -667,12 +668,14 @@ print("\nProcessing complete")
 # MAGIC %sql
 # MAGIC -- UC15: Binary Driver Gene Target
 # MAGIC -- Expected: 20-30% positive
+# MAGIC
 # MAGIC SELECT 
 # MAGIC   is_driver_gene,
 # MAGIC   COUNT(*) as count,
 # MAGIC   ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as pct
 # MAGIC FROM workspace.gold.cancer_variant_ml_features
-# MAGIC GROUP BY is_driver_gene;
+# MAGIC GROUP BY is_driver_gene
+# MAGIC ORDER BY is_driver_gene;
 
 # COMMAND ----------
 
@@ -696,7 +699,6 @@ print("\nProcessing complete")
 # MAGIC   gene_name,
 # MAGIC   is_oncogene_candidate,
 # MAGIC   is_tumor_suppressor_candidate,
-# MAGIC   unique_samples_affected,
 # MAGIC   gene_cancer_role,
 # MAGIC   is_driver_gene
 # MAGIC FROM workspace.gold.cancer_variant_ml_features

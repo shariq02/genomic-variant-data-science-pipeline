@@ -590,15 +590,15 @@ print(f"Final columns: {len(df_final.columns)}")
 # COMMAND ----------
 
 # DBTITLE 1,Write gold.variant_cancer_ml_features
-print("\nWRITING gold.variant_cancer_ml_features")
+print("\nWRITING gold.cancer_variant_ml_features")
 print("="*80)
 
 df_final.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.gold.variant_cancer_ml_features")
+    .saveAsTable(f"{catalog_name}.gold.cancer_variant_ml_features")
 
-print(f"Saved: {catalog_name}.gold.variant_cancer_ml_features")
+print(f"Saved: {catalog_name}.gold.cancer_variant_ml_features")
 
 # COMMAND ----------
 
@@ -606,7 +606,7 @@ print(f"Saved: {catalog_name}.gold.variant_cancer_ml_features")
 print("\nFINAL VERIFICATION")
 print("="*80)
 
-df_check = spark.table(f"{catalog_name}.gold.variant_cancer_ml_features")
+df_check = spark.table(f"{catalog_name}.gold.cancer_variant_ml_features")
 rows     = df_check.count()
 cols     = len(df_check.columns)
 

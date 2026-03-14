@@ -178,7 +178,7 @@ df_genes_with_disease = (
     # New high-confidence target replaces old is_disease_associated
     # Requires multiple OMIM diseases OR ClinVar pathogenic variant
     .withColumn("is_high_confidence_disease_gene",
-                when(col("omim_disease_count") >= 2, True)
+                when(col("omim_disease_count") >= 3, True)
                 .otherwise(False))  # Will add ClinVar check after join
     
     .withColumn("is_multi_disease_gene",  col("gene_disease_count") >= 3)
@@ -644,7 +644,7 @@ print("\nProcessing complete")
 # MAGIC   gene_name,
 # MAGIC   omim_disease_count,
 # MAGIC   is_pathogenic,
-# MAGIC   gene_disease_count,
+# MAGIC  -- gene_disease_count,
 # MAGIC   is_high_confidence_disease_gene
 # MAGIC FROM workspace.gold.disease_ml_features
 # MAGIC WHERE is_high_confidence_disease_gene = TRUE
