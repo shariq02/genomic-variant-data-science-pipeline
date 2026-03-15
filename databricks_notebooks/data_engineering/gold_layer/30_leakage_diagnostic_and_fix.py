@@ -115,13 +115,14 @@ ALL_TABLE_REGISTRY = [
     {
         "table":       "cancer_variant_ml_features",
         "primary_key": "variant_id",
-        "targets":     ["is_driver_candidate"]
+        "targets":     ["is_driver_candidate", "is_driver_gene"],
+        "exclude":     ["gene_symbol"]
     },
     # Mode 2 - features-only tables, scanned against proxy boolean columns
     {
         "table":       "disease_ml_features",
         "primary_key": "variant_id",
-        "targets":     ["is_pathogenic", "is_benign", "is_vus"]
+        "targets":     ["is_high_confidence_disease_gene"]
     },
     {
         "table":       "pharmacogene_ml_features",
@@ -296,7 +297,7 @@ for entry in ALL_TABLE_REGISTRY:
         print()
         continue
 
-    exclude_cols  = set([primary_key] + targets)
+    exclude_cols  = set([primary_key] + targets + entry.get("exclude", []))
     total_rows    = df.count()
     numeric_cols  = get_numeric_feature_cols(df_numeric, exclude_cols)
     string_cols   = [
