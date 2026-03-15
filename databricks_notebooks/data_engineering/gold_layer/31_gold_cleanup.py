@@ -16,7 +16,7 @@
 # MAGIC Set DRY_RUN = False to actually clean and overwrite tables.
 # MAGIC
 # MAGIC **Creates:**
-# MAGIC - gold.cleanup_audit_log (tracks all exclusions)
+# MAGIC - gold.leakage_audit_log (tracks all exclusions)
 # MAGIC - Overwrites 18 gold tables with cleaned versions
 
 # COMMAND ----------
@@ -37,7 +37,7 @@ print("="*80)
 # DBTITLE 1,Import Libraries
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit, current_timestamp
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, DoubleType
 
 spark = SparkSession.builder.getOrCreate()
 spark.sql(f"USE CATALOG {catalog_name}")
@@ -126,8 +126,7 @@ EXCLUSION_LISTS = {
         "variant_functional_class",
         "metabolizer_phenotype",
         "dosing_impact",
-        "adverse_reaction_risk",
-        "is_actionable_pharmacogene_variant",
+        "adverse_reaction_risk",    
         "is_high_priority_drug_variant",
         # AUC leakage (1 column)
         "drug_response_priority_score"
@@ -186,7 +185,6 @@ EXCLUSION_LISTS = {
         "pharmacogene_priority",
         "pharmacogene_category_enhanced",
         "clinical_actionability_tier",
-        "is_high_priority_pharmacogene",
         # AUC leakage (1 column)
         "clinical_utility_score"
     ],
@@ -197,7 +195,6 @@ EXCLUSION_LISTS = {
         "expression_pattern",
         "primary_tissue",
         "clinical_relevance_tier",
-        "is_clinically_relevant_expression",
         # AUC leakage (1 column)
         "clinical_relevance_score"
     ],
@@ -207,7 +204,6 @@ EXCLUSION_LISTS = {
         "protein_family_tier",
         "druggability_tier",
         "functional_domain_category",
-        "is_high_value_protein_family",
         # AUC leakage (1 column)
         "protein_family_priority_score"
     ],
@@ -217,7 +213,6 @@ EXCLUSION_LISTS = {
         "test_availability_tier",
         "clinical_utility_tier",
         "disease_test_coverage",
-        "is_high_priority_test_gene",
         "has_clinical_test_available",
         "has_multiple_test_types",
         # AUC leakage (7 columns)
@@ -231,8 +226,6 @@ EXCLUSION_LISTS = {
     ],
     
     "transcript_expression_ml_features": [
-        # Metadata (1 column)
-        "is_clinically_relevant_expression",
         # AUC leakage (1 column)
         "clinical_relevance_score"
     ],
@@ -260,14 +253,13 @@ print("\nCREATING AUDIT LOG SCHEMA")
 print("="*80)
 
 audit_schema = StructType([
-    StructField("table_name", StringType(), False),
-    StructField("column_name", StringType(), False),
-    StructField("exclusion_reason", StringType(), False),
-    StructField("rows_before", IntegerType(), False),
-    StructField("rows_after", IntegerType(), False),
-    StructField("columns_before", IntegerType(), False),
-    StructField("columns_after", IntegerType(), False),
-    StructField("cleanup_timestamp", TimestampType(), True)  # Changed False to True (allow null)
+    StructField("run_timestamp", TimestampType(), True),
+    StructField("gold_table", StringType(), True),
+    StructField("column_name", StringType(), True),
+    StructField("drop_reason", StringType(), True),
+    StructField("correlation_value", DoubleType(), True),
+    StructField("target_column", StringType(), True),
+    StructField("mode", IntegerType(), True)
 ])
 
 print("Audit log schema ready")
@@ -345,21 +337,20 @@ def clean_table(table_name, exclusion_list, dry_run=True):
             reason = "METADATA"
         
         audit_records.append({
-            "table_name": table_name,
+            "run_timestamp": None,  # Will be filled by current_timestamp()
+            "gold_table": table_name,
             "column_name": col_name,
-            "exclusion_reason": reason,
-            "rows_before": rows_before,
-            "rows_after": rows_after,
-            "columns_before": cols_before,
-            "columns_after": cols_after,
-            "cleanup_timestamp": None  # Will be set by current_timestamp()
+            "drop_reason": f"CLEANUP_{reason}",  # Prefix to identify cleanup vs scan
+            "correlation_value": None,
+            "target_column": None,
+            "mode": 2
         })
     
     # Write cleaned table (only if not dry run)
     if not dry_run:
         print(f"  Writing cleaned table to {full_table_name}...")
         df_clean.write \
-            .mode("overwrite") \
+            .mode("append") \
             .option("overwriteSchema", "true") \
             .saveAsTable(full_table_name)
         print(f"  SUCCESS: Table overwritten")
@@ -393,18 +384,20 @@ print("\nSAVING AUDIT LOG")
 print("="*80)
 
 if all_audit_records:
-    # Create DataFrame from audit records
-    df_audit = spark.createDataFrame(all_audit_records, schema=audit_schema)
-    df_audit = df_audit.withColumn("cleanup_timestamp", current_timestamp())
+    # Remove 'cleanup_timestamp' field from audit records
+    audit_records_no_ts = [
+        {k: v for k, v in rec.items() if k != 'cleanup_timestamp'}
+        for rec in all_audit_records
+    ]
+    df_audit = spark.createDataFrame(audit_records_no_ts, schema=audit_schema)
+    df_audit = df_audit.withColumn("run_timestamp", current_timestamp())
     
     if not DRY_RUN:
-        # Write to gold.cleanup_audit_log
         df_audit.write \
-            .mode("overwrite") \
+            .mode("append") \
             .option("overwriteSchema", "true") \
-            .saveAsTable(f"{catalog_name}.gold.cleanup_audit_log")
-        
-        print(f"Audit log saved to {catalog_name}.gold.cleanup_audit_log")
+            .saveAsTable(f"{catalog_name}.gold.leakage_audit_log")
+        print(f"Audit log saved to {catalog_name}.gold.leakage_audit_log")
         print(f"Total exclusions logged: {len(all_audit_records)}")
     else:
         print("DRY RUN: Audit log preview:")
@@ -424,27 +417,24 @@ if all_audit_records:
     df_audit = spark.createDataFrame(all_audit_records, schema=audit_schema)
     
     print("\nExclusions by table:")
-    df_audit.groupBy("table_name").count() \
-        .orderBy("count", ascending=False) \
-        .show(20, truncate=False)
+    display(
+        df_audit.groupBy("gold_table")
+            .count()
+            .orderBy("count", ascending=False)
+    )
     
     print("\nExclusions by reason:")
-    df_audit.groupBy("exclusion_reason").count() \
-        .orderBy("count", ascending=False) \
-        .show()
+    display(
+        df_audit.groupBy("drop_reason")
+            .count()
+            .orderBy("count", ascending=False)
+    )
     
     print("\nSample excluded columns:")
-    df_audit.select("table_name", "column_name", "exclusion_reason") \
-        .show(30, truncate=False)
-
-print("\n" + "="*80)
-if DRY_RUN:
-    print("DRY RUN COMPLETE - NO TABLES MODIFIED")
-    print("To actually clean tables, set DRY_RUN = False and re-run")
-else:
-    print("CLEANUP COMPLETE - ALL TABLES UPDATED")
-    print("Audit log: gold.cleanup_audit_log")
-print("="*80)
+    display(
+        df_audit.select("gold_table", "column_name", "drop_reason")
+            .limit(30)
+    )
 
 # COMMAND ----------
 
@@ -454,38 +444,41 @@ print("="*80)
 
 # COMMAND ----------
 
-# DBTITLE 1,Verify Column Counts
-# MAGIC %sql
-# MAGIC -- Check column counts for all 18 tables
-# MAGIC SELECT 
-# MAGIC   'clinical_ml_features' as table_name,
-# MAGIC   COUNT(*) as column_count
-# MAGIC FROM (DESCRIBE TABLE workspace.gold.clinical_ml_features)
-# MAGIC 
-# MAGIC UNION ALL
-# MAGIC 
-# MAGIC SELECT 
-# MAGIC   'disease_ml_features' as table_name,
-# MAGIC   COUNT(*) as column_count
-# MAGIC FROM (DESCRIBE TABLE workspace.gold.disease_ml_features)
-# MAGIC 
-# MAGIC -- Add remaining 16 tables...
-# MAGIC ORDER BY table_name;
+# Check column counts for all tables
+for table_name in EXCLUSION_LISTS.keys():
+    try:
+        df = spark.table(f"workspace.gold.{table_name}")
+        print(f"{table_name}: {len(df.columns)} columns")
+    except:
+        print(f"{table_name}: NOT FOUND")
 
 # COMMAND ----------
 
 # DBTITLE 1,Check Audit Log
-# MAGIC %sql
-# MAGIC -- View audit log summary
-# MAGIC SELECT 
-# MAGIC   table_name,
-# MAGIC   COUNT(*) as exclusions,
-# MAGIC   MAX(columns_before) as cols_before,
-# MAGIC   MAX(columns_after) as cols_after,
-# MAGIC   MAX(columns_before) - MAX(columns_after) as cols_removed
-# MAGIC FROM workspace.gold.cleanup_audit_log
-# MAGIC GROUP BY table_name
-# MAGIC ORDER BY exclusions DESC;
+# DBTITLE 1,Check Audit Log
+print("\nAUDIT LOG SUMMARY")
+print("="*80)
+ 
+try:
+    df_audit = spark.table("workspace.gold.leakage_audit_log")
+    
+    # Filter to only show CLEANUP entries (not old SCAN entries)
+    df_cleanup = df_audit.filter(col("mode") == 2)
+    
+    print("\nCleanup exclusions by table:")
+    df_cleanup.groupBy("gold_table") \
+        .count() \
+        .withColumnRenamed("count", "exclusions") \
+        .orderBy("exclusions", ascending=False) \
+        .show(20, truncate=False)
+    
+    print("\nTotal cleanup exclusions:")
+    total = df_cleanup.count()
+    print(f"  {total} columns removed across all tables")
+    
+except Exception as e:
+    print(f"Audit log not found: {e}")
+    print("Run notebook with DRY_RUN=False to create audit log")
 
 # COMMAND ----------
 
