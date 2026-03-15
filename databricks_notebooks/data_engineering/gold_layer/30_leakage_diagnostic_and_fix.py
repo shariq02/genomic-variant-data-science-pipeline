@@ -113,7 +113,7 @@ ALL_TABLE_REGISTRY = [
         "targets":     ["is_high_priority_test_gene"]
     },
     {
-        "table":       "variant_cancer_ml_features",
+        "table":       "cancer_variant_ml_features",
         "primary_key": "variant_id",
         "targets":     ["is_driver_candidate"]
     },
