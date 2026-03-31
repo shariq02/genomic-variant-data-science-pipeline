@@ -10,14 +10,14 @@ import time
 
 load_dotenv()
 
-POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')
-POSTGRES_PORT = os.getenv('POSTGRES_PORT', '5432')
-POSTGRES_DB = os.getenv('POSTGRES_DB', 'genome_db')
-POSTGRES_USER = os.getenv('POSTGRES_USER', 'postgres')
+POSTGRES_HOST = os.getenv('POSTGRES_HOST')
+POSTGRES_PORT = os.getenv('POSTGRES_PORT')
+POSTGRES_DB = os.getenv('POSTGRES_DB')
+POSTGRES_USER = os.getenv('POSTGRES_USER')
 POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD')
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-SCHEMA_FILE = PROJECT_ROOT / 'documents' / 'schemas' / 'gold_schema_table.csv'
+SCHEMA_FILE = PROJECT_ROOT / 'documents' / 'schemas' / 'gold_schema.csv'
 
 print("="*80)
 print("POSTGRESQL TYPE CONVERSION SCRIPT - FAST VERSION")
@@ -54,6 +54,9 @@ with open(SCHEMA_FILE, 'r') as f:
 
 print(f"Parsed schema for {len(schema)} tables")
 
+# Tables to skip - temp/intermediate tables
+SKIP_TABLES = {"temp_df_impact"}
+
 PG_TYPE_MAP = {
     'BOOLEAN': 'BOOLEAN',
     'INT': 'INTEGER',
@@ -89,12 +92,22 @@ for table_name in sorted(schema.keys()):
     print(f"\n{'='*80}")
     print(f"Processing: gold.{table_name}")
     print(f"{'='*80}")
+
+    if table_name in SKIP_TABLES:
+        print(f"  SKIP: excluded temp table")
+        continue
+
+    # Skip if table doesn't exist yet (CSV not downloaded / not loaded)
+    try:
+        cur.execute(f"SELECT COUNT(*) FROM gold.{table_name}")
+        row_count = cur.fetchone()[0]
+    except Exception:
+        conn.rollback()
+        print(f"  SKIP: table not found in postgres (not yet loaded)")
+        continue
     table_start = time.time()
     table_start_dt = time.strftime('%Y-%m-%d %H:%M:%S')
     print(f"Start: {table_start_dt}")
-    
-    cur.execute(f"SELECT COUNT(*) FROM gold.{table_name}")
-    row_count = cur.fetchone()[0]
     print(f"Table has {row_count:,} rows")
     
     table_stats = {'converted': 0, 'failed': 0, 'skipped': 0}

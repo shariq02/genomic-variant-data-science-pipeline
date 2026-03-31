@@ -5,24 +5,22 @@
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
-# MAGIC **Date:** February 27, 2026
+# MAGIC **Date:** February 27, 2026  
+# MAGIC **Updated:** March 14, 2026 (Gold V2 - Target Fix)
 # MAGIC
 # MAGIC **Use Cases:**
-# MAGIC - Use Case 12: Cancer Variant Classification
+# MAGIC - Use Case 15: Cancer Molecular Classification
 # MAGIC
-# MAGIC **Creates:** gold.variant_cancer_ml_features
+# MAGIC **Creates:** gold.cancer_variant_ml_features
 # MAGIC
-# MAGIC **TWO-PASS STRUCTURE:**
-# MAGIC - Pass 1: Features only. No target computed here.
-# MAGIC - Pass 2: Target derived independently from variant recurrence.
-# MAGIC - Final:  Features and target joined on variant_key. Written to gold.
+# MAGIC **GOLD V2 TARGET FIX (March 14, 2026):**
+# MAGIC Old target: gene_cancer_role (multiclass: oncogene/tumor_suppressor/cancer_associated/other)
+# MAGIC Result: 97.95% oncogene, 1.13% cancer_associated, 0.87% TSG, 0.05% other (BROKEN)
 # MAGIC
-# MAGIC **TARGET FIX:**
-# MAGIC - Old: is_driver_candidate = is_hotspot_mutation OR is_high_impact_cancer_variant
-# MAGIC   Result: 1.18% positive (3,571 of 302,729). Severe imbalance.
-# MAGIC - New: is_driver_candidate = sample_count >= 3
-# MAGIC   OR (truncating_sample_count >= 1 AND sample_count >= 2)
-# MAGIC   Expected: 5-15% positive rate.
+# MAGIC New target: is_driver_gene (binary: driver vs passenger)
+# MAGIC Logic: (oncogene OR tumor_suppressor) AND high_mutation_burden
+# MAGIC Expected: 20-30% positive rate
+# MAGIC Rationale: Collapse multiclass to binary driver/passenger classification
 
 # COMMAND ----------
 
@@ -173,11 +171,21 @@ df_gene_classified = (
                 when((col("missense_mutations") > col("truncating_mutations")) &
                      (col("unique_samples_affected") >= 5), True).otherwise(False))
 
+    # GOLD V2 TARGET (March 14, 2026):
+    # Binary driver gene classification replaces multiclass gene_cancer_role
+    # Driver = (oncogene OR tumor_suppressor) AND significant mutation burden
+    .withColumn("is_driver_gene",
+            when((col("is_oncogene_candidate") | col("is_tumor_suppressor_candidate")) &
+                 (col("unique_samples_affected") >= 300), True)  
+            .otherwise(False))
+    
+    # Keep old multiclass for reference (will be excluded by cleanup notebook)
     .withColumn("gene_cancer_role",
                 when((col("truncating_mutations") > col("missense_mutations")) &
                      (col("unique_samples_affected") >= 3), lit("tumor_suppressor"))
                 .when((col("missense_mutations") > col("truncating_mutations")) &
                       (col("unique_samples_affected") >= 5), lit("oncogene"))
+                .when(col("unique_samples_affected") >= 1, lit("cancer_associated"))
                 .otherwise(lit("other")))
 )
 
@@ -226,6 +234,7 @@ df_combined = (
             col("is_cancer_gene"),
             col("is_tumor_suppressor_candidate"),
             col("is_oncogene_candidate"),
+            col("is_driver_gene"),
             col("gene_cancer_role"),
             col("cancer_mutation_burden_score"),
             col("cancer_priority_score")
@@ -557,7 +566,8 @@ df_final = df_final.select(
     col("is_cancer_gene"),
     col("is_tumor_suppressor_candidate"),
     col("is_oncogene_candidate"),
-    col("gene_cancer_role"),
+    col("is_driver_gene"),  # GOLD V2: new binary target
+    col("gene_cancer_role"),  # Keep for reference (cleanup will exclude)
     col("cancer_mutation_burden_score"),
     col("cancer_priority_score"),
     col("clinvar_pathogenicity"),
@@ -610,13 +620,87 @@ df_check = spark.table(f"{catalog_name}.gold.cancer_variant_ml_features")
 rows     = df_check.count()
 cols     = len(df_check.columns)
 
-target_dist = df_check.groupBy("is_driver_candidate").count().collect()
-total       = sum(r["count"] for r in target_dist)
-positives   = [r["count"] for r in target_dist if r["is_driver_candidate"] == True]
-pos_count   = positives[0] if positives else 0
-pos_pct     = pos_count / total * 100 if total > 0 else 0
+# GOLD V2 TARGET VALIDATION
+print("\n" + "="*80)
+print("GOLD V2 TARGET VALIDATION - is_driver_gene")
+print("="*80)
 
-print(f"Rows:      {rows:,}")
+target_dist = df_check.groupBy("is_driver_gene").count().collect()
+total = sum(r["count"] for r in target_dist)
+for row in sorted(target_dist, key=lambda r: str(r["is_driver_gene"])):
+    pct = row["count"] / total * 100
+    print(f"  {row['is_driver_gene']}: {row['count']:,} ({pct:.2f}%)")
+
+positives = [r["count"] for r in target_dist if r["is_driver_gene"] == True]
+pos_count = positives[0] if positives else 0
+pos_pct = pos_count / total * 100 if total > 0 else 0
+
+print()
+if pos_pct < 15.0:
+    print(f"WARNING: Positive rate {pos_pct:.2f}% below expected range (20-30%). Review threshold.")
+elif pos_pct > 40.0:
+    print(f"WARNING: Positive rate {pos_pct:.2f}% above expected range (20-30%). Review threshold.")
+elif 20.0 <= pos_pct <= 30.0:
+    print(f"SUCCESS: Positive rate {pos_pct:.2f}% within target range (20-30%)!")
+else:
+    print(f"OK: Positive rate {pos_pct:.2f}% acceptable (15-40% range).")
+
+print("="*80)
+
+print(f"\nRows:      {rows:,}")
 print(f"Columns:   {cols}")
-print(f"Positives: {pos_count:,} ({pos_pct:.2f}%)")
+
+# Show old multiclass distribution for comparison
+print("\nOld multiclass distribution (gene_cancer_role):")
+df_check.groupBy("gene_cancer_role").count().orderBy("count", ascending=False).show()
+
 print("\nProcessing complete")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### GOLD V2 VALIDATION SQL
+# MAGIC Run these queries to verify binary target quality
+
+# COMMAND ----------
+
+# DBTITLE 1,Binary Target Distribution
+# MAGIC %sql
+# MAGIC -- UC15: Binary Driver Gene Target
+# MAGIC -- Expected: 20-30% positive
+# MAGIC
+# MAGIC SELECT 
+# MAGIC   is_driver_gene,
+# MAGIC   COUNT(*) as count,
+# MAGIC   ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as pct
+# MAGIC FROM workspace.gold.cancer_variant_ml_features
+# MAGIC GROUP BY is_driver_gene
+# MAGIC ORDER BY is_driver_gene;
+
+# COMMAND ----------
+
+# DBTITLE 1,Multiclass vs Binary Comparison
+# MAGIC %sql
+# MAGIC -- Compare old multiclass to new binary
+# MAGIC SELECT 
+# MAGIC   gene_cancer_role,
+# MAGIC   is_driver_gene,
+# MAGIC   COUNT(*) as count
+# MAGIC FROM workspace.gold.cancer_variant_ml_features
+# MAGIC GROUP BY gene_cancer_role, is_driver_gene
+# MAGIC ORDER BY count DESC;
+
+# COMMAND ----------
+
+# DBTITLE 1,Sample Driver Genes
+# MAGIC %sql
+# MAGIC -- Sample driver genes to verify logic
+# MAGIC SELECT 
+# MAGIC   gene_name,
+# MAGIC   is_oncogene_candidate,
+# MAGIC   is_tumor_suppressor_candidate,
+# MAGIC   gene_cancer_role,
+# MAGIC   is_driver_gene
+# MAGIC FROM workspace.gold.cancer_variant_ml_features
+# MAGIC WHERE is_driver_gene = TRUE
+# MAGIC LIMIT 20;

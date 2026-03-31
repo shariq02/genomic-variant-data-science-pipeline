@@ -6,6 +6,7 @@
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
 # MAGIC **Date:** February 22, 2026  
+# MAGIC **Updated:** March 14, 2026 (Gold V2 - Target Fix)
 # MAGIC
 # MAGIC **Use Cases:**
 # MAGIC - Use Case 4: Disease Association Discovery (Gene-Disease links)
@@ -14,9 +15,12 @@
 # MAGIC
 # MAGIC **Creates:** gold.disease_ml_features
 # MAGIC
-# MAGIC **NOTE:**   
-# MAGIC This is a features-only gold table. No ML target column.
-# MAGIC It serves as a feature source joined into other ML training tables.
+# MAGIC **GOLD V2 TARGET FIX (March 14, 2026):**
+# MAGIC Old target: is_disease_associated = (gene_disease_count >= 1) → 100% positive
+# MAGIC New target: is_high_confidence_disease_gene
+# MAGIC Logic: (omim_disease_count >= 2) OR (has_clinvar_pathogenic_disease_variant)
+# MAGIC Expected: 15-25% positive rate
+# MAGIC Rationale: Binary threshold too permissive, requires high-confidence evidence
 
 # COMMAND ----------
 
@@ -169,7 +173,14 @@ df_genes_with_disease = (
                 .when(col("gene_disease_count") >= 2, lit("Associated"))
                 .when(col("gene_disease_count") == 1, lit("Single_Disease"))
                 .otherwise(lit("Not_Associated")))
-    .withColumn("is_disease_associated",  col("gene_disease_count") >= 1)
+    
+    # GOLD V2 TARGET (March 14, 2026):
+    # New high-confidence target replaces old is_disease_associated
+    # Requires multiple OMIM diseases OR ClinVar pathogenic variant
+    .withColumn("is_high_confidence_disease_gene",
+                when(col("omim_disease_count") >= 3, True)
+                .otherwise(False))  # Will add ClinVar check after join
+    
     .withColumn("is_multi_disease_gene",  col("gene_disease_count") >= 3)
     .withColumn("disease_association_strength",
                 when(col("gene_disease_count") >= 10, 5)
@@ -185,13 +196,19 @@ df_disease = (
     .join(df_genes_with_disease, "gene_name", "left")
     .fillna({
         "gene_disease_count":               0,
-        "omim_disease_count":          0,
-        "disease_association_strength": 1,
-        "is_disease_associated":        False,
-        "is_multi_disease_gene":        False,
-        "is_omim_gene":                 False
+        "omim_disease_count":               0,
+        "disease_association_strength":     1,
+        "is_high_confidence_disease_gene":  False,  # GOLD V2: new target
+        "is_multi_disease_gene":            False,
+        "is_omim_gene":                     False
     })
     .fillna("Not_Associated", ["disease_count_category"])
+    
+    # GOLD V2: Add ClinVar pathogenic check to target (OR logic)
+    .withColumn("is_high_confidence_disease_gene",
+                when(col("is_high_confidence_disease_gene") == True, True)  # Already True from OMIM
+                .when(col("is_pathogenic") == True, True)  # OR ClinVar pathogenic
+                .otherwise(False))
 
     .withColumn("variant_disease_link_quality",
                 when(col("has_omim_disease") & col("is_omim_gene"), lit("High_Quality"))
@@ -494,7 +511,7 @@ df_final = df_disease.select(
     col("disease_count"),
     col("omim_disease_count"),
     col("disease_count_category"),
-    col("is_disease_associated"),
+    col("is_high_confidence_disease_gene"),  # GOLD V2: new target
     col("is_multi_disease_gene"),
     col("disease_association_strength"),
     col("is_omim_gene"),
@@ -565,6 +582,32 @@ cols     = len(df_check.columns)
 print(f"Rows:    {rows:,}")
 print(f"Columns: {cols}")
 
+# GOLD V2 TARGET VALIDATION
+print("\n" + "="*80)
+print("GOLD V2 TARGET VALIDATION - is_high_confidence_disease_gene")
+print("="*80)
+target_dist = df_check.groupBy("is_high_confidence_disease_gene").count().collect()
+total = sum(r["count"] for r in target_dist)
+for row in sorted(target_dist, key=lambda r: str(r["is_high_confidence_disease_gene"])):
+    pct = row["count"] / total * 100
+    print(f"  {row['is_high_confidence_disease_gene']}: {row['count']:,} ({pct:.2f}%)")
+
+positives = [r["count"] for r in target_dist if r["is_high_confidence_disease_gene"] == True]
+pos_count = positives[0] if positives else 0
+pos_pct = pos_count / total * 100 if total > 0 else 0
+
+print()
+if pos_pct < 10.0:
+    print(f"WARNING: Positive rate {pos_pct:.2f}% below expected range (15-25%). Review threshold.")
+elif pos_pct > 30.0:
+    print(f"WARNING: Positive rate {pos_pct:.2f}% above expected range (15-25%). Review threshold.")
+elif 15.0 <= pos_pct <= 25.0:
+    print(f"SUCCESS: Positive rate {pos_pct:.2f}% within target range (15-25%)!")
+else:
+    print(f"OK: Positive rate {pos_pct:.2f}% acceptable (10-30% range).")
+
+print("="*80)
+
 print("\nDisease count category breakdown:")
 df_check.groupBy("disease_count_category").count().orderBy("count", ascending=False).show()
 
@@ -572,3 +615,37 @@ print("\nGene priority tier breakdown:")
 df_check.groupBy("gene_priority_tier").count().orderBy("count", ascending=False).show()
 
 print("\nProcessing complete")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### GOLD V2 VALIDATION SQL
+# MAGIC Run these queries to verify target quality
+
+# COMMAND ----------
+
+# DBTITLE 1,Target Distribution Check
+# MAGIC %sql
+# MAGIC -- UC02: Target Distribution Validation
+# MAGIC -- Expected: 15-25% positive
+# MAGIC SELECT 
+# MAGIC   is_high_confidence_disease_gene,
+# MAGIC   COUNT(*) as count,
+# MAGIC   ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as pct
+# MAGIC FROM workspace.gold.disease_ml_features
+# MAGIC GROUP BY is_high_confidence_disease_gene;
+
+# COMMAND ----------
+
+# DBTITLE 1,Sample Positive Rows
+# MAGIC %sql
+# MAGIC -- Sample high-confidence disease genes
+# MAGIC SELECT 
+# MAGIC   gene_name,
+# MAGIC   omim_disease_count,
+# MAGIC   is_pathogenic,
+# MAGIC  -- gene_disease_count,
+# MAGIC   is_high_confidence_disease_gene
+# MAGIC FROM workspace.gold.disease_ml_features
+# MAGIC WHERE is_high_confidence_disease_gene = TRUE
+# MAGIC LIMIT 20;

@@ -14,7 +14,7 @@
 # MAGIC - Create gene importance scores based on descriptions
 # MAGIC
 # MAGIC **Enriches:** genes_ultra_enriched with 30+ new features  
-# MAGIC **Creates:** silver.genes_description_enriched
+# MAGIC **Creates:** silver.genes_with_descriptions
 
 # COMMAND ----------
 
@@ -281,9 +281,9 @@ print(f"Final enriched genes: {df_genes_enriched.count():,}")
 df_genes_enriched.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.silver.genes_ultra_enriched")
+    .saveAsTable(f"{catalog_name}.silver.genes_with_descriptions")
 
-print("\nSaved: genes_ultra_enriched (updated with description enrichment)")
+print("\nSaved: genes_with_descriptions (updated with description enrichment)")
 
 # COMMAND ----------
 
@@ -338,12 +338,4 @@ print("  - Importance scores")
 print("  - Quality classification")
 
 print("\nTables updated:")
-print(f"  1. {catalog_name}.silver.genes_ultra_enriched (enriched)")
-print(f"  2. {catalog_name}.silver.gene_descriptions_analyzed (new)")
-
-print("\nThese features can now be used in:")
-print("  - Clinical feature engineering (Module 16a)")
-print("  - Disease feature engineering (Module 16b)")
-print("  - Pharmacogene feature engineering (Module 16c)")
-print("  - Variant impact feature engineering (Module 16d)")
-print("  - Structural variant feature engineering (Module 16e)")
+print(f"  1. {catalog_name}.silver.genes_with_descriptions (enriched)")

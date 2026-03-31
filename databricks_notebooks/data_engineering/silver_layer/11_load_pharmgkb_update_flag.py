@@ -8,7 +8,7 @@
 # MAGIC **Date:** January 24, 2026
 # MAGIC
 # MAGIC **Input:** all_pharmacogenes_combined.csv (uploaded to DBFS)
-# MAGIC **Output:** Updated silver.genes_ultra_enriched with comprehensive pharmacogene flags
+# MAGIC **Output:** Updated silver.genes_with_pharmgkb with comprehensive pharmacogene flags
 # MAGIC
 # MAGIC **Sources:**
 # MAGIC - PharmGKB (~700 genes)
@@ -76,7 +76,7 @@ df_pharmgkb.groupBy("source_count").count().orderBy("source_count").show()
 print("\nLOADING EXISTING GENES")
 print("="*80)
 
-df_genes = spark.table(f"{catalog_name}.silver.genes_ultra_enriched")
+df_genes = spark.table(f"{catalog_name}.silver.genes_with_refseq_coords")
 genes_count = df_genes.count()
 
 print(f"Total genes: {genes_count:,}")
@@ -120,13 +120,12 @@ print("="*80)
 
 df_genes_updated = (
     df_genes_merged
-    # Flag as pharmacogene if in PharmGKB OR already flagged
-    .withColumn("is_pharmacogene_new",
-                col("pharmgkb_sources").isNotNull() |
-                coalesce(col("is_pharmacogene"), lit(False)))
+    # Flag as pharmacogene if in PharmGKB
+    .withColumn("is_pharmacogene",
+                col("pharmgkb_sources").isNotNull())
     
     # Determine category with priority to PharmGKB evidence
-    .withColumn("pharmacogene_category_new",
+    .withColumn("pharmacogene_category",
                 when(col("pharmgkb_evidence").contains("clinical_guideline"), 
                      lit("Clinical_Guideline"))
                 .when(col("pharmgkb_evidence").contains("drug_label"),
@@ -135,33 +134,24 @@ df_genes_updated = (
                      lit("PharmGKB_Validated"))
                 .when(col("pharmgkb_evidence").contains("drug_target_family"),
                      lit("Drug_Target_Family"))
-                # Fall back to existing category
-                .otherwise(col("pharmacogene_category")))
+                .otherwise(lit("Unknown")))
     
     # Evidence level based on source count
     .withColumn("pharmacogene_evidence_level",
                 when(col("pharmgkb_source_count") >= 3, lit("High"))
                 .when(col("pharmgkb_source_count") == 2, lit("Medium"))
                 .when(col("pharmgkb_source_count") == 1, lit("Low"))
-                .when(col("is_pharmacogene"), lit("Internal_Only"))
-                .otherwise(lit(None)))
+                .otherwise(lit("None")))
     
-    # Update role description
-    .withColumn("drug_metabolism_role_new",
+    # Drug metabolism role
+    .withColumn("drug_metabolism_role",
                 when(col("pharmgkb_sources").isNotNull(),
                      concat(
                          lit("Pharmacogene ("),
                          col("pharmgkb_sources"),
-                         lit("): "),
-                         coalesce(col("drug_metabolism_role"), lit("Drug-related gene"))
+                         lit("): Drug-related gene")
                      ))
-                .otherwise(col("drug_metabolism_role")))
-    
-    # Replace old columns with new
-    .drop("is_pharmacogene", "pharmacogene_category", "drug_metabolism_role")
-    .withColumnRenamed("is_pharmacogene_new", "is_pharmacogene")
-    .withColumnRenamed("pharmacogene_category_new", "pharmacogene_category")
-    .withColumnRenamed("drug_metabolism_role_new", "drug_metabolism_role")
+                .otherwise(lit("Unknown")))
 )
 
 # Count pharmacogenes
@@ -219,9 +209,9 @@ print("="*80)
 df_genes_updated.write \
     .mode("overwrite") \
     .option("overwriteSchema", "true") \
-    .saveAsTable(f"{catalog_name}.silver.genes_ultra_enriched")
+    .saveAsTable(f"{catalog_name}.silver.genes_with_pharmgkb")
 
-print(f"Saved: {catalog_name}.silver.genes_ultra_enriched")
+print(f"Saved: {catalog_name}.silver.genes_with_pharmgkb")
 
 # COMMAND ----------
 
@@ -264,5 +254,5 @@ for row in evidence_stats:
     print(f"  {level}: {count:,}")
 
 print(f"\nTABLES UPDATED:")
-print(f"  1. {catalog_name}.silver.genes_ultra_enriched (updated with pharmacogene flags)")
+print(f"  1. {catalog_name}.silver.genes_with_pharmgkb (updated with pharmacogene flags)")
 print(f"  2. {catalog_name}.silver.pharmgkb_genes (new reference table)")

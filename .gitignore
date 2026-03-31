@@ -16,9 +16,15 @@ dist/
 data/raw/*
 data/processed/*
 data/analytical/*
+data/ml/*
+data/feature_lists/*
+data/feature_selection/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/analytical/.gitkeep
+!data/ml/.gitkeep
+!data/feature_lists/.gitkeep
+!data/feature_selection/.gitkeep
 
 # ML datasets (pickle files) - NEVER COMMIT
 *.pkl

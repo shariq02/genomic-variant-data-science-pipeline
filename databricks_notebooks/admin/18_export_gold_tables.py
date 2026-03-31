@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #### SMART EXPORT - CHANGED TABLES ONLY
-# MAGIC ##### Compares Databricks vs exported versions, exports only changed tables
+# MAGIC #### SMART EXPORT - AUTO-DISCOVER ALL GOLD TABLES
+# MAGIC ##### Automatically exports all gold tables that have changed
 # MAGIC
 # MAGIC **DNA Gene Mapping Project**  
 # MAGIC **Author:** Sharique Mohammad  
@@ -11,7 +11,8 @@
 
 # DBTITLE 1,Import Libraries
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, array_join
+from pyspark.sql.types import ArrayType
 import json
 
 # COMMAND ----------
@@ -21,35 +22,73 @@ spark = SparkSession.builder.getOrCreate()
 catalog_name = "workspace"
 spark.sql(f"USE CATALOG {catalog_name}")
 
-print("SMART EXPORT - CHANGED TABLES ONLY")
+print("SMART EXPORT - AUTO-DISCOVER ALL GOLD TABLES")
 print("="*80)
 
 # COMMAND ----------
 
 # DBTITLE 1,Configuration
-TABLES_TO_MONITOR = {
-    "clinical_ml_features": "gold",
-    "disease_ml_features": "gold",
-    "pharmacogene_ml_features": "gold",
-    "structural_variant_ml_features": "gold",
-    "variant_impact_ml_features": "gold",
-    "ml_dataset_variants_train": "gold",
-    "ml_dataset_variants_validation": "gold",
-    "ml_dataset_variants_test": "gold",
-    "ml_dataset_structural_variants_train": "gold",
-    "ml_dataset_structural_variants_validation": "gold",
-    "ml_dataset_structural_variants_test": "gold"
-}
-
+SCHEMA_NAME = "gold"
 VOLUME_NAME = "gold_exports"
-CHECKPOINT_FILE = f"/Volumes/{catalog_name}/gold/{VOLUME_NAME}/.export_metadata.json"
+CHECKPOINT_FILE = f"/Volumes/{catalog_name}/{SCHEMA_NAME}/{VOLUME_NAME}/.export_metadata.json"
+
+# COMMAND ----------
+
+# import json
+#
+# metadata_path = "/Volumes/workspace/gold/gold_exports/.export_metadata.json"
+#
+# with open(metadata_path, "r") as f:
+#     metadata = json.load(f)
+#
+# # Force disease_ml_features and ml_dataset_disease_* tables to look changed by setting rows to 0
+# metadata["disease_ml_features"]["rows"] = 0
+# metadata["ml_dataset_disease_train"]["rows"] = 0
+# metadata["ml_dataset_disease_validation"]["rows"] = 0
+# metadata["ml_dataset_disease_test"]["rows"] = 0
+#
+# with open(metadata_path, "w") as f:
+#     json.dump(metadata, f, indent=2)
+#
+# print("Done - disease_ml_features and ml_dataset_disease_* tables will be force-exported on next run")
+# print(f"Current entry: {metadata['disease_ml_features']}")
+# print(f"Train entry: {metadata['ml_dataset_disease_train']}")
+# print(f"Validation entry: {metadata['ml_dataset_disease_validation']}")
+# print(f"Test entry: {metadata['ml_dataset_disease_test']}")
 
 # COMMAND ----------
 
 # DBTITLE 1,Create Export Volume
-spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog_name}.gold.{VOLUME_NAME}")
-volume_path = f"/Volumes/{catalog_name}/gold/{VOLUME_NAME}/"
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog_name}.{SCHEMA_NAME}.{VOLUME_NAME}")
+volume_path = f"/Volumes/{catalog_name}/{SCHEMA_NAME}/{VOLUME_NAME}/"
 print(f"Export volume: {volume_path}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Auto-Discover All Gold Tables
+print("\nAUTO-DISCOVERING GOLD TABLES")
+print("="*80)
+
+tables = spark.sql(f"SHOW TABLES IN {catalog_name}.{SCHEMA_NAME}").collect()
+
+# Tables to permanently exclude from export
+SKIP_TABLES = {
+    "temp_df_impact",  # leftover intermediate table - 69M rows, should not exist in gold
+}
+
+TABLES_TO_MONITOR = {}
+for table in tables:
+    table_name = table.tableName
+    if table_name.endswith("_exports"):
+        continue
+    if table_name in SKIP_TABLES:
+        print(f"  SKIPPING: {table_name} (excluded - delete this table from gold schema)")
+        continue
+    TABLES_TO_MONITOR[table_name] = SCHEMA_NAME
+
+print(f"Found {len(TABLES_TO_MONITOR)} tables to monitor:")
+for table_name in sorted(TABLES_TO_MONITOR.keys()):
+    print(f"  - {table_name}")
 
 # COMMAND ----------
 
@@ -73,16 +112,16 @@ print("="*80)
 
 current_states = {}
 
-for table_name, schema in TABLES_TO_MONITOR.items():
+for table_name in TABLES_TO_MONITOR:
     try:
-        df = spark.table(f"{catalog_name}.{schema}.{table_name}")
+        df = spark.table(f"{catalog_name}.{SCHEMA_NAME}.{table_name}")
         row_count = df.count()
         col_count = len(df.columns)
         
         current_states[table_name] = {
             "rows": row_count,
             "columns": col_count,
-            "schema": schema
+            "schema": SCHEMA_NAME
         }
         
         print(f"{table_name}: {row_count:,} rows, {col_count} cols")
@@ -139,14 +178,21 @@ export_results = {}
 
 for table_name in tables_to_export:
     try:
-        schema = current_states[table_name]["schema"]
-        df = spark.table(f"{catalog_name}.{schema}.{table_name}")
+        df = spark.table(f"{catalog_name}.{SCHEMA_NAME}.{table_name}")
         output_path = f"{volume_path}{table_name}"
         
         print(f"\n{table_name}:")
         print(f"  Rows: {current_states[table_name]['rows']:,}")
         print(f"  Columns: {current_states[table_name]['columns']}")
         print(f"  Exporting to: {output_path}")
+        
+        # Cast ARRAY columns to pipe-delimited STRING before CSV export
+        # CSV format does not support ARRAY<STRING> type
+        array_cols = [f.name for f in df.schema.fields if isinstance(f.dataType, ArrayType)]
+        if array_cols:
+            print(f"  Converting ARRAY columns to STRING: {array_cols}")
+            for arr_col in array_cols:
+                df = df.withColumn(arr_col, array_join(col(arr_col), "|"))
         
         df.coalesce(1).write.mode("overwrite").option("header", "true").csv(output_path)
         
@@ -203,13 +249,17 @@ failed = [t for t in tables_to_export if not export_results[t]["success"]]
 
 print(f"\nSuccessful: {len(successful)}/{len(tables_to_export)}")
 for table in successful:
-    print(f"  - {table}")
+    size = export_results[table]["size_mb"]
+    print(f"  - {table} ({size:.2f} MB)")
 
 if failed:
     print(f"\nFailed: {len(failed)}")
     for table in failed:
         print(f"  - {table}: {export_results[table]['error']}")
 
+total_size = sum([export_results[t]["size_mb"] for t in successful])
+print(f"\nTotal exported: {total_size:.2f} MB")
+
 print("\n" + "="*80)
-print("NEXT STEP: Run download_from_databricks.py")
+print("NEXT STEP: Run download_changed_gold_tables.py locally")
 print("="*80)

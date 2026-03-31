@@ -578,8 +578,6 @@ print(f"  {catalog_name}.silver.conservation_scores")
 
 # COMMAND ----------
 
-# COMMAND ----------
-
 # DBTITLE 1,Diagnose Missing Data
 print("DIAGNOSING MISSING DATA")
 print("="*80)
